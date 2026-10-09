@@ -18,6 +18,7 @@ This guide takes you from a fresh clone to a running meeting.
 | Requirement | Notes |
 |---|---|
 | Operating system | Windows 11 or Linux with an NVIDIA GPU, or macOS on Apple silicon |
+| GPU memory | 12 GB or more on one card for the local speech models; see the hardware tiers in [runtimes.md §4](runtimes.md#4-model-files) |
 | [uv](https://docs.astral.sh/uv/) | Installs Python and the locked dependencies. Python 3.12, 3.13 and 3.14 are supported; uv uses 3.12 unless told otherwise (`uv sync --python 3.14`) |
 | Node.js 22.18+ | Builds the web client |
 | Git | The inference runtimes are tracked as submodules |

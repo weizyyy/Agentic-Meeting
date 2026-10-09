@@ -2,7 +2,7 @@
 
 # Agentic-Meeting
 
-**A self-hosted voice assistant that sits in on your research group meetings.**
+**A fully local, agentic AI assistant for in-person meetings.**
 
 It transcribes the whole meeting with speaker labels, keeps the shared screen in sync,
 answers within about a second when called by name, and hands longer jobs to a background agent.
@@ -27,14 +27,33 @@ answers within about a second when called by name, and hands longer jobs to a ba
 
 ## Overview
 
-Agentic-Meeting runs on a single GPU workstation in the meeting room and is used from a browser.
-Speech recognition, speaker diarization and speech synthesis always run locally on open-weight
-models. The conversational model can be served locally with llama.cpp or reached through any
-OpenAI-compatible endpoint.
-
 > [!NOTE]
-> The web UI, the prompts and the CLI messages are currently in Chinese, and the default
-> configuration targets Mandarin meetings with English technical terms mixed in.
+> Agentic-Meeting is under heavy development. Configuration keys, interfaces and the database
+> schema may change between releases; the [roadmap](ROADMAP.md) shows what is planned. The web UI,
+> the prompts and the CLI messages are currently in Chinese, and the default configuration targets
+> Mandarin meetings with English technical terms mixed in.
+
+Agentic-Meeting is an AI assistant for meetings held in a room rather than in a video call. It runs
+on a GPU workstation in that room and is used from a browser. To our knowledge it is among the
+first open-source projects to combine three things:
+
+- **Fully local.** Speech recognition, speaker diarization and speech synthesis always run on your
+  own machine with open-weight models, and the language models can as well. No audio leaves the
+  machine and no cloud account is needed.
+- **Made for in-person meetings.** One microphone and one shared screen in the room; no meeting
+  bot and no conferencing platform.
+- **Agentic.** Beyond taking notes, it answers aloud when called by name and carries out longer
+  tasks in the background.
+
+This suits meetings with strict privacy or compliance requirements, where recordings and
+transcripts must stay inside the organization. Transcripts and screenshots are sent only to the
+model endpoints you configure, which can be on the same machine or elsewhere on your own network;
+`agentic-meeting check` lists where data will go.
+
+> [!IMPORTANT]
+> There is no sign-in yet. Use Agentic-Meeting on the local machine or on a network you control,
+> and do not expose it to the internet. An access password is the first item on the
+> [roadmap](ROADMAP.md).
 
 ## Features
 
@@ -109,8 +128,11 @@ See [docs/architecture.md](docs/architecture.md) for the design in detail.
   the repository never downloads weights for you
 - Optional: Docker, for the background agent's code sandbox
 
-The local models used in our tests occupy roughly 15 GB of VRAM in total; smaller quantizations
-fit in about 6.5 GB. See [docs/benchmarks.md](docs/benchmarks.md).
+A single graphics card with 12 GB of memory is enough for the local speech models: with the Q8
+quantization of the ASR model and the 0.6B speech synthesis model, all local services together use
+slightly more than 10 GB. The configuration used for the published benchmarks (f16 ASR, 1.7B speech
+synthesis) uses about 15 GB. A conversational model served by llama.cpp on the same machine needs
+memory on top of that. See [docs/runtimes.md](docs/runtimes.md#4-model-files).
 
 ## Quick start
 
@@ -174,7 +196,7 @@ Full results and methodology are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Project status
 
-Version 0.1.0 is the first public release.
+The current release is 0.1.1. The project is at an early stage and changes quickly.
 
 - Verified end to end on Windows 11 with NVIDIA GPUs. On Linux the unit-test suite passes, but the
   full system has not been run there yet; macOS is untested.
@@ -183,6 +205,12 @@ Version 0.1.0 is the first public release.
   llama.cpp deployment mode has unit-test coverage but no published benchmark yet.
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
+
+## Roadmap
+
+Planned work, in order: an access password and deployment guidance; verified support for more
+platforms and browsers, containers and lower GPU memory requirements; a redesigned and translated
+web client; live watching, per-meeting access and parallel meetings. See [ROADMAP.md](ROADMAP.md).
 
 ## Contributing
 

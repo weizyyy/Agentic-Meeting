@@ -271,6 +271,13 @@ directly to the ASR backend:
 | Embeddings with `gpu_layers = "0"` only | Still a few hundred MB on every GPU |
 | Embeddings with `--device none` | 0 |
 
+The figures above are for each service running alone. With all local services running together:
+
+| Configuration | Memory |
+|---|---|
+| ASR Q8, TTS 0.6B | slightly more than 10 GB |
+| ASR f16, TTS 1.7B (the full-meeting replay above) | 14.6–15.1 GB |
+
 ## Loopback connections on Windows
 
 | | |

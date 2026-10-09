@@ -162,6 +162,18 @@ configured the same way.
 | `tts.launch.codec_path` | Tokenizer/codec GGUF | From the same release as the talker |
 | `embedding.launch.model_path` | Embedding GGUF | Qwen3-Embedding 0.6B, Q8_0; set `embedding.dimensions` to the model's output size |
 
+**Hardware tiers.** GPU memory used by all local services together (ASR, diarization, speech
+synthesis, embeddings), with the tested models:
+
+| Tier | ASR | Speech synthesis | GPU memory |
+|---|---|---|---|
+| 12 GB cards (minimum) | Q8_0 | 0.6B | slightly more than 10 GB |
+| 16 GB cards and larger | f16 | 1.7B | about 15 GB |
+
+A realtime LLM served by `llama-server` on the same machine needs memory on top of these figures;
+with `realtime_llm.mode = "openai_api"` it needs none. The services can also be spread over several
+cards (section 5).
+
 Notes:
 
 - GGUF files are converted for a specific runtime and are not interchangeable: ASR uses the standard

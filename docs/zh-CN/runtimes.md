@@ -153,6 +153,16 @@ Linux + CUDA + Python 3.12）。要看的文件：
 | `tts.launch.codec_path` | 语音合成的 tokenizer/codec GGUF | 与 talker 同一发布页 |
 | `embedding.launch.model_path` | 嵌入模型 GGUF | Qwen3-Embedding 0.6B，Q8_0；`embedding.dimensions` 须设为模型的输出维度 |
 
+**硬件档位。** 使用测试所用的模型时，全部本地服务（识别、说话人区分、语音合成、嵌入）合计占用的显存：
+
+| 档位 | 识别 | 语音合成 | 显存 |
+|---|---|---|---|
+| 12 GB 显卡（最低） | Q8_0 | 0.6B | 略高于 10 GB |
+| 16 GB 及以上的显卡 | f16 | 1.7B | 约 15 GB |
+
+实时模型若由本机的 `llama-server` 提供，需要在上述数字之外另算显存；采用 `realtime_llm.mode = "openai_api"`
+时则不占用。各服务也可以分散到多块显卡上（见第 5 节）。
+
 注意：
 
 - GGUF 文件是针对特定运行时转换的，不能互换：识别使用标准的 llama.cpp 格式，

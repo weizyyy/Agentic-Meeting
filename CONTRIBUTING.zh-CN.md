@@ -6,7 +6,7 @@
 
 ## 报告问题与提出需求
 
-- 提交之前请先搜索[已有的议题](https://github.com/weizyyy/Agentic-Meeting/issues)。
+- 提交之前请先搜索[已有的议题](https://github.com/weizyyy/Agentic-Meeting/issues)，并查看[路线图](ROADMAP.zh-CN.md)中已规划的工作。
 - 安装、使用方面的疑问和尚未成形的想法，请发到 [Discussions](https://github.com/weizyyy/Agentic-Meeting/discussions)。
 - 请使用议题模板。报告问题时请提供版本或提交号、操作系统与显卡、实时模型的接入方式，以及相关的日志。
 - 粘贴日志前请去掉 API 密钥、内部地址和会议内容。
