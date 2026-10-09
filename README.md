@@ -145,7 +145,8 @@ git submodule update --init --depth 1
 uv sync --extra agent
 python scripts/runtimes.py fetch llama_cpp
 python scripts/runtimes.py fetch nemo_speech
-python scripts/runtimes.py build qwentts --backend cuda
+# "native" compiles the CUDA kernels for the GPU in this machine only, which shortens the build
+python scripts/runtimes.py build qwentts --backend cuda --cmake-arg=-DCMAKE_CUDA_ARCHITECTURES=native
 
 # 2. Web client
 cd client && npm install && npm run build && cd ..
@@ -233,3 +234,6 @@ Agentic-Meeting builds on [Pipecat](https://github.com/pipecat-ai/pipecat),
 [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp),
 [sqlite-vec](https://github.com/asg017/sqlite-vec) and the
 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python).
+
+The streaming speech recognition follows the reference implementation in
+[Confucius4-R2T2](https://github.com/netease-youdao/Confucius4-R2T2): its rolling window, rollback rule and prompt format.

@@ -41,11 +41,13 @@ cd client && npm install && npm run build && cd ..
 ```bash
 python scripts/runtimes.py fetch llama_cpp
 python scripts/runtimes.py fetch nemo_speech
-python scripts/runtimes.py build qwentts --backend cuda   # 或 vulkan、metal、cpu
+python scripts/runtimes.py build qwentts --backend cuda --cmake-arg=-DCMAKE_CUDA_ARCHITECTURES=native
 python scripts/runtimes.py status
 ```
 
-语音合成没有预编译包，需要从源码构建。构建失败时可以先用 `--backend cpu`，
+语音合成没有预编译包，需要从源码构建。`CMAKE_CUDA_ARCHITECTURES=native` 表示只为本机的显卡编译 CUDA 内核，
+构建时间明显缩短；需要让生成的程序也能在其他代际的显卡上运行时，去掉这个参数。
+其他后端为 `vulkan`、`metal` 和 `cpu`。构建失败时可以先用 `--backend cpu`，
 或在配置中设置 `tts.enabled = false`，之后再处理。详见 [runtimes.md](runtimes.md)。
 
 ## 准备模型文件

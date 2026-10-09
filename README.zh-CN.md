@@ -127,7 +127,8 @@ git submodule update --init --depth 1
 uv sync --extra agent
 python scripts/runtimes.py fetch llama_cpp
 python scripts/runtimes.py fetch nemo_speech
-python scripts/runtimes.py build qwentts --backend cuda
+# native 表示只为本机的显卡编译 CUDA 内核，构建时间明显缩短
+python scripts/runtimes.py build qwentts --backend cuda --cmake-arg=-DCMAKE_CUDA_ARCHITECTURES=native
 
 # 2. 网页客户端
 cd client && npm install && npm run build && cd ..
@@ -210,3 +211,5 @@ Agentic-Meeting 构建于 [Pipecat](https://github.com/pipecat-ai/pipecat)、
 [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp)、
 [sqlite-vec](https://github.com/asg017/sqlite-vec) 和
 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) 之上。
+
+流式语音识别的实现参考了 [Confucius4-R2T2](https://github.com/netease-youdao/Confucius4-R2T2) 的代码，包括滚动窗口、回退规则和提示词格式。
