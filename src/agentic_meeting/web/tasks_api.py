@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import mimetypes
+import os
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -114,19 +117,45 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         # 只给任务自己报告过、并且确实取回来了的产物
         if safe is None or safe not in task.artifacts:
             raise _fail(404, "找不到这个产物文件")
-        root = task_dir(cfg.resolve(cfg.session.data_dir), task).resolve()
-        path = (root / safe).resolve()
-        if not path.is_relative_to(root) or not path.is_file():
+        data_dir = cfg.resolve(cfg.session.data_dir)
+        path = await asyncio.to_thread(_artifact_file, data_dir, task, safe)
+        if path is None:
             raise _fail(404, "找不到这个产物文件")
-        media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        filename = os.path.basename(path)
+        media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
         # 产物是远端模型写的代码生成的：不让浏览器把它当页面或脚本执行
         inline = media_type in ("image/png", "image/jpeg", "image/webp", "image/gif")
         return FileResponse(
             path,
             media_type=media_type if inline else "application/octet-stream",
-            filename=None if inline else path.name,
+            filename=None if inline else filename,
             headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-cache"},
         )
+
+
+def _artifact_file(data_dir: Path, task: TaskRecord, name: str) -> str | None:
+    """任务产物在磁盘上的真实路径；不在任务目录之内、或者不是文件，返回 None。"""
+    # 任务目录必须在数据目录的 sessions/ 之下，产物必须在任务目录之下
+    root = _inside(str(data_dir / "sessions"), str(task_dir(data_dir, task)))
+    path = _inside(root, name) if root else None
+    return path if path and os.path.isfile(path) else None
+
+
+def _inside(base: str, target: str) -> str | None:
+    """``target``（相对 ``base`` 的路径，或绝对路径）落在 ``base`` 之内时返回它的真实路径，否则返回 None。
+
+    先按字面规整（去掉 ``..``）核对一次，再解析符号链接核对一次：产物是模型写的代码生成的，
+    不能让一个指到目录外面的链接把别的文件带出去。
+    """
+    base = os.path.normpath(base)
+    path = os.path.normpath(os.path.join(base, target))
+    if not path.startswith(base + os.sep):
+        return None
+    real_base = os.path.realpath(base)
+    real = os.path.realpath(path)
+    if not real.startswith(real_base + os.sep):
+        return None
+    return real
 
 
 def _host(base_url: str) -> str:

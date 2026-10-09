@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import timedelta, timezone
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from agentic_meeting.types import (
 )
 from agentic_meeting.web.app import create_app
 from agentic_meeting.web.export import render_markdown
+from agentic_meeting.web.tasks_api import _inside
 
 
 class GatedRunner:
@@ -161,6 +163,34 @@ async def test_artifacts_are_served_only_if_reported_and_inside_the_task_dir(env
     (workdir / "plot.png").unlink()
     assert (await env.client.get(f"{base}/plot.png")).status_code == 404
     assert (await env.client.get("/api/tasks/nope.t1/artifacts/plot.png")).status_code == 404
+
+
+def test_inside_accepts_only_paths_under_the_base(tmp_path):
+    base = tmp_path / "base"
+    (base / "sub").mkdir(parents=True)
+    (base / "sub" / "a.txt").write_bytes(b"a")
+    (tmp_path / "outside.txt").write_bytes(b"x")
+    real = os.path.realpath(base / "sub" / "a.txt")
+
+    assert _inside(str(base), "sub/a.txt") == real
+    assert _inside(str(base), str(base / "sub" / "a.txt")) == real  # 绝对路径也行，只要在里面
+    assert _inside(str(base), "missing.txt") is not None  # 存不存在由调用方判断
+    assert _inside(str(base), "../outside.txt") is None
+    assert _inside(str(base), "sub/../../outside.txt") is None
+    assert _inside(str(base), str(tmp_path / "outside.txt")) is None
+    assert _inside(str(base), ".") is None  # 目录本身不算「之内」
+    assert _inside(str(base), str(tmp_path / "base-other" / "a.txt")) is None  # 只是前缀相同
+
+
+def test_inside_rejects_a_symlink_that_points_outside(tmp_path):
+    base = tmp_path / "base"
+    base.mkdir()
+    (tmp_path / "outside.txt").write_bytes(b"x")
+    try:
+        (base / "link.txt").symlink_to(tmp_path / "outside.txt")
+    except OSError:
+        pytest.skip("这个系统不允许当前用户创建符号链接")
+    assert _inside(str(base), "link.txt") is None
 
 
 async def test_app_recovers_leftover_tasks_on_startup_and_has_no_manager_when_disabled(
