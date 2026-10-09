@@ -234,9 +234,11 @@ async def test_push_reaches_only_the_live_connection(manager):
 
 async def test_concurrent_connections_leave_exactly_one_live(manager, store):
     bots = [Bot(manager) for _ in range(3)]
-    await asyncio.sleep(0.2)
+    # 等三路都登记完、被顶替的两路都收尾完再检查；按固定时间等的话，慢机器上顶替还没做完
+    lives = await asyncio.gather(*(bot.wait_started() for bot in bots))
     live = manager.live
-    assert live is not None
+    assert live is not None and any(live is item for item in lives)
+    await asyncio.gather(*(asyncio.wait_for(b.task, 2) for b in bots if b.live is not live))
     rows = await store.list_sessions()
     assert len(rows) == 3
     open_rows = []
