@@ -1,0 +1,16 @@
+{"id": "answer-recent-1", "expect_tool": null, "context": ["[00:12:01 说话人 1] 这周我把基线重新跑了一遍，验证集准确率是百分之八十二点四。", "[00:12:09 说话人 2] 比上周高了一个点左右，学习率改了吗？", "[00:12:14 说话人 1] 改了，从一乘十的负三次方降到五乘十的负四次方。"], "question": "{name}，刚才说验证集准确率是多少？"}
+{"id": "answer-recent-2", "expect_tool": null, "context": ["[00:20:30 说话人 3] 下周三之前我把标注规范的第二版发到群里。", "[00:20:36 说话人 1] 好，那我周四开始按新规范返工。"], "question": "{name}，标注规范第二版谁负责，什么时候给？"}
+{"id": "answer-recent-3", "expect_tool": null, "context": ["[00:31:02 说话人 2] 我倾向先做消融实验再写论文，不然审稿人肯定会问。", "[00:31:10 说话人 1] 我觉得可以并行，方法部分先写起来。"], "question": "{name}，他们两个人的分歧是什么？"}
+{"id": "smalltalk", "expect_tool": null, "context": ["[00:01:05 说话人 1] 人到齐了，我们开始吧。"], "question": "{name}，你能听到我们说话吗？"}
+{"id": "unclear", "expect_tool": null, "context": ["[00:05:00 说话人 1] 先过一下上周的进度。"], "question": "{name}，你觉得呢？"}
+{"id": "recall-who", "expect_tool": "recall", "context": ["[00:45:10 说话人 1] 那我们回到实验部分。", "[00:45:15 说话人 2] 好。"], "question": "{name}，半小时前是谁提到数据集划分有泄漏的？"}
+{"id": "recall-content", "expect_tool": "recall", "context": ["[00:50:02 说话人 3] 这个结论我们之前好像讨论过。"], "question": "{name}，会议开头讲评审意见那段，具体提了哪几条？"}
+{"id": "recall-speaker", "expect_tool": "recall", "context": ["[00:38:40 说话人 2] 我没什么要补充的了。"], "question": "{name}，说话人3今天都讲了些什么？"}
+{"id": "digest-all", "expect_tool": "get_digest", "context": ["[00:55:00 说话人 1] 差不多了，今天就到这里。"], "question": "{name}，把今天到现在为止的讨论整理一下。"}
+{"id": "digest-recent", "expect_tool": "get_digest", "context": ["[00:40:00 说话人 2] 我刚出去接了个电话。"], "question": "{name}，我刚离开了一会儿，总结一下这几分钟大家说了什么。"}
+{"id": "screen-chart", "expect_tool": "look_at_screen", "context": ["[00:15:20 说话人 1] 大家看这张图。"], "question": "{name}，屏幕上这张图的横轴和纵轴分别是什么？"}
+{"id": "screen-slide", "expect_tool": "look_at_screen", "context": ["[00:22:00 说话人 2] 我翻到下一页了。"], "question": "{name}，现在这页幻灯片的标题是什么？"}
+{"id": "delegate-search", "expect_tool": "delegate_task", "context": ["[00:27:30 说话人 1] 这个方法我记得去年有一篇综述讲过。"], "question": "{name}，帮我上网查一下近两年关于流式说话人区分的综述文章，列出三篇。"}
+{"id": "delegate-compute", "expect_tool": "delegate_task", "context": ["[00:33:10 说话人 2] 三组实验的准确率分别是八十一点二、八十三点五和七十九点八。"], "question": "{name}，把这三组数画成柱状图，再算一下均值和标准差。"}
+{"id": "task-status", "expect_tool": "task_status", "context": ["[00:41:00 说话人 1] 刚才让助理去查综述了。"], "question": "{name}，刚才交给你查的那件事做到哪了？"}
+{"id": "task-cancel", "expect_tool": "cancel_task", "context": ["[00:42:00 说话人 1] 综述我自己找到了。"], "question": "{name}，刚才那个查综述的任务不用做了，取消吧。"}

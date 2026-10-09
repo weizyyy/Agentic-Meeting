@@ -1,0 +1,81 @@
+# 推理运行时的版本锁。scripts/runtimes.py 读取本文件。
+#
+# - source：third_party/ 下的 git 子模块（源码，已在仓库里钉住 commit）。
+# - 预编译包：按需下载到 runtimes/<name>/（已被 .gitignore 排除），不入库。
+# - 升级运行时 = 同时改这里的版本号、更新子模块指针、按 docs/runtimes.md 重新验证。
+#
+# 本文件只描述“运行时程序”，绝不包含模型权重。权重由用户自行放到 models/ 并在
+# config/config.toml 里填路径。
+
+[llama_cpp]
+description = "llama.cpp：实时 LLM、ASR（Confucius4 走 llama-server 音频输入）、嵌入模型的服务端"
+source = "third_party/llama.cpp"
+repo = "ggml-org/llama.cpp"
+version = "v0.6.0"
+# v0.6.0 的 release 里只有 nightly-tag.txt，其内容指向带二进制资产的构建号：
+release_tag = "b11429"
+executables = ["llama-server"]
+
+[llama_cpp.variants]
+windows-x64-cuda12 = ["llama-b11429-bin-win-cuda-12.4-x64.zip"]
+windows-x64-cuda13 = ["llama-b11429-bin-win-cuda-13.4-x64.zip"]
+windows-x64-vulkan = ["llama-b11429-bin-win-vulkan-x64.zip"]
+windows-x64-cpu = ["llama-b11429-bin-win-cpu-x64.zip"]
+linux-x64-cuda12 = ["llama-b11429-bin-ubuntu-cuda-12.8-x64.tar.gz"]
+linux-x64-cuda13 = ["llama-b11429-bin-ubuntu-cuda-13.4-x64.tar.gz"]
+linux-x64-vulkan = ["llama-b11429-bin-ubuntu-vulkan-x64.tar.gz"]
+linux-x64-cpu = ["llama-b11429-bin-ubuntu-x64.tar.gz"]
+macos-arm64-metal = ["llama-b11429-bin-macos-arm64.tar.gz"]
+
+# 可选：机器上没装对应大版本的 CUDA Toolkit 时，再取 CUDA 运行库（体积大）。
+[llama_cpp.extras]
+windows-x64-cuda12 = ["cudart-llama-bin-win-cuda-12.4-x64.zip"]
+windows-x64-cuda13 = ["cudart-llama-bin-win-cuda-13.4-x64.zip"]
+linux-x64-cuda12 = ["cudart-llama-b11429-bin-ubuntu-cuda-12.8-x64.tar.gz"]
+linux-x64-cuda13 = ["cudart-llama-b11429-bin-ubuntu-cuda-13.4-x64.tar.gz"]
+
+[nemo_speech]
+description = "NeMo-Speech.cpp：说话人区分（Nemotron-3-Diarization），含 CLI 与 C SDK 动态库"
+source = "third_party/NeMo-Speech.cpp"
+repo = "NVIDIA/NeMo-Speech.cpp"
+version = "v0.2.0"
+release_tag = "v0.2.0"
+executables = ["nemo-speech"]
+# 该仓库为每个资产发布同名 .sha256，脚本会校验。
+sha256_sidecar = true
+
+[nemo_speech.variants]
+windows-x64-cuda = ["nemo-speech-0.2.0-windows-x86_64-cuda.zip"]
+windows-x64-vulkan = ["nemo-speech-0.2.0-windows-x86_64-vulkan.zip"]
+windows-x64-cpu = ["nemo-speech-0.2.0-windows-x86_64-cpu.zip"]
+linux-x64-cuda = ["nemo-speech-0.2.0-linux-x86_64-cuda.tar.gz"]
+linux-x64-vulkan = ["nemo-speech-0.2.0-linux-x86_64-vulkan.tar.gz"]
+linux-x64-cpu = ["nemo-speech-0.2.0-linux-x86_64-cpu.tar.gz"]
+macos-arm64-metal = ["nemo-speech-0.2.0-macos-aarch64-metal.tar.gz"]
+macos-arm64-cpu = ["nemo-speech-0.2.0-macos-aarch64-cpu.tar.gz"]
+
+[qwentts]
+description = "qwentts.cpp：Qwen3-TTS 的 ggml 运行时，提供 OpenAI 兼容的 tts-server"
+source = "third_party/qwentts.cpp"
+repo = "ServeurpersoCom/qwentts.cpp"
+version = "51512f1"
+executables = ["tts-server", "qwen-tts"]
+# 上游没有预编译发布，只能源码构建（Windows 需要 Visual Studio 的 C++ 工具链；GPU 版另需
+# 与之兼容的 CUDA Toolkit，见 docs/runtimes.md §3.3）。
+build_only = true
+
+# 脚本直接调 cmake（上游的 build*.cmd 写死了 VS 安装路径，不通用）。
+# 值是传给 `cmake -S <source> -B <source>/build` 的额外参数。
+# Windows 上脚本会自动导入 MSVC 环境，普通终端里即可运行。
+[qwentts.build]
+cuda = ["-DGGML_CUDA=ON"]
+vulkan = ["-DGGML_VULKAN=ON"]
+metal = ["-DGGML_METAL=ON"]
+cpu = []
+
+[confucius4]
+description = "Confucius4-R2T2 官方代码：流式算法与 llama-server 路线的参考实现（只读参考，不直接 import）"
+source = "third_party/Confucius4-R2T2"
+repo = "netease-youdao/Confucius4-R2T2"
+version = "26d55a5"
+reference_only = true

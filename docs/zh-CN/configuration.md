@@ -1,0 +1,245 @@
+# 配置说明
+
+[English](../configuration.md) · **简体中文**
+
+全部设置集中在 `config/config.toml` 中，该文件由
+[`config/config.example.toml`](../../config/config.example.toml) 复制而来。路径可以是绝对路径，
+也可以是相对于仓库根目录的相对路径。修改后运行 `uv run agentic-meeting check`，它会一次列出所有问题。
+
+密钥不保存在此文件中。以 `_env` 结尾的字段填写的是环境变量的**名字**，变量的值放在 `.env` 中
+（见 [`.env.example`](../../.env.example)）。
+
+- [`[session]`](#session) · [`[server]`](#server) · [`[realtime_llm]`](#realtime_llm) ·
+  [`[asr]`](#asr) · [`[diarization]`](#diarization) · [`[tts]`](#tts) · [`[embedding]`](#embedding)
+- [`[audio]`](#audio) · [`[turn]`](#turn) · [`[realtime]`](#realtime) · [`[screen]`](#screen) ·
+  [`[transcript]`](#transcript) · [`[report]`](#report) · [`[agent]`](#agent)
+- [启动参数](#启动参数)
+
+## `[session]`
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `data_dir` | `"data"` | 数据库、截图、任务文件和日志的存放目录 |
+| `assistant_name` | — | 助理的名字，同时是唤醒词。须为英文单词（字母开头，可含数字） |
+| `wake_aliases` | `[]` | 同样可以唤醒助理的其他写法：英文单词，或至少两个汉字。识别经常把名字写成某种固定写法时使用，例如名字为 `Nova` 时填 `["Novel", "诺瓦"]` |
+| `hotwords` | `[]` | 提供给语音识别的提示词：成员姓名、课题术语、英文缩写 |
+| `members` | `[]` | 给说话人改名时的候选名单 |
+
+## `[server]`
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `host` | `"0.0.0.0"` | 监听地址 |
+| `port` | `7860` | HTTP(S) 端口 |
+| `tls_cert`、`tls_key` | `""` | 证书与私钥文件。其他设备访问时必需，见[入门指南](getting-started.md#从其他设备访问) |
+| `ice_servers` | `[]` | STUN/TURN 地址。同一局域网内留空 |
+
+## `[realtime_llm]`
+
+被叫到名字时负责应答的模型。`mode` 在两种接入方式中选择其一；两个小节可以同时填写，切换时只需修改一行。
+
+| `mode` | 含义 |
+|---|---|
+| `"llama_server"` | 由 llama.cpp 的 `llama-server` 提供服务，可由应用代为启动。实时应答与后台工作使用不同的槽位，并保持提示缓存处于预热状态 |
+| `"openai_api"` | 任意 OpenAI 兼容的 chat completions 接口。应用不管理该服务的进程，也不依赖任何特有的服务端功能 |
+
+`[realtime_llm.llama_server]` 与 `[realtime_llm.openai_api]` 共有的配置项：
+
+| 配置项 | 说明 |
+|---|---|
+| `base_url` | 接口地址，以 `/v1` 结尾 |
+| `api_key_env` | 保存 API 密钥的环境变量名；无需密钥时留空 |
+| `model` | 请求中 `model` 字段的值 |
+| `supports_vision` | 模型是否支持图像输入。画面摘要和 `look_at_screen` 依赖此项 |
+| `extra_body` | 并入每个请求的附加字段，例如关闭思考的开关 |
+| `sampling.*` | `max_tokens`、`temperature`、`top_p`、`top_k`、`presence_penalty`。未设置的字段不会发送 |
+
+仅 `llama_server`：
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `thinking` | `false` | 对应 `--reasoning on/off`。为降低延迟应保持关闭 |
+| `realtime_slot`、`background_slot` | `0`、`1` | 实时应答与后台工作（画面摘要、滚动纪要）各自使用的服务端槽位 |
+| `launch.*` | | 见[启动参数](#启动参数)。`ctx_size` 由全部槽位共用；`parallel` 须覆盖上述两个槽位号 |
+
+仅 `openai_api`：
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `supports_developer_role` | `false` | 接口是否接受 `developer` 角色 |
+| `cache_warm` | `false` | 定期发送预热请求。仅在服务端具备前缀缓存且请求成本很低时开启 |
+
+> [!IMPORTANT]
+> 接口不在本机时，会议转录（开启识图时还包括截图）会持续发送到该地址。`check` 与 `serve` 会给出提示。
+
+## `[asr]`
+
+通过 `llama-server` 的音频输入实现流式语音识别。
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `backend` | `"llama_server"` | 识别后端 |
+| `profile` | `"config/asr_profiles/confucius4_r2t2.toml"` | 识别模型的提示词格式档案。换用其他模型家族时新增一份档案 |
+| `base_url` | `"http://127.0.0.1:8081"` | 识别服务地址 |
+| `language` | `"Chinese"` | 语言提示；留空由模型自行判断 |
+| `chunk_ms` | `320` | 每一步新增的音频时长（80–2000）。越小延迟越低，GPU 占用越高 |
+| `window_secs`、`window_drop_secs` | `16.0`、`8.0` | 滚动音频窗口的长度，以及窗口满时丢弃的长度 |
+| `unfixed_tokens` | `1` | 每一步末尾暂不定稿的 token 数 |
+| `max_new_tokens` | `32` | 段落收尾时的生成上限 |
+| `preroll_ms` | `1500` | 检测到语音之前、仍会送入识别的音频时长。过小时，「短促的唤醒词 + 停顿」中的唤醒词会丢失 |
+| `launch.*` | | 见[启动参数](#启动参数)。识别服务固定使用单个槽位 |
+
+## `[diarization]`
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `backend` | `"nemo_ctypes"` | 设为 `"none"` 时关闭说话人区分，所有发言归属同一位未知说话人 |
+| `library_path` | `""` | `nemo_speech_asr_c` 动态库的路径；留空时在 `runtimes/nemo_speech` 下查找 |
+| `model_path` | — | 说话人区分模型 GGUF |
+| `gpu` | `0` | 显卡序号，采用 llama.cpp 的 CUDA 编号；`-1` 表示使用 CPU |
+| `preset` | `""` | 流式预设；留空使用模型默认的低延迟档 |
+| `poll_interval_ms` | `320` | 向模型送入音频的间隔 |
+| `segmentation.*` | `0` | 起止阈值、填充与最短时长；`0` 表示沿用运行库的默认值 |
+
+## `[tts]`
+
+通过 OpenAI 兼容的 `/v1/audio/speech` 接口（流式返回 PCM）进行语音合成。
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `enabled` | `true` | 设为 `false` 时只有文字应答 |
+| `base_url` | `"http://127.0.0.1:8082/v1"` | 语音合成服务地址 |
+| `model` | `"tts"` | 请求中的 `model` 字段，与服务端的 `--alias` 一致 |
+| `voice` | — | 所选权重支持的音色名 |
+| `language` | `"Chinese"` | 合成语言 |
+| `sample_rate` | `24000` | 输出采样率（Hz） |
+| `launch.*` | | `model_path`（talker）、`codec_path`、`default_language`，以及通用的启动参数 |
+
+## `[embedding]`
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `enabled` | `true` | 设为 `false` 时召回只使用关键词检索 |
+| `base_url` | `"http://127.0.0.1:8083/v1"` | 嵌入服务地址 |
+| `model` | `"embedding"` | 请求中的 `model` 字段 |
+| `dimensions` | `1024` | 须等于模型的输出维度 |
+| `query_prefix` | `""` | 加在查询前的任务指令（模型有此建议时填写） |
+| `min_similarity` | `0.4` | 语义匹配的余弦相似度下限；`0` 表示不设下限 |
+| `launch.*` | | 见[启动参数](#启动参数)。在 `extra_args` 中加入 `--device none` 可使该服务完全不占用显卡 |
+
+## `[audio]`
+
+输入音频的自动增益，在语音活动检测之前生效。
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `auto_gain` | `true` | 把偏低的输入电平提升到目标值 |
+| `gain_db` | `0.0` | 初始增益；`auto_gain` 关闭时即为固定增益 |
+| `max_gain_db` | `30.0` | 自动增益的上限 |
+| `target_dbfs` | `-16.0` | 有声部分的目标 RMS；越接近 0 越响 |
+| `noise_floor_dbfs` | `-70.0` | 低于该电平的帧视为静音 |
+| `level_log_secs` | `10` | 输入电平日志的间隔；`0` 表示关闭 |
+
+## `[turn]`
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `vad_stop_secs` | `0.2` | 判定一段语音结束所需的静音时长 |
+| `vad_min_volume` | `0.6` | 语音活动检测的音量门限（0.6 约为 −50 LUFS）；`0` 表示关闭该门限 |
+| `smart_turn` | `true` | 使用轮次结束模型；关闭后采用固定 0.6 秒的停顿判定 |
+| `wake_timeout_secs` | `30.0` | 听到名字后助理保持唤醒的最长时间，也是朗读期间可以用语音打断的时间窗口 |
+| `single_activation` | `true` | 每次请求都需要叫名字。助理答完即回到待唤醒状态 |
+
+## `[realtime]`
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `context_budget_tokens` | `24000` | 上下文达到该规模后，在空闲时进行压缩 |
+| `keep_recent_minutes` | `10.0` | 压缩后保留原文的最近时长 |
+| `digest_interval_minutes` | `5.0` | 滚动纪要的生成间隔 |
+| `digest_provider` | `"realtime_llm"` | 滚动纪要由谁生成：`"realtime_llm"` 或 `"agent_llm"` |
+| `cache_warm_interval_secs` | `30.0` | 提示缓存预热请求的间隔 |
+| `direct_mcp_tools` | `[]` | 允许实时模型直接调用的 MCP 工具 |
+
+## `[screen]`
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `enabled` | `true` | 是否接收截图 |
+| `min_interval_secs` | `2.0` | 由画面变化触发的截图之间的最小间隔 |
+| `heartbeat_secs` | `60.0` | 画面静止时的截图间隔 |
+| `max_side_px` | `1920` | 上传截图的最长边 |
+| `change_threshold` | `0.04` | 缩略图中变化最大的小块相差多少（0–1）才算画面发生变化 |
+| `caption` | `true` | 为每个新画面生成文字摘要 |
+| `caption_provider` | `"realtime_llm"` | 画面摘要由谁生成：`"realtime_llm"` 或 `"agent_llm"` |
+
+## `[transcript]`
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `merge_gap_secs` | `2.0` | 同一说话人相邻两段的停顿短于该值时合并为一条；`0` 表示不合并 |
+| `merge_soft_chars` | `40` | 一条字幕达到该字数且停在句末时，下一段另起一条 |
+| `merge_max_chars` | `200` | 合并后单条字幕的字数上限 |
+
+## `[report]`
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `provider` | `"realtime_llm"` | 会后报告由谁生成：`"realtime_llm"` 或 `"agent_llm"` |
+| `max_input_chars` | `8000` | 单次请求包含的转录字数。更长的转录会分段提取要点后再合并 |
+
+## `[agent]`
+
+后台 agent：远端大模型，配合 MCP 工具和可选的代码沙箱。
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `enabled` | `true` | 设为 `false` 时助理不提供任务相关的工具 |
+| `base_url`、`api_key_env`、`model` | — | agent 模型的 OpenAI 兼容接口 |
+| `supports_vision` | `true` | 模型是否支持图像输入 |
+| `extra_body` | `{}` | 并入发往该模型的每个请求的附加字段，通常用于指定思考强度，例如 `{ reasoning_effort = "medium" }` |
+| `attach_frames` | `false` | 交给该模型的工作（任务，以及由它生成的报告和纪要）是否附带截图原图。关闭时只使用文字摘要，任务按需附带最近的至多三张截图 |
+| `max_attached_frames` | `40` | 开启 `attach_frames` 时单次请求附带的截图数量上限，超出时均匀抽取 |
+| `generation_max_tokens` | `16384` | 该模型生成报告、纪要或画面摘要时的输出上限。思考消耗的 token 也计入其中 |
+| `max_turns` | `30` | 单个任务的 agent 循环轮数上限 |
+| `task_timeout_secs` | `900.0` | 单个任务的时限 |
+| `max_concurrent_tasks` | `2` | 同时运行的任务数 |
+
+`[[agent.mcp_servers]]` —— 每个 MCP 服务（流式 HTTP）一个小节：
+
+| 配置项 | 说明 |
+|---|---|
+| `name` | 用于日志和进度信息的名称 |
+| `url` | MCP 接口地址 |
+| `headers_env` | 请求头名称 → 保存其值的环境变量名 |
+| `timeout_secs` | 请求超时 |
+
+`[agent.sandbox]`：
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `kind` | `"docker"` | `"docker"`、`"local"`（仅限可信的 macOS/Linux 开发环境）或 `"none"` |
+| `docker_image` | `""` | 沙箱容器使用的镜像，见 [`docker/sandbox`](../../docker/sandbox) |
+| `network` | `false` | 是否允许沙箱访问网络 |
+| `timeout_secs` | `120.0` | 保留项；单条命令的超时由模型在调用时指定 |
+
+截图在附带之前会去重：摘要为「无关画面」的不附带，画面未变的重复截图只附带一次。
+在测试所用的模型上，一张图片约每 1024 个像素占用一个 token（1920×1080 约 2000 个），
+请根据模型的上下文长度设置 `max_attached_frames`。
+
+## 启动参数
+
+每个由应用启动的本地服务都有一个 `launch` 小节。
+
+| 配置项 | 说明 |
+|---|---|
+| `enabled` | 设为 `false` 表示该服务另行启动，应用只连接 `base_url` |
+| `executable` | 服务程序的路径；留空时在默认位置查找 |
+| `model_path`、`mmproj_path` | 权重文件，以及（如适用）多模态投影文件 |
+| `ctx_size` | 传给服务的上下文长度 |
+| `parallel` | 槽位数（仅实时模型） |
+| `gpu_layers` | 传给 `-ngl`：数字、`"auto"` 或 `"all"`；`"0"` 表示在 CPU 上运行 |
+| `env` | 附加的环境变量，例如 `{ CUDA_VISIBLE_DEVICES = "1" }` |
+| `extra_args` | 原样追加的命令行参数，例如 `["--device", "CUDA0"]` |
+
+各服务完整的命令行见 [interfaces.md §9](interfaces.md)，多显卡的分配方式见 [runtimes.md §5](runtimes.md)。

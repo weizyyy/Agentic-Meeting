@@ -1,0 +1,294 @@
+# Agentic-Meeting configuration template / 配置模板
+#
+# Copy to config/config.toml (ignored by Git) and fill it in.
+# Reference: docs/configuration.md
+#
+# 用法：复制为 config/config.toml（已被 Git 忽略）后填写。
+#   - 路径可以是绝对路径，或相对于仓库根目录的相对路径（建议放在 models/ 下）。
+#   - 密钥不写在这里：只填写环境变量的名字，变量的值放在 .env 中（见 .env.example）。
+#   - 填写后运行  uv run agentic-meeting check  会列出全部缺项。
+#
+# 各配置项的说明见 docs/zh-CN/configuration.md。
+
+# ----------------------------------------------------------------------------
+# 会话
+# ----------------------------------------------------------------------------
+[session]
+data_dir = "data"
+# 助理的名字，同时是唤醒词。必须是英文单词（例如 Jarvis、Nova）：英文词在中文句子里边界清楚，
+# 不会与同音字混淆。请选用会议中不常出现的词。
+assistant_name = "Jarvis"
+# 同样可以唤醒助理的其他写法：识别有时把名字写成近似的英文词，有时写成几个汉字。
+# 叫名字经常没有反应时，查看字幕中名字被写成了什么，把该写法加入（英文词，或至少两个汉字）。
+# 例如名字是 Nova 时：wake_aliases = ["Novel", "诺瓦", "诺娃"]
+wake_aliases = []
+# 提供给语音识别的提示词：成员姓名、课题术语、英文缩写。
+hotwords = ["Transformer", "LoRA", "ablation", "baseline"]
+# 成员名单，仅用于界面上给「说话人 1/2/3」改名时做候选。
+members = []
+
+# ----------------------------------------------------------------------------
+# 服务端
+# ----------------------------------------------------------------------------
+[server]
+host = "0.0.0.0"
+port = 7860
+# 其他电脑的浏览器要访问，必须走 HTTPS（否则浏览器不允许采集麦克风/屏幕）。
+# 用 mkcert 生成证书后填在这里；只在本机用 http://localhost 访问可留空。
+tls_cert = ""
+tls_key = ""
+ice_servers = []   # 同一局域网内留空
+
+# ----------------------------------------------------------------------------
+# 实时应答模型
+# ----------------------------------------------------------------------------
+[realtime_llm]
+# 接入方式，二选一：
+#   "llama_server"  用 llama.cpp 的 llama-server 部署（本项目可代为启动，支持槽位分工与缓存预热）
+#   "openai_api"    接入任意 OpenAI 兼容的 chat completions 接口（本机、局域网或云端均可）
+# 两个小节可以同时填写，切换时只需修改这一行；未选用的小节也可以整段删除。
+mode = "llama_server"
+
+# ---- 方式一：llama.cpp 部署 --------------------------------------------------
+[realtime_llm.llama_server]
+base_url = "http://127.0.0.1:8080/v1"
+api_key_env = ""
+model = "realtime"          # 请求里的 model 字段；与启动参数 --alias 对应，任意非空字符串
+supports_vision = true      # 模型不能识图就改 false，并留空 mmproj_path
+thinking = false            # 实时路径必须关思考（启动时对应 --reasoning off）
+extra_body = {}             # 个别模型还需要模板参数，例如 { chat_template_kwargs = { enable_thinking = false } }
+realtime_slot = 0           # 实时应答与缓存预热用的槽位
+background_slot = 1         # 画面摘要、滚动纪要用的槽位
+
+[realtime_llm.llama_server.sampling]
+max_tokens = 512
+# temperature = 0.7         # 不填 = 用服务端默认；换模型后按该模型的建议值填
+# top_p = 0.8
+# top_k = 20
+# presence_penalty = 0.0
+
+[realtime_llm.llama_server.launch]
+enabled = true              # false = llama-server 另行启动，应用只连接 base_url
+executable = ""             # 留空自动找 runtimes/llama_cpp/llama-server
+model_path = ""             # ← 必填：实时模型 GGUF，例如 "models/llm/xxx-Q8_0.gguf"
+mmproj_path = ""            # ← supports_vision = true 时必填
+ctx_size = 32768            # 两个槽位共用；显存紧张时调小
+parallel = 2                # 并发槽位数，至少要覆盖上面两个槽位号
+gpu_layers = "all"
+env = {}                    # 多显卡：{ CUDA_VISIBLE_DEVICES = "0" }
+extra_args = []             # 原样追加，例如 ["--device", "CUDA0"]
+
+# ---- 方式二：chat completions 接口 --------------------------------------------
+# 应用不管理该服务的进程，也不依赖任何特有的服务端功能。
+#   1. 关闭思考、选择推理档位等做法因服务而异，请按该服务的文档写入 extra_body。
+#      模型先输出思考内容时，首字延迟会成倍增加。
+#   2. 地址不在本机时，整场会议的转录（开启识图时还包括截图）会持续发送到该地址。
+[realtime_llm.openai_api]
+base_url = ""               # ← 选用本方式时必填，例如 "https://example.com/v1"
+api_key_env = "REALTIME_LLM_API_KEY"   # 密钥所在的环境变量名；不需要密钥就留空
+model = ""                  # ← 选用本方式时必填
+supports_vision = true
+supports_developer_role = false   # 该接口是否认识 "developer" 角色；不确定就保持 false
+cache_warm = false          # 服务端有前缀缓存、且预热请求不产生可观费用时才打开
+extra_body = {}
+
+[realtime_llm.openai_api.sampling]
+max_tokens = 512
+# temperature = 0.7
+# top_p = 0.8
+
+# ----------------------------------------------------------------------------
+# 流式语音识别
+# ----------------------------------------------------------------------------
+[asr]
+backend = "llama_server"    # 用标准 llama-server 的音频输入跑流式识别，跨平台
+# 识别模型的提示词格式档案。换识别模型时在 config/asr_profiles/ 下新建一份并改这里。
+profile = "config/asr_profiles/confucius4_r2t2.toml"
+base_url = "http://127.0.0.1:8081"
+language = "Chinese"
+chunk_ms = 320              # 每步新增音频；越小延迟越低、GPU 占用越高（80–2000）
+window_secs = 16.0
+window_drop_secs = 8.0
+unfixed_tokens = 1          # 每步末尾暂不定稿的 token 数；调大更稳但字幕更慢
+max_new_tokens = 32         # 单次请求的生成上限，只在段落收尾时用到
+preroll_ms = 1500           # 句首回补：语音检测触发之前这么长的音频也送去识别；太短时「名字，（停顿）要求」里的名字会被切掉
+
+[asr.launch]
+enabled = true
+executable = ""
+model_path = ""             # ← 必填：ASR GGUF（建议 Q8_0）
+mmproj_path = ""            # ← 必填：ASR 的 mmproj GGUF
+ctx_size = 8192             # 识别服务固定单槽位（-np 1），没有 parallel 这一项
+gpu_layers = "all"
+env = {}                    # 多显卡时可把 ASR 放到小卡：{ CUDA_VISIBLE_DEVICES = "1" }
+extra_args = []
+
+# ----------------------------------------------------------------------------
+# 说话人区分
+# ----------------------------------------------------------------------------
+[diarization]
+backend = "nemo_ctypes"     # "none" = 关闭，所有发言记为同一说话人
+library_path = ""           # 留空自动找 runtimes/nemo_speech 下的 nemo_speech_asr_c 动态库
+model_path = ""             # ← 必填：说话人区分 GGUF
+gpu = 0                     # GPU 序号；-1 = CPU
+preset = ""                 # 留空 = 模型默认的低延迟档
+poll_interval_ms = 320
+
+[diarization.segmentation]  # 全 0 = 用运行库默认阈值
+onset = 0.0
+offset = 0.0
+pad_onset_secs = 0.0
+pad_offset_secs = 0.0
+min_gap_secs = 0.0
+min_duration_secs = 0.0
+
+# ----------------------------------------------------------------------------
+# 语音合成（OpenAI 兼容 /v1/audio/speech，需支持 response_format = "pcm" 流式）
+# ----------------------------------------------------------------------------
+[tts]
+enabled = true
+base_url = "http://127.0.0.1:8082/v1"
+api_key_env = ""
+model = "tts"               # 与 tts-server 的 --alias 对应
+voice = ""                  # ← 必填：音色名（取决于所选权重，见该权重的说明）
+language = "Chinese"
+sample_rate = 24000
+
+[tts.launch]
+enabled = true
+executable = ""             # 留空自动找 third_party/qwentts.cpp/build 下的 tts-server
+model_path = ""             # ← 必填：talker GGUF
+codec_path = ""             # ← 必填：tokenizer/codec GGUF
+default_language = "Chinese"
+env = {}
+extra_args = []
+
+# ----------------------------------------------------------------------------
+# 嵌入模型（召回用；默认放 CPU）
+# ----------------------------------------------------------------------------
+[embedding]
+enabled = true
+base_url = "http://127.0.0.1:8083/v1"
+model = "embedding"
+dimensions = 1024           # ← 必须等于所选嵌入模型的输出维度
+# 召回时加在查询前面的任务指令。有的嵌入模型推荐给「查询」加一段指令（被检索的发言不加），
+# 写法见所选模型的说明；留空 = 不加。
+query_prefix = ""
+# 语义召回的相关度门槛（余弦相似度，0–1）：相似度低于它的发言不算命中，免得把不相干的话也找回来。
+# 0 = 不设门槛。0.4 是经验值；发现该找到的没找到就调低，找回来的不相干就调高。
+min_similarity = 0.4
+
+[embedding.launch]
+enabled = true
+executable = ""
+model_path = ""             # ← 必填：嵌入模型 GGUF
+gpu_layers = "0"            # "0" = CPU；显存有余量可改 "all"
+# --pooling 取决于模型，换模型时核对其说明；--device none 让它完全不碰显卡
+# （只设置 gpu_layers = "0" 时它仍会在每块显卡上占用几百 MB）。
+extra_args = ["--pooling", "last", "--device", "none"]
+
+# ----------------------------------------------------------------------------
+# 入口音频（收音增强）
+# 麦克风收进来的声音太轻时，语音检测的音量门限会把说话切成碎片（每句只剩几个字）。
+# 自动增益在服务端把较响音节的电平提升到 target_dbfs；优先在系统中调好输入音量（见 docs/zh-CN/troubleshooting.md）。
+# 日志里每隔 level_log_secs 秒有一行「输入电平」，可以据此判断麦克风到底有多轻。
+# ----------------------------------------------------------------------------
+[audio]
+auto_gain = true
+gain_db = 0.0               # 起始增益（auto_gain = false 时就是固定增益），dB
+max_gain_db = 30.0          # 自动增益的上限，dB
+target_dbfs = -16.0         # 较响音节的目标 RMS，dBFS（越接近 0 越响，上限 -6）
+noise_floor_dbfs = -70.0    # 低于它的帧视为静音，不参与增益调整
+level_log_secs = 10         # 输入电平日志的间隔（秒，0 = 关闭）
+
+# ----------------------------------------------------------------------------
+# 轮次与唤醒
+# ----------------------------------------------------------------------------
+[turn]
+vad_stop_secs = 0.2
+# 语音检测的音量门限：0.6 约等于 −50 LUFS，每低 6 dB 约少 0.06；0 = 关闭这道门限，只看模型置信度。
+# 启用 [audio] 的自动增益时通常无需调整；关闭增益而麦克风电平偏低时可以调低。
+vad_min_volume = 0.6
+smart_turn = true
+# 唤醒窗口：叫一次名字之后最多醒多少秒，从叫名字那一刻起算。single_activation = true 时助理一答完
+# 就回到待唤醒状态，因此它是「从叫名字到答完」的时间上限，也是助理朗读时可以用语音打断的时间窗口。
+wake_timeout_secs = 30.0
+single_activation = true    # true = 每次都要叫名字（会议场景推荐）
+
+# ----------------------------------------------------------------------------
+# 实时行为
+# ----------------------------------------------------------------------------
+[realtime]
+context_budget_tokens = 24000
+keep_recent_minutes = 10.0
+digest_interval_minutes = 5.0
+digest_provider = "realtime_llm"   # 滚动纪要由谁写；或 "agent_llm"（交给后台 agent 的远端模型，转录会发给它）
+cache_warm_interval_secs = 30.0
+direct_mcp_tools = []       # 允许实时模型直接调用的 MCP 工具名；留空 = 全部走后台 agent
+
+# ----------------------------------------------------------------------------
+# 屏幕截图
+# ----------------------------------------------------------------------------
+[screen]
+enabled = true
+min_interval_secs = 2.0
+heartbeat_secs = 60.0
+max_side_px = 1920
+change_threshold = 0.04     # 画面上变化最大的那一小块差多少算「变了」（0–1）；鼠标移动、时钟跳秒不该超过它
+caption = true
+caption_provider = "realtime_llm"   # 或 "agent_llm"（交给远端模型，省本地 GPU）
+
+# ----------------------------------------------------------------------------
+# 发言怎么分条
+# ----------------------------------------------------------------------------
+# 语音检测按停顿切段（[turn] 的 vad_stop_secs 很短，为的是应答快），一句话中间换口气就会被切开。
+# 这里把同一个人挨得很近的几段并成一条记录。
+[transcript]
+merge_gap_secs = 2.0        # 同一个人两段之间停顿不超过这么久就并成一条；0 = 不并
+merge_soft_chars = 40       # 一条已经有这么多字、并且停在句末时，下一段另起一条
+merge_max_chars = 200       # 一条最多并到这么多字
+
+# ----------------------------------------------------------------------------
+# 会后报告
+# ----------------------------------------------------------------------------
+[report]
+provider = "realtime_llm"   # 或 "agent_llm"（交给后台 agent 的远端模型；整场会议的转录会发给它）
+max_input_chars = 8000      # 一次请求最多放多少字的转录，超过就分段提要点再合并；按模型的上下文长度调
+
+# ----------------------------------------------------------------------------
+# 后台 agent（远端大模型 + MCP + 本地代码执行）
+# ----------------------------------------------------------------------------
+[agent]
+enabled = true
+framework = "openai_agents"
+base_url = ""               # ← 必填：远端 LLM 的 OpenAI 兼容端点，例如 "https://example.com/v1"
+api_key_env = "AGENT_LLM_API_KEY"
+model = ""                  # ← 必填：远端模型名
+supports_vision = true
+# 发给这个模型的每个请求都并入的字段，写法按该服务的文档。一般用来指定思考的强度；
+# 执行任务需要依靠思考来规划和调用工具，不建议关闭。
+extra_body = {}             # 例如 { reasoning_effort = "medium" }
+# 交给这个模型的活（后台任务，以及由它写的会后报告、滚动纪要）要不要带上会议里的截图原图。
+# false：这些环节只看截图的文字摘要（任务在实时模型认为需要时带最近的 3 张）。
+# true：带上全部截图，「无关画面」和画面没变的重复截图除外；一次请求最多 max_attached_frames 张，超过就均匀抽取。
+# 图片很占上下文：一张 1920×1080 的图约 2000 token（因模型而异），40 张就是 8 万；按模型的上下文长度定。
+attach_frames = false
+max_attached_frames = 40
+# 这个模型被直接拿来写会后报告、滚动纪要、生成画面摘要（对应的 provider 选了 "agent_llm"）时的输出上限。
+# 思考也算在里面，给小了正文会是空的。
+generation_max_tokens = 16384
+max_turns = 30
+task_timeout_secs = 900.0
+max_concurrent_tasks = 2
+
+[[agent.mcp_servers]]
+name = "search"
+url = ""                    # ← 必填：流式传输 HTTP 的 MCP 端点
+headers_env = { Authorization = "MCP_SEARCH_AUTH" }   # 头名 = 环境变量名
+timeout_secs = 30.0
+
+[agent.sandbox]
+kind = "docker"             # "docker" | "local"（仅 macOS/Linux 的可信开发环境）| "none"
+docker_image = ""           # kind = "docker" 时必填，例如带 numpy/pandas/matplotlib 的 Python 镜像
+network = false
+timeout_secs = 120.0

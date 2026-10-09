@@ -1,0 +1,148 @@
+# AGENTS.md
+
+Guidance for AI coding agents working in this repository. Human contributors should start with
+[CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md); this file
+condenses the same rules into a form that is quick to act on.
+
+## Project in one paragraph
+
+Agentic-Meeting is a self-hosted voice assistant for research group meetings. A Python 3.12 server
+built on Pipecat 1.12.0 receives microphone audio over WebRTC, transcribes it with speaker labels,
+keeps a screen-share timeline, answers when called by name, and delegates longer work to a
+background agent (OpenAI Agents SDK). Inference runs in separate processes from the llama.cpp
+family. The web client is Vite + React + TypeScript.
+
+## Setup and checks
+
+```bash
+git submodule update --init --depth 1 third_party/NeMo-Speech.cpp third_party/Confucius4-R2T2
+uv sync --extra agent
+
+uv run pytest                              # ~1000 tests, no GPU, weights or network needed
+uv run ruff check src tests scripts
+uv run ruff format --check src tests scripts
+
+cd client
+npm ci
+npm test                                   # needs Node.js 22.18+ (runs .ts files directly)
+npm run build                              # type-check and bundle
+```
+
+Run all of the above before you report a change as finished. CI runs the same commands on Windows
+and Linux, so avoid platform-specific paths and shell syntax in code and tests.
+
+## Where things are
+
+| Path | Contents |
+|---|---|
+| `src/agentic_meeting/config.py` | Configuration schema and validation (`AppConfig`) |
+| `src/agentic_meeting/types.py` | Data types shared between modules |
+| `src/agentic_meeting/pipeline/` | Pipecat pipeline assembly, recorder, wake word, context, tools, reports |
+| `src/agentic_meeting/asr/`, `diar/` | Streaming recognition and speaker diarization backends |
+| `src/agentic_meeting/screen/` | Screenshot ingestion, captions, image attachment |
+| `src/agentic_meeting/agent/` | Background task manager, agent runner, sandbox |
+| `src/agentic_meeting/store/` | SQLite schema and access, vector search |
+| `src/agentic_meeting/services/` | Supervision of inference server processes |
+| `src/agentic_meeting/web/` | HTTP API and static site |
+| `client/src/` | Web client; pure logic lives in plain `.ts` files with `*.test.ts` next to them |
+| `config/config.example.toml` | Configuration template; `config/prompts/` and `config/asr_profiles/` hold prompts and model-specific formats |
+| `scripts/` | Runtime fetch/build, headless replay, realtime-LLM evaluation, microphone check |
+| `tests/` | Python tests; fakes for external services are in `tests/fakes.py` |
+| `docs/`, `docs/zh-CN/` | Documentation in English and Chinese with identical file names and section numbers |
+
+Read these before changing behavior:
+
+- [docs/architecture.md](docs/architecture.md) — components, data flow, failure handling.
+- [docs/interfaces.md](docs/interfaces.md) — configuration keys, database schema, HTTP API, messages.
+- [docs/pipecat-notes.md](docs/pipecat-notes.md) and
+  [docs/agents-sdk-notes.md](docs/agents-sdk-notes.md) — how the pinned framework versions are used.
+
+## Hard rules
+
+1. **Never download model weights.** Code, scripts and your own commands must not fetch weights.
+   The `nemo-speech` command-line tool downloads models in most modes; only `--version` and
+   `--help` are safe to run.
+2. **No model names in source.** `src/`, `client/src/` and `scripts/` contain no model names or
+   weight file names. Everything model-specific comes from `config/config.toml`,
+   `config/asr_profiles/` and `config/prompts/`. Tests use made-up names such as `fake-model`; a
+   test in `tests/test_config.py` enforces the rule.
+3. **Verify Pipecat APIs against 1.12.0.** Pipecat 1.x differs substantially from older examples
+   and from what you may remember. Check `docs/pipecat-notes.md` first, then the installed source
+   under `.venv/`; record anything new you confirm in the notes.
+4. **Do not upgrade pinned versions as a side effect.** `pyproject.toml`, `uv.lock`,
+   `client/package-lock.json` and `runtimes.lock.toml` change only when the task is an upgrade.
+5. **Do not modify `third_party/`.** These are upstream sources checked out as submodules.
+6. **Secrets stay in the environment.** Configuration stores variable names (`*_env` fields) only.
+   Never write keys into code, templates, logs, the database, tests or documentation, and never
+   print the contents of `.env` or `config/config.toml`.
+7. **Transcription must survive failures.** An error in answering, tasks, screenshots or storage
+   must not stop recognition or captions. Give external calls a timeout; log and degrade instead of
+   raising to the top of the pipeline.
+8. **Do not branch on the realtime-LLM access mode.** Use the properties of `cfg.realtime_llm`
+   (`active`, `managed`, `request_extra_body()`, `cache_warm`, `supports_developer_role`).
+9. **Document interfaces first.** A change to a data format, configuration key, HTTP endpoint or
+   message is made in `docs/interfaces.md` before the code.
+
+## Things that need the user's go-ahead
+
+- Starting inference services (`agentic-meeting serve --with-services`, `agentic-meeting services
+  up`) or running `pytest -m gpu`: these load several gigabytes of model weights onto the GPU.
+- Editing `config/config.toml` or anything under `data/`: both are the user's own and untracked.
+- Adding a dependency (`uv add`, `npm install <package>`).
+
+Plain `agentic-meeting serve` without `--with-services` loads no models and is safe for checking
+the web UI. Global options come before the subcommand: `agentic-meeting --config path.toml serve`.
+
+## Conventions
+
+- Python 3.12, `asyncio` throughout, full type annotations. Blocking work (ctypes calls, large file
+  I/O, image decoding) runs in threads.
+- Log with `loguru`. `print` is for CLI subcommands and scripts only.
+- Comments, docstrings, UI text and prompts are written in Chinese; identifiers are in English.
+  Match the surrounding file.
+- Ruff settings are in `pyproject.toml` (line length 100, rules E, F, I, UP, B, ASYNC).
+- Modules read configuration from `AppConfig`; they do not define their own default models or
+  endpoints.
+- Example names, meeting content and screenshots in tests and documentation are fictional.
+
+## Common tasks
+
+**Add a configuration key**
+
+1. Field and validation in `src/agentic_meeting/config.py`.
+2. Entry with a comment in `config/config.example.toml`.
+3. `docs/interfaces.md` §1 and `docs/configuration.md`, plus the `docs/zh-CN/` counterparts.
+4. A test in `tests/test_config.py`.
+
+**Change a prompt**
+
+Edit the file under `config/prompts/` (see `config/prompts/README.md` for the variables). After
+changing `realtime_system.md`, the tool-selection cases in `tests/data/realtime_eval.jsonl` should
+still describe the intended behavior; `scripts/eval_realtime_model.py` checks them against a real
+model and needs the user's services.
+
+**Change a message or HTTP endpoint**
+
+Update `docs/interfaces.md`, then the server (`src/agentic_meeting/web/`, `pipeline/`) and the
+client (`client/src/protocol.ts`, `api.ts`) together, with tests on both sides.
+
+**Test code that talks to a model or service**
+
+Inject the dependency and replace it with a fake from `tests/fakes.py`; answer HTTP calls with
+`httpx.MockTransport`; drive Pipecat processors with `pipecat.tests.utils.run_test`. Do not add
+tests that require a GPU, weights or network access unless they are marked `@pytest.mark.gpu`.
+
+## Before you finish
+
+- Tests, lint, format check and the client build pass.
+- Behavior or configuration changes are reflected in both `docs/` and `docs/zh-CN/`, keeping file
+  names and section numbers aligned.
+- User-visible changes have an entry under *Unreleased* in `CHANGELOG.md`.
+- The summary of your work says what you verified and what you could not (for example, anything
+  that needs real models).
+
+## Commits and pull requests
+
+A short summary line that says what changed, then a body explaining why when it is not obvious.
+English or Chinese are both fine. Keep each pull request to one change and fill in the template
+under `.github/`.

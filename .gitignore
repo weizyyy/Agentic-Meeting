@@ -1,0 +1,42 @@
+# ---- 绝不入库：模型权重、预编译运行时、会议数据、密钥 ----
+/models/**
+!/models/README.md
+/runtimes/**
+!/runtimes/README.md
+/data/
+/config/config.toml
+.env
+*.gguf
+*.safetensors
+*.onnx
+*.nemo
+*.bin
+*.pt
+*.pth
+
+# ---- Python ----
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# ---- 浏览器客户端 ----
+/client/node_modules/
+/client/dist/
+/client/.vite/
+
+# ---- 证书 / 本地工具 ----
+/certs/
+*.pem
+*.key
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

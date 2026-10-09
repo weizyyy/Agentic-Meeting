@@ -1,0 +1,20 @@
+[submodule "third_party/llama.cpp"]
+	path = third_party/llama.cpp
+	url = https://github.com/ggml-org/llama.cpp
+	shallow = true
+	ignore = dirty
+[submodule "third_party/NeMo-Speech.cpp"]
+	path = third_party/NeMo-Speech.cpp
+	url = https://github.com/NVIDIA/NeMo-Speech.cpp
+	shallow = true
+	ignore = dirty
+[submodule "third_party/qwentts.cpp"]
+	path = third_party/qwentts.cpp
+	url = https://github.com/ServeurpersoCom/qwentts.cpp
+	shallow = true
+	ignore = dirty
+[submodule "third_party/Confucius4-R2T2"]
+	path = third_party/Confucius4-R2T2
+	url = https://github.com/netease-youdao/Confucius4-R2T2
+	shallow = true
+	ignore = dirty

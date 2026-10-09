@@ -1,0 +1,75 @@
+[project]
+name = "agentic-meeting"
+version = "0.1.0"
+description = "A self-hosted voice assistant for research group meetings: live transcription with speakers, screen timeline, wake-word answers and a background agent"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+keywords = ["meeting-assistant", "voice-assistant", "speech-recognition", "speaker-diarization", "pipecat", "llama.cpp", "self-hosted"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: AsyncIO",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+dependencies = [
+    # 交互框架。精确锁版本：pipecat 1.x 接口变化快，docs/pipecat-notes.md 的速查只对这个版本负责。
+    # 不要加 local-smart-turn extra（会拉入 torch）；Smart Turn v3 走核心自带的 onnxruntime。
+    "pipecat-ai[webrtc,silero,mcp,runner]==1.12.0",
+    "pydantic>=2.10.6,<3",
+    "httpx>=0.27",
+    "aiosqlite>=0.20",
+    "sqlite-vec>=0.1.9",
+    "numpy>=1.26.4,<3",
+    "soundfile>=0.13",
+    "loguru>=0.7.3",
+]
+
+[project.optional-dependencies]
+# 后台 agent（agent.enabled = true 时需要）。uv sync --extra agent
+agent = [
+    "openai-agents[docker]>=0.23,<0.24",
+]
+
+[project.urls]
+Homepage = "https://github.com/weizyyy/Agentic-Meeting"
+Documentation = "https://github.com/weizyyy/Agentic-Meeting/tree/main/docs"
+Issues = "https://github.com/weizyyy/Agentic-Meeting/issues"
+Changelog = "https://github.com/weizyyy/Agentic-Meeting/blob/main/CHANGELOG.md"
+
+[project.scripts]
+agentic-meeting = "agentic_meeting.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentic_meeting"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "gpu: 需要真实推理服务与模型权重，默认跳过（pytest -m gpu 才跑）",
+]
+addopts = "-m 'not gpu'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["third_party", "runtimes", "models", "data", "client"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+ignore = ["E501"]

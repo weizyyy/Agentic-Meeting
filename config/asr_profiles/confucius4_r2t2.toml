@@ -1,0 +1,40 @@
+# 识别模型的「提示词格式档案」。
+#
+# 这些字符串是模型相关的：不同的识别模型家族有不同的对话模板、前缀写法和输出标记。
+# 把它们放在配置里而不是代码里，换识别模型时新建一份档案并在 config.toml 的
+# asr.profile 指过去即可，不需要改代码。
+#
+# 本档案适用于 Confucius4-R2T2（Qwen3-ASR 架构）。其中 chat_template 与前缀写法取自官方仓库
+#   third_party/Confucius4-R2T2/r2t2_llama/llama_native_backend.py
+# 的 _ASR_CHAT_TEMPLATE 与 build_asr_prompt（Apache-2.0，版权归 NetEase Youdao）。
+
+# 识别用的 llama-server 所使用的 Jinja 对话模板。它在**启动时**通过 --chat-template-file 指定
+# （当前版本的 llama-server 不接受随请求发送模板）；进程管理器会把下面的内容写成文件再传过去。
+# 关键点：assistant 消息末尾不加结束标记，模型因此会接着已有的 assistant 内容续写。
+chat_template = """\
+{% for m in messages %}\
+{{ '<|im_start|>' + m.role + '\\n' }}\
+{% if m.content is string %}{{ m.content }}\
+{% else %}{% for c in m.content %}\
+{% if c.type == 'text' %}{{ c.text }}\
+{% elif c.type == 'input_audio' %}<|audio_start|><|audio_pad|><|audio_end|>\
+{% endif %}{% endfor %}{% endif %}\
+{% if m.role != 'assistant' %}<|im_end|>\\n{% endif %}\
+{% endfor %}\
+{% if add_generation_prompt %}{{ '<|im_start|>assistant\\n' }}{% endif %}\
+"""
+
+# assistant 续写前缀的固定开头。{language} 会被替换为 asr.language。
+# asr.language 为空时不加这个开头，由模型自己输出语言标记。
+assistant_prefix = "language {language}<asr_text>"
+
+# 模型输出中「正文开始」的标记：它之前是语言等元信息，之后才是识别文本。
+text_marker = "<asr_text>"
+
+# 正文在这些字符处截断（其后是模型附带的其他信息，不属于识别文本）。
+cut_markers = ["|", "#"]
+
+# 热词如何写进 system 消息。{hotwords} 会被替换为用 joiner 连接的热词列表。
+# 没有热词时 system 消息内容为空字符串（仍然要发这条消息，模板依赖它）。
+hotwords_template = "{hotwords}"
+hotwords_joiner = " "

@@ -1,0 +1,8 @@
+# Python and npm dependencies are pinned on purpose (see docs/development.md) and are
+# upgraded manually. Only the GitHub Actions used by the workflows are tracked here.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

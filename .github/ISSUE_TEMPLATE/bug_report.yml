@@ -1,0 +1,64 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Issues may be written in English or Chinese.
+        Please check [docs/troubleshooting.md](https://github.com/weizyyy/Agentic-Meeting/blob/main/docs/troubleshooting.md) first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the server with ...
+        2. Say / click ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: >
+        Relevant lines from the server output or `data/logs/<service>.log`.
+        Remove API keys, addresses and meeting content you do not want to share.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: v0.1.0 or a commit hash
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and GPU
+      placeholder: Windows 11, RTX 4090 24 GB
+    validations:
+      required: true
+  - type: dropdown
+    id: llm-mode
+    attributes:
+      label: Realtime LLM access mode
+      options:
+        - llama_server
+        - openai_api
+        - Not relevant
+    validations:
+      required: true
+  - type: textarea
+    id: models
+    attributes:
+      label: Models and runtimes
+      description: Models in use (name and quantization) and the output of `python scripts/runtimes.py status`.
+      render: text
