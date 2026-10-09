@@ -6,8 +6,8 @@ condenses the same rules into a form that is quick to act on.
 
 ## Project in one paragraph
 
-Agentic-Meeting is a self-hosted voice assistant for research group meetings. A Python 3.12 server
-built on Pipecat 1.12.0 receives microphone audio over WebRTC, transcribes it with speaker labels,
+Agentic-Meeting is a self-hosted voice assistant for research group meetings. A Python server
+(3.12–3.14) built on Pipecat 1.12.0 receives microphone audio over WebRTC, transcribes it with speaker labels,
 keeps a screen-share timeline, answers when called by name, and delegates longer work to a
 background agent (OpenAI Agents SDK). Inference runs in separate processes from the llama.cpp
 family. The web client is Vite + React + TypeScript.
@@ -29,7 +29,7 @@ npm run build                              # type-check and bundle
 ```
 
 Run all of the above before you report a change as finished. CI runs the same commands on Windows
-and Linux, so avoid platform-specific paths and shell syntax in code and tests.
+and Linux with Python 3.12, 3.13 and 3.14, so avoid platform-specific paths and shell syntax in code and tests.
 
 ## Where things are
 
@@ -95,7 +95,8 @@ the web UI. Global options come before the subcommand: `agentic-meeting --config
 
 ## Conventions
 
-- Python 3.12, `asyncio` throughout, full type annotations. Blocking work (ctypes calls, large file
+- Python 3.12 is the minimum and 3.13 and 3.14 are tested in CI: no syntax or standard-library
+  features newer than 3.12. `asyncio` throughout, full type annotations. Blocking work (ctypes calls, large file
   I/O, image decoding) runs in threads.
 - Log with `loguru`. `print` is for CLI subcommands and scripts only.
 - Comments, docstrings, UI text and prompts are written in Chinese; identifiers are in English.

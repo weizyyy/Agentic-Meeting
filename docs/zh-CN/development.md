@@ -30,7 +30,12 @@ npm test                              # 客户端纯逻辑的单元测试
 npm run build                         # 类型检查并构建
 ```
 
-CI 在 Windows 和 Linux 上运行 Python 测试，在 Linux 上运行客户端测试。
+CI 在 Windows 和 Linux 上分别用 Python 3.12、3.13 和 3.14 运行 Python 测试，在 Linux 上运行客户端测试。
+在本地用其他版本运行测试、同时不影响 `.venv`：
+
+```bash
+UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
+```
 
 ## 项目规则
 
@@ -55,7 +60,8 @@ CI 在 Windows 和 Linux 上运行 Python 测试，在 Linux 上运行客户端�
 
 ## 代码风格
 
-- Python 3.12，全程使用 `asyncio`。阻塞调用（ctypes、大文件读写、图像解码）放入线程执行。
+- 最低支持 Python 3.12，同时在 3.13 和 3.14 上测试，因此不要使用 3.12 之后才有的语法和标准库功能。
+  全程使用 `asyncio`。阻塞调用（ctypes、大文件读写、图像解码）放入线程执行。
 - 日志使用 `loguru`（与 Pipecat 一致）。`print` 仅用于命令行子命令和脚本。
 - 类型标注完整。公共函数和类编写文档字符串，说明做什么以及为什么。
 - 注释、文档字符串、界面文案和提示词使用中文，标识符使用英文。

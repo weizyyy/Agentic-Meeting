@@ -3,7 +3,7 @@ name = "agentic-meeting"
 version = "0.1.0"
 description = "A self-hosted voice assistant for research group meetings: live transcription with speakers, screen timeline, wake-word answers and a background agent"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.15"
 license = { text = "MIT" }
 keywords = ["meeting-assistant", "voice-assistant", "speech-recognition", "speaker-diarization", "pipecat", "llama.cpp", "self-hosted"]
 classifiers = [
@@ -13,6 +13,8 @@ classifiers = [
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Multimedia :: Sound/Audio :: Speech",
 ]
 dependencies = [

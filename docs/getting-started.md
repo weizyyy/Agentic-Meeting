@@ -18,7 +18,7 @@ This guide takes you from a fresh clone to a running meeting.
 | Requirement | Notes |
 |---|---|
 | Operating system | Windows 11 or Linux with an NVIDIA GPU, or macOS on Apple silicon |
-| [uv](https://docs.astral.sh/uv/) | Installs Python 3.12 and the locked dependencies |
+| [uv](https://docs.astral.sh/uv/) | Installs Python and the locked dependencies. Python 3.12, 3.13 and 3.14 are supported; uv uses 3.12 unless told otherwise (`uv sync --python 3.14`) |
 | Node.js 22.18+ | Builds the web client |
 | Git | The inference runtimes are tracked as submodules |
 | C++ toolchain, CMake | Only for building the speech synthesis runtime; see [runtimes.md §3.3](runtimes.md#33-qwenttscpp) |

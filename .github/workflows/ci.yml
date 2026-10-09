@@ -14,12 +14,16 @@ permissions:
 
 jobs:
   python:
-    name: Python (${{ matrix.os }})
+    name: Python ${{ matrix.python }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
+        python: ["3.12", "3.13", "3.14"]
+    env:
+      # Overrides .python-version, which pins the default development version.
+      UV_PYTHON: ${{ matrix.python }}
     steps:
       - uses: actions/checkout@v7
 

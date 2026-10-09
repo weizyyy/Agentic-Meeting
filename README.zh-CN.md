@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/weizyyy/Agentic-Meeting/actions/workflows/ci.yml/badge.svg)](https://github.com/weizyyy/Agentic-Meeting/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.12](https://img.shields.io/badge/python-3.12-3776ab.svg?logo=python&logoColor=white)](pyproject.toml)
+[![Python 3.12–3.14](https://img.shields.io/badge/python-3.12%E2%80%933.14-3776ab.svg?logo=python&logoColor=white)](pyproject.toml)
 [![Pipecat 1.12](https://img.shields.io/badge/pipecat-1.12.0-6f42c1.svg)](https://github.com/pipecat-ai/pipecat)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-d7ff64.svg)](https://github.com/astral-sh/ruff)
 
@@ -93,7 +93,7 @@ flowchart LR
 ## 环境要求
 
 - 带 NVIDIA 显卡的 Windows 11 或 Linux，或 Apple 芯片的 macOS（见[项目状态](#项目状态)）
-- [uv](https://docs.astral.sh/uv/)、Python 3.12、Node.js 22.18 及以上、Git
+- [uv](https://docs.astral.sh/uv/)、Python 3.12–3.14、Node.js 22.18 及以上、Git
 - 语音识别、说话人区分、语音合成和嵌入模型的权重（[需要哪些文件](docs/zh-CN/runtimes.md#4-模型文件)）；
   本仓库不会自动下载权重
 - 可选：Docker，用于后台 agent 的代码沙箱
