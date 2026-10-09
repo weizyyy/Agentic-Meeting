@@ -21,7 +21,7 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Two tests read sample files from these submodules; the large runtime sources are not needed.
       - name: Check out test fixtures from submodules
@@ -50,7 +50,7 @@ jobs:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
