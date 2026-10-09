@@ -7,10 +7,10 @@ condenses the same rules into a form that is quick to act on.
 ## Project in one paragraph
 
 Agentic-Meeting is a self-hosted voice assistant for research group meetings. A Python server
-(3.12–3.14) built on Pipecat 1.12.0 receives microphone audio over WebRTC, transcribes it with speaker labels,
-keeps a screen-share timeline, answers when called by name, and delegates longer work to a
-background agent (OpenAI Agents SDK). Inference runs in separate processes from the llama.cpp
-family. The web client is Vite + React + TypeScript.
+(3.12–3.14) built on Pipecat 1.12.0 receives microphone audio over WebRTC, transcribes it with
+speaker labels, keeps a screen-share timeline, answers when called by name, and delegates longer
+work to a background agent (OpenAI Agents SDK). Inference runs in separate processes from the
+llama.cpp family. The web client is Vite + React + TypeScript.
 
 ## Setup and checks
 
