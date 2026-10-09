@@ -27,7 +27,7 @@ jobs:
       - name: Check out test fixtures from submodules
         run: git submodule update --init --depth 1 third_party/NeMo-Speech.cpp third_party/Confucius4-R2T2
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
