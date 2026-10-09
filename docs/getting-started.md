@@ -41,11 +41,14 @@ Fetch the inference runtimes. The script picks the right prebuilt package for yo
 ```bash
 python scripts/runtimes.py fetch llama_cpp
 python scripts/runtimes.py fetch nemo_speech
-python scripts/runtimes.py build qwentts --backend cuda   # or: vulkan, metal, cpu
+python scripts/runtimes.py build qwentts --backend cuda --cmake-arg=-DCMAKE_CUDA_ARCHITECTURES=native
 python scripts/runtimes.py status
 ```
 
-Speech synthesis has no prebuilt package and is compiled from source. If the build fails, start
+Speech synthesis has no prebuilt package and is compiled from source. `CMAKE_CUDA_ARCHITECTURES=native`
+compiles the CUDA kernels for the GPU in this machine only, which shortens the build; leave the
+argument out for a binary that also runs on other GPU generations. The other backends are
+`vulkan`, `metal` and `cpu`. If the build fails, start
 with `--backend cpu` or set `tts.enabled = false` and come back to it later. Details are in
 [runtimes.md](runtimes.md).
 
