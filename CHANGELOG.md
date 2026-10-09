@@ -6,15 +6,26 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-09
+
 ### Added
 
 - Support for Python 3.13 and 3.14. The locked versions of existing dependencies are unchanged;
   `audioop-lts` is added for these interpreters. CI tests all three versions on Windows and Linux.
+- A roadmap (`ROADMAP.md`) with milestones and issues on GitHub.
+- Optional pre-commit hooks that mirror the CI lint and format checks.
 
 ### Changed
 
 - The artifact download endpoint also verifies that the task directory lies inside the data
   directory, in addition to the existing check that the file lies inside the task directory.
+- Documentation: a single 12 GB graphics card is documented as the minimum for the local speech
+  models (ASR at Q8 and the 0.6B speech synthesis model use slightly more than 10 GB together with
+  the other local services). The earlier figure of about 6.5 GB was the sum of services measured
+  one at a time.
+- The README states what the project is for, that it is under heavy development, and that it has
+  no sign-in yet.
+- The code of conduct is now the full text of Contributor Covenant 3.0, in English and Chinese.
 
 ## [0.1.0] - 2026-10-09
 
@@ -49,5 +60,6 @@ First public release.
 - The longest continuous run tested is 54 minutes.
 - The web UI, prompts and CLI messages are available in Chinese only.
 
-[Unreleased]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/weizyyy/Agentic-Meeting/releases/tag/v0.1.0

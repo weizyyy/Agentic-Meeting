@@ -1,6 +1,6 @@
 [project]
 name = "agentic-meeting"
-version = "0.1.0"
+version = "0.1.1"
 description = "A self-hosted voice assistant for research group meetings: live transcription with speakers, screen timeline, wake-word answers and a background agent"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"

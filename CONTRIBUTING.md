@@ -7,7 +7,8 @@ are all welcome. Issues and pull requests may be written in English or Chinese.
 
 ## Reporting bugs and requesting features
 
-- Search the [existing issues](https://github.com/weizyyy/Agentic-Meeting/issues) first.
+- Search the [existing issues](https://github.com/weizyyy/Agentic-Meeting/issues) first, and check
+  the [roadmap](ROADMAP.md) for work that is already planned.
 - Questions about setup or usage, and early ideas, belong in [Discussions](https://github.com/weizyyy/Agentic-Meeting/discussions).
 - Use the issue templates. For bugs, include the version or commit, the operating system and GPU,
   the realtime LLM access mode, and the relevant log lines.
