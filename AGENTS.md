@@ -147,3 +147,6 @@ tests that require a GPU, weights or network access unless they are marked `@pyt
 A short summary line that says what changed, then a body explaining why when it is not obvious.
 English or Chinese are both fine. Keep each pull request to one change and fill in the template
 under `.github/`.
+
+`main` is protected. Work on a branch and open a pull request; it is squash-merged once the
+*All checks* CI job succeeds. Do not push to `main` directly, force-push it, or move release tags.

@@ -8,6 +8,7 @@ are all welcome. Issues and pull requests may be written in English or Chinese.
 ## Reporting bugs and requesting features
 
 - Search the [existing issues](https://github.com/weizyyy/Agentic-Meeting/issues) first.
+- Questions about setup or usage, and early ideas, belong in [Discussions](https://github.com/weizyyy/Agentic-Meeting/discussions).
 - Use the issue templates. For bugs, include the version or commit, the operating system and GPU,
   the realtime LLM access mode, and the relevant log lines.
 - Remove API keys, internal addresses and meeting content before posting logs.
@@ -33,6 +34,9 @@ uv run ruff format src tests scripts
 cd client && npm test && npm run build
 ```
 
+To run the lint and format checks automatically before each commit, install the
+[pre-commit](https://pre-commit.com/) hooks once with `uvx pre-commit install`.
+
 [docs/development.md](docs/development.md) describes the project layout, the coding conventions and
 how to test changes that involve real models.
 
@@ -43,7 +47,8 @@ how to test changes that involve real models.
 3. Add or update tests. External services are injected and replaced with fakes in tests.
 4. Update the documentation in both `docs/` and `docs/zh-CN/` when behavior or configuration
    changes, and add an entry under *Unreleased* in `CHANGELOG.md`.
-5. Make sure CI passes.
+5. Make sure CI passes. `main` is protected: changes land through pull requests, which are
+   squash-merged once the *All checks* job succeeds.
 
 A few project rules are enforced by tests or review:
 

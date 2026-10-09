@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Questions and ideas
+    url: https://github.com/weizyyy/Agentic-Meeting/discussions
+    about: Ask how to set something up or discuss an idea before it becomes a feature request.
   - name: Security vulnerability
     url: https://github.com/weizyyy/Agentic-Meeting/security/advisories/new
     about: Please report security issues privately, not in a public issue.

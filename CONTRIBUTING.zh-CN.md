@@ -7,6 +7,7 @@
 ## 报告问题与提出需求
 
 - 提交之前请先搜索[已有的议题](https://github.com/weizyyy/Agentic-Meeting/issues)。
+- 安装、使用方面的疑问和尚未成形的想法，请发到 [Discussions](https://github.com/weizyyy/Agentic-Meeting/discussions)。
 - 请使用议题模板。报告问题时请提供版本或提交号、操作系统与显卡、实时模型的接入方式，以及相关的日志。
 - 粘贴日志前请去掉 API 密钥、内部地址和会议内容。
 - 安全问题请私下报告，见 [SECURITY.md](SECURITY.md)。
@@ -31,6 +32,9 @@ uv run ruff format src tests scripts
 cd client && npm test && npm run build
 ```
 
+如需在每次提交前自动运行静态检查和格式化，可执行一次 `uvx pre-commit install`
+安装 [pre-commit](https://pre-commit.com/) 钩子。
+
 目录结构、代码约定，以及涉及真实模型的改动如何测试，见 [docs/zh-CN/development.md](docs/zh-CN/development.md)。
 
 ## 合并请求
@@ -40,7 +44,7 @@ cd client && npm test && npm run build
 3. 补充或更新测试。外部服务均通过参数注入，测试中以假实现替代。
 4. 行为或配置发生变化时，同时更新 `docs/` 与 `docs/zh-CN/` 下的文档，并在 `CHANGELOG.md` 的
    *Unreleased* 一节中添加条目。
-5. 确认 CI 通过。
+5. 确认 CI 通过。`main` 分支受保护：改动一律通过合并请求进入，*All checks* 任务成功后以 squash 方式合并。
 
 以下规则由测试或评审把关：
 
