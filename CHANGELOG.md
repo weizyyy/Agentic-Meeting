@@ -6,6 +6,11 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- Support for Python 3.13 and 3.14. The locked versions of existing dependencies are unchanged;
+  `audioop-lts` is added for these interpreters. CI tests all three versions on Windows and Linux.
+
 ## [0.1.0] - 2026-10-09
 
 First public release.

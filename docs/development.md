@@ -33,7 +33,12 @@ npm test                              # unit tests of the client's pure logic
 npm run build                         # type-check and build
 ```
 
-CI runs the Python suite on Windows and Linux and the client tests on Linux.
+CI runs the Python suite on Windows and Linux with Python 3.12, 3.13 and 3.14, and the client tests
+on Linux. To run the suite locally under another version without touching `.venv`:
+
+```bash
+UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
+```
 
 ## Project rules
 
@@ -64,7 +69,8 @@ CI runs the Python suite on Windows and Linux and the client tests on Linux.
 
 ## Code style
 
-- Python 3.12 and `asyncio` throughout. Blocking calls — ctypes, large file I/O, image decoding —
+- Python 3.12 is the minimum version; 3.13 and 3.14 are tested as well, so avoid syntax and
+  standard-library features newer than 3.12. `asyncio` is used throughout. Blocking calls — ctypes, large file I/O, image decoding —
   run in threads.
 - Logging uses `loguru`, as Pipecat does. `print` is reserved for CLI subcommands and scripts.
 - Full type annotations. Public functions and classes have docstrings that explain what and why.

@@ -18,7 +18,7 @@
 | 项目 | 说明 |
 |---|---|
 | 操作系统 | 带 NVIDIA 显卡的 Windows 11 或 Linux，或 Apple 芯片的 macOS |
-| [uv](https://docs.astral.sh/uv/) | 安装 Python 3.12 和锁定版本的依赖 |
+| [uv](https://docs.astral.sh/uv/) | 安装 Python 和锁定版本的依赖。支持 Python 3.12、3.13 和 3.14；默认使用 3.12，可用 `uv sync --python 3.14` 指定其他版本 |
 | Node.js 22.18+ | 构建网页客户端 |
 | Git | 推理运行时以子模块形式管理 |
 | C++ 工具链、CMake | 仅在构建语音合成运行时时需要，见 [runtimes.md §3.3](runtimes.md#33-qwenttscpp) |

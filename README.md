@@ -9,7 +9,7 @@ answers within about a second when called by name, and hands longer jobs to a ba
 
 [![CI](https://github.com/weizyyy/Agentic-Meeting/actions/workflows/ci.yml/badge.svg)](https://github.com/weizyyy/Agentic-Meeting/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python 3.12](https://img.shields.io/badge/python-3.12-3776ab.svg?logo=python&logoColor=white)](pyproject.toml)
+[![Python 3.12–3.14](https://img.shields.io/badge/python-3.12%E2%80%933.14-3776ab.svg?logo=python&logoColor=white)](pyproject.toml)
 [![Pipecat 1.12](https://img.shields.io/badge/pipecat-1.12.0-6f42c1.svg)](https://github.com/pipecat-ai/pipecat)
 [![Ruff](https://img.shields.io/badge/code%20style-ruff-d7ff64.svg)](https://github.com/astral-sh/ruff)
 
@@ -104,7 +104,7 @@ See [docs/architecture.md](docs/architecture.md) for the design in detail.
 ## Requirements
 
 - Windows 11 or Linux with an NVIDIA GPU, or macOS on Apple silicon (see [Project status](#project-status))
-- [uv](https://docs.astral.sh/uv/), Python 3.12, Node.js 22.18 or later, Git
+- [uv](https://docs.astral.sh/uv/), Python 3.12–3.14, Node.js 22.18 or later, Git
 - Model weights for ASR, diarization, TTS and embeddings ([what to download](docs/runtimes.md#4-model-files));
   the repository never downloads weights for you
 - Optional: Docker, for the background agent's code sandbox
