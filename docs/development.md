@@ -161,6 +161,18 @@ pactl load-module module-null-sink sink_name=e2e
 pactl set-default-sink e2e
 ```
 
+The pinned Linux WebKit build suspends muted MediaStream video outside the document, including
+our native screen-frame consumer. CI uses WebKit's test environment switch to allow playback.
+For local Linux runs after preparing PulseAudio:
+
+```bash
+WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS=1 npm run test:e2e --prefix client
+```
+
+Remove this workaround when the pinned browser includes the
+[upstream fix for WebKit 319380](https://github.com/WebKit/WebKit/commit/f2797a15c336841f348b94902c3dd556a0cd5540).
+Native media tracks, video decoding, screenshot uploads and assertions remain unchanged.
+
 This is test environment setup, not an AudioContext or SDK replacement. The CI runner is discarded
 after the job. On a local machine, unload the module using the ID printed by `pactl load-module`
 (`pactl unload-module <id>`); stop PulseAudio only if it was started solely for this test run.

@@ -135,9 +135,8 @@ jobs:
 
       - name: Test all browser engines
         env:
-          GST_DEBUG: "2,webkitmediastreamsrc:6,webkitmediaplayer:5,webkitvideoframe:6,appsrc:5"
-          GST_DEBUG_NO_COLOR: "1"
-          DEBUG: "pw:browser"
+          # shortcut: 锁定的 Linux WebKit 会挂起离屏静音流；包含上游 319380 修复后移除。
+          WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS: "1"
         run: npm run test:e2e --prefix client
 
       - name: Upload failure diagnostics

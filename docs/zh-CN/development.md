@@ -145,6 +145,16 @@ pactl load-module module-null-sink sink_name=e2e
 pactl set-default-sink e2e
 ```
 
+当前锁定的 Linux WebKit 会挂起文档外的静音 MediaStream video，包括测试中的原生屏幕帧消费端。
+CI 使用 WebKit 的测试环境变量允许播放。本地 Linux 准备好 PulseAudio 后运行：
+
+```bash
+WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS=1 npm run test:e2e --prefix client
+```
+
+锁定的浏览器包含 [WebKit 319380 上游修复](https://github.com/WebKit/WebKit/commit/f2797a15c336841f348b94902c3dd556a0cd5540)
+后移除此临时措施。原生媒体轨道、视频解码、截图上传及断言均保持不变。
+
 这是测试环境准备，不替换 AudioContext 或 SDK。CI runner 在 job 结束后销毁。
 本地运行结束后，用 `pactl load-module` 打印的 ID 卸载模块（`pactl unload-module <id>`）；
 只有 PulseAudio 专为这次测试启动时才停止它。
