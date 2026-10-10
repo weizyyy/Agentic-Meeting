@@ -194,6 +194,9 @@ Other devices can now open `https://<server LAN IP>`. To avoid the certificate w
 `rootCA.pem` from the directory printed by `mkcert -CAROOT` as a trusted root on each device.
 `*.pem` files are ignored by Git. No ICE servers are needed on a single LAN.
 
+To make an instance available across an organization (a reverse proxy with a real certificate,
+clients on other networks, TURN), follow the [deployment guide](deployment.md).
+
 ### Access password
 
 Anyone who can reach the port can read and delete meeting records unless an access password is set.
