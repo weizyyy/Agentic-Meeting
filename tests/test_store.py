@@ -43,6 +43,59 @@ def utt(session_id, text, *, t=0.0, dur=2.0, speaker=1, source="asr", addressed=
 # --------------------------------------------------------------------------- #
 
 
+async def test_availability_check_reads_only_constant_without_changing_data(store):
+    session = await store.create_session("虚构会议")
+    uid = await store.add_utterance(utt(session.id, "虚构发言"))
+    before = await store._all("SELECT name FROM sqlite_master WHERE type = 'table'")
+    counts = {row[0]: (await store._one(f'SELECT COUNT(*) FROM "{row[0]}"'))[0] for row in before}
+    changes = store._db.total_changes
+    queries = []
+    await store._db.set_trace_callback(queries.append)
+    await store.check_available()
+    await store._db.set_trace_callback(None)
+    assert queries == ["SELECT 1"] and store._db.total_changes == changes
+    assert counts == {
+        row[0]: (await store._one(f'SELECT COUNT(*) FROM "{row[0]}"'))[0] for row in before
+    }
+    assert (await store.get_session(session.id)).title == "虚构会议"
+    assert (await store._one("SELECT text FROM utterances WHERE id = ?", (uid,)))[0] == "虚构发言"
+
+
+async def test_availability_check_closed_connection_fails(tmp_path):
+    closed = await Store.open(tmp_path / "closed.db", DIMS)
+    await closed.close()
+    with pytest.raises(ValueError, match="no active connection"):
+        await closed.check_available()
+
+
+async def test_availability_check_preserves_query_failure_and_cancellation(store, monkeypatch):
+    def fail(sql, *args):
+        assert sql == "SELECT 1"
+        raise sqlite3.OperationalError("虚构数据库错误")
+
+    monkeypatch.setattr(store._db, "execute", fail)
+    with pytest.raises(sqlite3.OperationalError):
+        await store.check_available()
+
+    entered, cancelled = asyncio.Event(), asyncio.Event()
+
+    async def slow(sql):
+        assert sql == "SELECT 1"
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(store, "_one", slow)
+    task = asyncio.create_task(store.check_available())
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cancelled.is_set()
+
+
 async def test_open_twice_is_idempotent(tmp_path):
     path = tmp_path / "sub" / "meetings.db"  # 目录不存在也能建
     first = await Store.open(path, DIMS)
