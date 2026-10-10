@@ -46,10 +46,13 @@ Python 单独使用 `uv run ruff format src tests scripts` 格式化。
 
 1. 小修小补以外的改动，请先开一个议题讨论方案。
 2. 从 `main` 创建分支，每个合并请求只做一件事。
-3. 补充或更新测试。外部服务均通过参数注入，测试中以假实现替代。
+3. 补充或更新 `tests/e2e/` 中的端到端场景（会议页面的行为放在 `client/e2e/`）。
+   不要添加针对单个函数或类的单元测试，见下文。
 4. 行为或配置发生变化时，同时更新 `docs/` 与 `docs/zh-CN/` 下的文档，并在 `CHANGELOG.md` 的
    _Unreleased_ 一节中添加条目。
 5. 确认 CI 通过。`main` 分支受保护：改动一律通过合并请求进入，_All checks_ 任务成功后以 squash 方式合并。
+   CI 只运行改动的文件可能影响到的任务（见 [docs/zh-CN/development.md](docs/zh-CN/development.md#常用命令)），
+   只改文档的合并请求只跑格式检查。
 
 以下规则由测试或评审把关：
 
@@ -60,6 +63,9 @@ Python 单独使用 `uv run ruff format src tests scripts` 格式化。
   不随其他改动顺带完成。
 - `third_party/` 下是上游源码，不做修改。
 - 密钥只通过环境变量名引用。
+- 测试都是端到端的：启动真实应用、以假推理服务替代模型，或在浏览器里操作构建好的页面。不接受单元测试，
+  包括开发时“先写测试再写代码”留下的测试；唯一的例外是运行中的系统发现不了的仓库规则检查
+  （如 `tests/test_repository_rules.py`），并且要在 PR 说明里写明理由。
 
 ## 提交说明
 

@@ -73,6 +73,11 @@ model endpoints you configure, which can be on the same machine or elsewhere on 
   or a ZIP archive with screenshots and task artifacts.
 - **Graceful degradation** — transcription keeps running when the LLM, TTS, embedding or
   diarization service is unavailable.
+- **Shared access** — an optional access password, TURN for networks where direct connections
+  fail, a [deployment guide](docs/deployment.md) for HTTPS behind a reverse proxy, and health and
+  metrics endpoints for monitoring.
+- **Data retention** — optional retention periods for transcripts, screenshots, reports and task
+  files, a Keep flag for meetings that must stay, and complete deletion of a meeting.
 
 ## How it works
 
@@ -199,21 +204,24 @@ Full results and methodology are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Project status
 
-The current release is 0.1.1. The project is at an early stage and changes quickly.
+The current release is 0.2.0. The project is at an early stage and changes quickly.
 
-- Verified end to end on Windows 11 with NVIDIA GPUs. On Linux the unit-test suite passes, but the
-  full system has not been run there yet; macOS is untested.
+- Verified with real models on Windows 11 with NVIDIA GPUs. The automated end-to-end tests, which
+  run the whole application with fake inference services, pass on Windows and Linux, and the web
+  client is tested in Chromium, Firefox and WebKit; the full system with real models has not been
+  run on Linux yet, and macOS is untested.
 - The longest continuous run tested so far is 54 minutes.
 - Latency figures were measured with the realtime LLM behind an OpenAI-compatible endpoint; the
-  llama.cpp deployment mode has unit-test coverage but no published benchmark yet.
+  llama.cpp deployment mode is covered by the end-to-end tests but has no published benchmark yet.
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Roadmap
 
-Planned work, in order: an access password and deployment guidance; verified support for more
-platforms and browsers, containers and lower GPU memory requirements; a redesigned and translated
-web client; live watching, per-meeting access and parallel meetings. See [ROADMAP.md](ROADMAP.md).
+Version 0.2 added an access password, deployment guidance, health endpoints and data retention.
+Planned next, in order: verified support for more platforms and browsers, containers and lower GPU
+memory requirements; a redesigned and translated web client; live watching, per-meeting access and
+parallel meetings. See [ROADMAP.md](ROADMAP.md).
 
 ## Contributing
 

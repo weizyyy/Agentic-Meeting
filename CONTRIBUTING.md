@@ -50,11 +50,14 @@ how to test changes that involve real models.
 
 1. Open an issue first for anything larger than a small fix, so the approach can be agreed on.
 2. Create a branch from `main` and keep each pull request focused on one change.
-3. Add or update tests. External services are injected and replaced with fakes in tests.
+3. Add or update end-to-end scenarios in `tests/e2e/` (or `client/e2e/` for the meeting page).
+   Do not add unit tests of single functions or classes; see below.
 4. Update the documentation in both `docs/` and `docs/zh-CN/` when behavior or configuration
    changes, and add an entry under _Unreleased_ in `CHANGELOG.md`.
 5. Make sure CI passes. `main` is protected: changes land through pull requests, which are
-   squash-merged once the _All checks_ job succeeds.
+   squash-merged once the _All checks_ job succeeds. CI runs only the jobs the changed files can
+   affect (see [docs/development.md](docs/development.md#commands)); a documentation-only pull
+   request runs just the formatting check.
 
 A few project rules are enforced by tests or review:
 
@@ -65,6 +68,10 @@ A few project rules are enforced by tests or review:
   upgraded deliberately, not as a side effect of another change.
 - Files under `third_party/` are upstream sources and are not modified.
 - Secrets are referenced by environment variable name only.
+- Tests are end-to-end: they start the real application with fake inference services, or drive the
+  built page in a browser. Unit tests, including ones written test-first while developing, are not
+  accepted unless they check a repository rule that a running system cannot reveal (like
+  `tests/test_repository_rules.py`) and the pull request explains why.
 
 ## Commit messages
 

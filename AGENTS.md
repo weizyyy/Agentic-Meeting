@@ -30,8 +30,16 @@ npm ci
 npm run build                              # type-check and bundle
 ```
 
-Run all of the above before you report a change as finished. CI runs the same commands on Windows
-and Linux with Python 3.12, 3.13 and 3.14, so avoid platform-specific paths and shell syntax in code and tests.
+Run all of the above before you report a code change as finished. CI runs the same commands on
+Windows and Linux with Python 3.12, 3.13 and 3.14, so avoid platform-specific paths and shell syntax
+in code and tests.
+
+CI runs only the jobs the changed files can affect; the table is in
+[docs/development.md](docs/development.md#commands). Prettier always runs, a documentation-only
+change runs nothing else, and prompts under `config/prompts/` count as server code. Check locally
+the same way: a documentation-only change needs only `npm run format:check`. When you add a
+top-level file or directory, add it to the classification in `.github/workflows/ci.yml`; until then
+it runs every job. Keep a change's documentation in the same pull request as its code.
 
 ## Where things are
 
@@ -85,6 +93,12 @@ Read these before changing behavior:
    (`active`, `managed`, `request_extra_body()`, `cache_warm`, `supports_developer_role`).
 9. **Document interfaces first.** A change to a data format, configuration key, HTTP endpoint or
    message is made in `docs/interfaces.md` before the code.
+10. **Tests are end-to-end; do not add unit tests.** A pull request adds or changes scenarios in
+    `tests/e2e/` or `client/e2e/` and nothing else under test. Do not write tests first for single
+    functions, classes or helpers, and do not keep the unit tests you wrote while developing. The
+    only exception is a repository rule that a running system cannot reveal, like the checks in
+    `tests/test_repository_rules.py`; explain in the pull request why it is needed. Pull requests
+    with other unit tests are asked to remove them.
 
 ## Things that need the user's go-ahead
 
@@ -137,11 +151,12 @@ client (`client/src/protocol.ts`, `api.ts`) together, with an end-to-end test in
 
 Tests are end-to-end scenarios: start the application with the `start_app` fixture in
 `tests/e2e/conftest.py`, script the fake inference services in `tests/e2e/inference.py`, and drive
-it through HTTP and `tests/e2e/meeting_client.py` (WebRTC with a real speech recording). Do not add
-unit tests of single functions or classes. Do not add tests that require a GPU, weights or network
-access unless they are marked `@pytest.mark.gpu`. Behavior that only shows in the meeting page
-belongs in the Playwright suite under `client/e2e/` (`npm run test:e2e --prefix client`, see
-[docs/development.md](docs/development.md)); it serves the built client from `tests/browser/server.py`.
+it through HTTP and `tests/e2e/meeting_client.py` (WebRTC with a real speech recording). A test
+describes what a user or operator sees, not how a function is built (hard rule 10). Do not add
+tests that require a GPU, weights or network access unless they are marked `@pytest.mark.gpu`.
+Behavior that only shows in the meeting page belongs in the Playwright suite under `client/e2e/`
+(`npm run test:e2e --prefix client`, see [docs/development.md](docs/development.md)); it serves the
+built client from `tests/browser/server.py`.
 
 ## Before you finish
 

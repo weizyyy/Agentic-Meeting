@@ -15,6 +15,57 @@ permissions:
   contents: read
 
 jobs:
+  # Decides from the changed files which test jobs a change needs; the Prettier check always runs.
+  # A path that is not listed, a workflow change, or a change set that cannot be listed runs every
+  # job.
+  changes:
+    name: Classify changes
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.classify.outputs.python }}
+      client: ${{ steps.classify.outputs.client }}
+      browser: ${{ steps.classify.outputs.browser }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Decide which test jobs are needed
+        id: classify
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # A pull request is checked out as a merge commit whose first parent is the base branch.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then base=HEAD^1; else base="$BEFORE"; fi
+          python=false client=false browser=false
+          if changed=$(git diff --name-only "$base" HEAD); then
+            while IFS= read -r path; do
+              case "$path" in
+                "") ;;
+                # Server code and runtime input: Python suite and the browser tests' real server.
+                src/* | config/* | pyproject.toml | uv.lock | .python-version)
+                  python=true browser=true ;;
+                # The browser tests' server is also linted with the Python suite.
+                tests/browser/*) python=true browser=true ;;
+                # Python tests, scripts (linted and rule-checked), fixtures from submodules.
+                tests/* | scripts/* | third_party/* | runtimes.lock.toml) python=true ;;
+                client/e2e/* | client/playwright.config.ts) browser=true ;;
+                client/*) client=true browser=true ;;
+                # Documentation, formatter settings and files no test reads: Prettier only.
+                docs/* | *.md | LICENSE | .github/ISSUE_TEMPLATE/* | .github/dependabot.yml) ;;
+                package.json | package-lock.json | .prettierrc.json | .prettierignore) ;;
+                .pre-commit-config.yaml | .gitignore | .env.example | docker/*) ;;
+                *) python=true client=true browser=true ;;
+              esac
+            done <<< "$changed"
+            printf '%s\n' "$changed"
+          else
+            echo "Cannot list the changed files; running every job."
+            python=true client=true browser=true
+          fi
+          echo "python=$python client=$client browser=$browser" | tee -a "$GITHUB_STEP_SUMMARY"
+          printf 'python=%s\nclient=%s\nbrowser=%s\n' "$python" "$client" "$browser" >> "$GITHUB_OUTPUT"
+
   formatting:
     name: Prettier
     runs-on: ubuntu-latest
@@ -35,6 +86,8 @@ jobs:
 
   python:
     name: Python ${{ matrix.python }} (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -70,6 +123,8 @@ jobs:
 
   client:
     name: Web client
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -91,6 +146,8 @@ jobs:
 
   e2e:
     name: Browser end-to-end
+    needs: changes
+    if: needs.changes.outputs.browser == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -149,13 +206,19 @@ jobs:
           if-no-files-found: ignore
 
   # The only check required by the branch ruleset, so the job matrix can change without
-  # touching repository settings.
+  # touching repository settings. A skipped job counts as passed only when the classification said
+  # the change does not need it.
   all-checks:
     name: All checks
     if: always()
-    needs: [formatting, python, client, e2e]
+    needs: [changes, formatting, python, client, e2e]
     runs-on: ubuntu-latest
     steps:
-      - name: Fail unless every job succeeded
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+      - name: Fail unless every needed job succeeded
+        if: >-
+          needs.changes.result != 'success' ||
+          contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') ||
+          (needs.python.result == 'skipped' && needs.changes.outputs.python != 'false') ||
+          (needs.client.result == 'skipped' && needs.changes.outputs.client != 'false') ||
+          (needs.e2e.result == 'skipped' && needs.changes.outputs.browser != 'false')
         run: exit 1

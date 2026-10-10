@@ -9,6 +9,7 @@
 ## Checklist
 
 - [ ] `uv run pytest` and `uv run ruff check src tests scripts` pass
+- [ ] Tests are end-to-end scenarios in `tests/e2e/` or `client/e2e/`; no unit tests were added (or the summary explains why one is needed)
 - [ ] `uv run ruff format --check src tests scripts` and root `npm run format:check` pass
 - [ ] `npm run build` passes in `client/` (if the web client changed)
 - [ ] Documentation is updated in both `docs/` and `docs/zh-CN/` (if behavior or configuration changed)
