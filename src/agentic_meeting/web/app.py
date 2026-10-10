@@ -229,7 +229,7 @@ def create_app(
         # 同一局域网内不需要 ICE 服务器，留空即可。
         ice_servers = [IceServer(urls=url) for url in cfg.server.ice_servers]
         app.state.handler = handler or SmallWebRTCRequestHandler(ice_servers=ice_servers or None)
-        app.state.health.start(the_store)
+        app.state.health.start(the_store, screen_caption_enabled=captions.enabled)
         try:
             yield
         finally:
