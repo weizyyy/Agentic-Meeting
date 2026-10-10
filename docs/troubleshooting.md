@@ -24,6 +24,10 @@ already in use by a previous run.
 **Another device cannot use the microphone or share its screen.** Browsers require HTTPS for both.
 See [Access from other devices](getting-started.md#access-from-other-devices).
 
+**Another device opens the page but cannot connect, or the instance runs behind a reverse proxy.**
+See the troubleshooting section of the [deployment guide](deployment.md#5-troubleshooting): ICE
+failures, TURN, proxy headers and upload limits.
+
 **The page keeps asking for the password, or says there were too many attempts.** The password is
 read from the variable named by `server.password_env` when the application starts; restart it after
 changing `.env`. After 5 wrong attempts from one address within 5 minutes, logins from that address
