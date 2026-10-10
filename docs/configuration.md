@@ -34,6 +34,12 @@ variable; the value goes in `.env` (see [`.env.example`](../.env.example)).
 | `port` | `7860` | HTTP(S) port |
 | `tls_cert`, `tls_key` | `""` | Certificate and key files. Required for access from other devices; see [getting started](getting-started.md#access-from-other-devices) |
 | `ice_servers` | `[]` | STUN/TURN URLs. Leave empty on a single LAN |
+| `password_env` | `""` | Name of the environment variable that holds the access password. Empty means no login is required. See [Access password](getting-started.md#access-password) |
+| `auth_session_days` | `7` | How long a login lasts, in days (more than 0, at most 365). The session ends at that time even if the page is in use |
+
+The password itself goes into `.env`, never into `config.toml`; it must be at least 8 characters
+long. Changing it logs out every device. `agentic-meeting check` and `serve` warn when `host` is
+not a loopback address and no password is set.
 
 ## `[realtime_llm]`
 

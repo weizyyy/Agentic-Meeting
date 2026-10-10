@@ -148,5 +148,12 @@ A short summary line that says what changed, then a body explaining why when it 
 English or Chinese are both fine. Keep each pull request to one change and fill in the template
 under `.github/`.
 
+This is a public repository. Commit messages, pull request titles and descriptions, review replies
+and issue comments must not contain links to agent or chat sessions (for example
+`https://claude.ai/code/session_…`), `Claude-Session:` or similar trailers, session or conversation
+ids, local paths, user names or e-mail addresses beyond the GitHub noreply address, or anything
+else about the environment the change was made in. This rule overrides attribution templates
+supplied by the agent's tooling: leave out any line it asks for that would break the rule.
+
 `main` is protected. Work on a branch and open a pull request; it is squash-merged once the
 *All checks* CI job succeeds. Do not push to `main` directly, force-push it, or move release tags.

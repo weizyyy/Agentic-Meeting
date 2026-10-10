@@ -24,7 +24,7 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
 | 配置段 | 内容 |
 |---|---|
 | `session` | 助理名字（即唤醒词，必须是英文单词）、别名（`wake_aliases`：识别把名字写成的其他拼写，或听成的至少两个汉字；只用来唤醒，不作为识别热词）、识别热词、成员名单、数据目录 |
-| `server` | 监听地址与端口、HTTPS 证书、ICE 服务器 |
+| `server` | 监听地址与端口、HTTPS 证书、ICE 服务器、访问口令与登录有效期 |
 | `realtime_llm` | 接入方式 `mode`，以及两种方式各自的一整套设置：`[realtime_llm.llama_server]`（地址、模型名字段、是否识图、思考开关、采样参数、槽位分工、启动参数）和 `[realtime_llm.openai_api]`（地址、密钥变量名、模型名、是否识图、是否认识 developer 角色、是否预热、附加请求字段、采样参数） |
 | `asr` | 识别后端、提示词格式档案、步长与窗口、每步不定稿的 token 数、句首回补时长（`preroll_ms`，默认 1500 毫秒）、启动参数 |
 | `diarization` | 后端、动态库路径、权重路径、显卡序号、分段阈值 |
@@ -456,6 +456,7 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 除信令外，全部是 JSON；错误统一返回 `{"error": "<中文说明>"}` 和合适的状态码。
 开发时前端跑在 5173 端口并把 `/api` 代理到应用（见 `client/vite.config.ts`）。
+配置了访问口令时，除 §5.7 列出的接口外，全部接口都要求先登录（§5.7）。
 
 ### 5.1 会话与对时
 
@@ -655,6 +656,43 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 - `report.provider = "agent_llm"` 时用后台 agent 的那个远端模型，`check_warnings` 会提示整场会议的转录要发往那个地址。
 
 生成中的报告页面每 2 秒轮询一次 `GET /api/sessions/{id}/report`，不依赖音频连接。页面上，字幕区上方有「字幕 / 报告」两个页签。
+
+### 5.7 访问口令
+
+需要显式开启。`server.password_env` 留空（默认）时以下内容都不生效：`/api` 不设限，
+`GET /api/auth` 返回 `enabled: false`。填写后，启动时从这个环境变量读取口令，`web/auth.py` 里的中间件
+拦住 `/api/` 下除 `GET /api/auth` 和 `POST /api/auth/login` 以外的全部路径。静态页面（`/`、`/assets/…`）
+不拦截，里面没有会议数据。
+
+| 方法与路径 | 请求 | 响应 |
+|---|---|---|
+| `GET /api/auth` | — | `{"enabled", "authenticated", "csrf_token"}`；未登录或未启用口令时 `csrf_token` 为 `null` |
+| `POST /api/auth/login` | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}`，并下发会话 Cookie。口令不对 401；尝试过多 429，`Retry-After` 给出秒数；未启用口令 404 |
+| `POST /api/auth/logout` | — | `{"enabled": true, "authenticated": false, "csrf_token": null}`，并清除 Cookie |
+
+**受保护的请求。** 没有有效的会话 Cookie 时返回 401 `{"error": "请先登录"}`。`POST`、`PUT`、`PATCH`、
+`DELETE` 还要求请求头 `X-CSRF-Token` 等于当前会话的令牌，否则 403。`POST`/`PATCH /api/offer` 也不例外：
+客户端把这个请求头交给 WebRTC SDK，SDK 在发送 offer 和 ICE 候选时一并带上。`GET` 和 `HEAD`
+只需要 Cookie，所以 `<img>` 图片和下载链接照常可用。
+
+**会话 Cookie。** 名为 `am_session`，属性 `HttpOnly; SameSite=Strict; Path=/`，`Max-Age` 为
+`server.auth_session_days`，请求经由 HTTPS 到达时加 `Secure`。取值为 `<到期时刻，Unix 秒>.<随机数>.<签名>`，
+签名是对前两段做的 HMAC-SHA256。到期即失效，不做滑动续期。
+
+**密钥。** 首次启动时生成 32 字节随机密钥写入 `<data_dir>/auth_secret`（仅属主可读）。启动时用 scrypt
+（`n=2^14, r=8, p=1`）对口令做一次拉伸，以该随机密钥为盐；签名密钥是拉伸结果的 HMAC-SHA256。因此修改口令或删除
+这个文件都会让所有设备退出登录；即使 Cookie 和随机密钥同时泄露，每猜一次口令也要完整算一次 scrypt。CSRF 令牌是用同一密钥
+对会话随机数做的 HMAC-SHA256，不在任何地方存储。
+
+**登录尝试。** 每次尝试都用同样的 scrypt 参数拉伸（在工作线程里做，同时最多 4 个），再按恒定时间比较。同一客户端地址在任意 5 分钟内最多失败 5 次；超过后返回 429，
+直到最早的那次失败移出时间窗口。登录成功会清零该地址的计数。在反向代理之后，只有 uvicorn 信任该代理时
+（`--forwarded-allow-ips`，默认 `127.0.0.1`）才从 `X-Forwarded-For` 取客户端地址。
+
+**启动检查。** 填写了口令变量名但变量未设置、或口令短于 8 个字符时，`check_ready` 会列为缺项。
+`server.host` 不是回环地址又没有配置口令时，`server_warnings(cfg)` 返回一条提醒，由 `check` 和 `serve`
+打印；这条提醒不发给浏览器。
+
+已经建立的 WebRTC 连接不会因为 Cookie 到期或在别处退出登录而中断；之后的 HTTP 请求会被拒绝。
 
 ## 6. 数据通道消息
 

@@ -33,6 +33,11 @@
 | `port` | `7860` | HTTP(S) 端口 |
 | `tls_cert`、`tls_key` | `""` | 证书与私钥文件。其他设备访问时必需，见[入门指南](getting-started.md#从其他设备访问) |
 | `ice_servers` | `[]` | STUN/TURN 地址。同一局域网内留空 |
+| `password_env` | `""` | 存放访问口令的环境变量名。留空表示不需要登录。见[访问口令](getting-started.md#访问口令) |
+| `auth_session_days` | `7` | 登录一次的有效天数（大于 0，最多 365）。到期即需重新登录，即使页面一直开着 |
+
+口令本身写在 `.env` 里，不写进 `config.toml`，至少 8 个字符。修改口令后所有设备都要重新登录。
+`host` 不是回环地址又没有设置口令时，`agentic-meeting check` 和 `serve` 会给出提醒。
 
 ## `[realtime_llm]`
 

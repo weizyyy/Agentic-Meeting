@@ -16,6 +16,7 @@ from agentic_meeting.config import (
     check_warnings,
     load_config,
     secret,
+    server_warnings,
 )
 
 
@@ -391,3 +392,47 @@ def test_transcript_section_defaults_and_validation():
         data["transcript"][key] = bad
         with pytest.raises(ValidationError):
             AppConfig.model_validate(data)
+
+
+# ---- 访问口令 ----
+
+
+def test_access_password_is_opt_in_and_read_from_the_environment(monkeypatch):
+    cfg = load_config(EXAMPLE_CONFIG_PATH)
+    assert (cfg.server.password_env, cfg.server.auth_session_days) == ("", 7)
+    data = example_dict()
+    data["server"]["password_env"] = "FAKE_MEETING_PASSWORD"
+    configured = AppConfig.model_validate(data)
+    monkeypatch.delenv("FAKE_MEETING_PASSWORD", raising=False)
+    assert any("FAKE_MEETING_PASSWORD" in p for p in check_ready(configured))
+    monkeypatch.setenv("FAKE_MEETING_PASSWORD", "short")
+    assert any("太短" in p for p in check_ready(configured))
+    monkeypatch.setenv("FAKE_MEETING_PASSWORD", "long enough")
+    assert not any("password_env" in p for p in check_ready(configured))
+    for bad in (0, -1, 400):
+        data = example_dict()
+        data["server"]["auth_session_days"] = bad
+        with pytest.raises(ValidationError):
+            AppConfig.model_validate(data)
+
+
+@pytest.mark.parametrize(
+    ("host", "password_env", "warned"),
+    [
+        ("0.0.0.0", "", True),
+        ("192.168.1.20", "", True),
+        ("0.0.0.0", "FAKE_MEETING_PASSWORD", False),
+        ("127.0.0.1", "", False),
+        ("localhost", "", False),
+        ("::1", "", False),
+    ],
+)
+def test_listening_beyond_this_machine_without_a_password_is_warned(host, password_env, warned):
+    data = example_dict()
+    data["server"].update(host=host, password_env=password_env)
+    warnings = server_warnings(AppConfig.model_validate(data))
+    assert bool(warnings) == warned
+    if warned:
+        assert host in warnings[0] and "password_env" in warnings[0]
+    # 这条只在命令行打印，不混进发给浏览器的那组提醒
+    assert not any("口令" in w for w in check_warnings(AppConfig.model_validate(data)))

@@ -23,6 +23,7 @@ from agentic_meeting.config import (
     check_warnings,
     load_config,
     load_env_file,
+    server_warnings,
 )
 from agentic_meeting.services.paths import find_executable
 from agentic_meeting.services.supervisor import (
@@ -63,7 +64,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     print(
         f"实时模型接入方式：{cfg.realtime_llm.mode}（{endpoint.base_url}，模型 {endpoint.model or '未填'}）"
     )
-    for warning in check_warnings(cfg):
+    for warning in [*server_warnings(cfg), *check_warnings(cfg)]:
         print(f"提醒：{warning}")
 
     problems = check_ready(cfg)
@@ -265,6 +266,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     cfg = _load_cfg(args.config)
     if cfg is None:
         return 2
+    for warning in server_warnings(cfg):
+        print(f"提醒：{warning}")
     if not _check_before_start(cfg):
         return 1
 

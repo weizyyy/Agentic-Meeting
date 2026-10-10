@@ -26,7 +26,7 @@ The source of truth is the pydantic model in
 | Section | Contents |
 |---|---|
 | `session` | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory |
-| `server` | Bind address and port, TLS certificate, ICE servers |
+| `server` | Bind address and port, TLS certificate, ICE servers, access password and login duration |
 | `realtime_llm` | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]` |
 | `asr` | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings |
 | `diarization` | Backend, library path, model path, GPU index, segmentation thresholds |
@@ -520,7 +520,8 @@ Details of `TranscriptAssembler`:
 
 All endpoints except signaling exchange JSON. Errors are returned as `{"error": "<message>"}` with
 an appropriate status code; messages are in Chinese. During development the client runs on port
-5173 and proxies `/api` to the application (`client/vite.config.ts`).
+5173 and proxies `/api` to the application (`client/vite.config.ts`). When an access password is
+configured, every endpoint except those of §5.7 requires a login (§5.7).
 
 ### 5.1 Sessions and clock synchronization
 
@@ -733,6 +734,52 @@ assistant's name and `-2` the name "文字输入".
 - With `report.provider = "agent_llm"` the agent model is used, and `check_warnings` reports that
   the transcript will be sent to that endpoint.
 - The page polls `GET /api/sessions/{id}/report` every 2 s while a report is running.
+
+### 5.7 Access password
+
+Opt-in. With `server.password_env` empty (the default) nothing below applies: `/api` is open and
+`GET /api/auth` reports `enabled: false`. With it set, the password is read from that environment
+variable at startup, and the middleware in `web/auth.py` guards every path under `/api/` except
+`GET /api/auth` and `POST /api/auth/login`. The static site (`/`, `/assets/…`) stays public; it
+contains no meeting data.
+
+| Method and path | Request | Response |
+|---|---|---|
+| `GET /api/auth` | — | `{"enabled", "authenticated", "csrf_token"}`; `csrf_token` is `null` when not logged in or when the password is disabled |
+| `POST /api/auth/login` | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}` and the session cookie. 401 wrong password; 429 too many attempts, with `Retry-After` in seconds; 404 when the password is disabled |
+| `POST /api/auth/logout` | — | `{"enabled": true, "authenticated": false, "csrf_token": null}`; the cookie is cleared |
+
+**Guarded requests.** Without a valid session cookie the response is 401 `{"error": "请先登录"}`.
+`POST`, `PUT`, `PATCH` and `DELETE` additionally need the header `X-CSRF-Token` with the token of
+the current session, otherwise 403. This includes `POST`/`PATCH /api/offer`: the client passes the
+header to the WebRTC SDK, which sends it with the offer and the ICE candidates. `GET` and `HEAD`
+need only the cookie, so `<img>` sources and download links keep working.
+
+**Session cookie.** Name `am_session`, attributes `HttpOnly; SameSite=Strict; Path=/`, `Max-Age`
+of `server.auth_session_days`, and `Secure` when the request arrived over HTTPS. The value is
+`<expiry, Unix seconds>.<random nonce>.<signature>`, where the signature is HMAC-SHA256 over the
+first two fields. The session expires at the stated time; there is no sliding renewal.
+
+**Keys.** On first start a random 32-byte secret is written to `<data_dir>/auth_secret` (readable
+by the owner only). The password is stretched once at startup with scrypt (`n=2^14, r=8, p=1`),
+salted with the secret; the signing key is HMAC-SHA256 of that result. Changing the password
+therefore logs out every device, and so does deleting the file; a leaked cookie together with the
+secret still makes each password guess cost a full scrypt evaluation. The CSRF token is HMAC-SHA256 of
+the session nonce under the same key; it is not stored anywhere.
+
+**Login attempts.** Each attempt is stretched with the same scrypt parameters (in a worker thread,
+at most 4 at a time) and compared in constant time. At most 5 failed attempts per client
+address are allowed in any 5-minute window; further attempts receive 429 until the oldest failure
+leaves the window. A successful login clears the count for that address. Behind a reverse proxy the
+client address comes from `X-Forwarded-For` only when uvicorn trusts the proxy
+(`--forwarded-allow-ips`, by default `127.0.0.1`).
+
+**Startup checks.** `check_ready` reports a password variable that is named but unset or shorter
+than 8 characters. `server_warnings(cfg)` returns a warning when `server.host` is not a loopback
+address and no password is configured; `check` and `serve` print it. It is not sent to the browser.
+
+A WebRTC connection that is already established is not interrupted when its cookie expires or the
+user logs out elsewhere; the next HTTP request is refused.
 
 ## 6. Data-channel messages
 

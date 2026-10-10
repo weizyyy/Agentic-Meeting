@@ -51,9 +51,9 @@ model endpoints you configure, which can be on the same machine or elsewhere on 
 `agentic-meeting check` lists where data will go.
 
 > [!IMPORTANT]
-> There is no sign-in yet. Use Agentic-Meeting on the local machine or on a network you control,
-> and do not expose it to the internet. An access password is the first item on the
-> [roadmap](ROADMAP.md).
+> Sign-in is off by default. Use Agentic-Meeting on the local machine or on a network you control,
+> set an [access password](docs/getting-started.md#access-password) when others share that
+> network, and do not expose it to the internet.
 
 ## Features
 

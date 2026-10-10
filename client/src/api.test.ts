@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ApiError, createApi } from "./api.ts";
+import { AuthSession, CSRF_HEADER } from "./auth.ts";
 
 interface Call {
   url: string;
@@ -218,4 +219,28 @@ test("改发言人：已有的说话人给编号，新建的给名字", async ()
     ids: [7],
     new_speaker: "张老师",
   });
+});
+
+test("登录之后：改动性的请求带 CSRF 令牌，读取不带；401 通知页面重新登录", async () => {
+  const session = new AuthSession();
+  session.setToken("tok");
+  let expired = 0;
+  session.onUnauthorized(() => expired++);
+  const { fn, calls } = fakeFetch((call) =>
+    call.url === "/api/tasks/x/cancel"
+      ? ok({ error: "请先登录" }, 401)
+      : ok({ id: "s1", title: "t", items: [] }),
+  );
+  const api = createApi(fn, session);
+  await api.renameSession("s1", "t");
+  await api.listSessions();
+  await assert.rejects(
+    api.cancelTask("x"),
+    (e: unknown) => e instanceof ApiError && e.status === 401,
+  );
+  assert.equal(new Headers(calls[0].init?.headers).get(CSRF_HEADER), "tok");
+  assert.equal(new Headers(calls[0].init?.headers).get("content-type"), "application/json");
+  assert.equal(new Headers(calls[1].init?.headers).has(CSRF_HEADER), false);
+  assert.equal(expired, 1);
+  assert.equal(session.csrfToken, null);
 });

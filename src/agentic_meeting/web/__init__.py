@@ -6,4 +6,5 @@ frames_api.py    截图上传与读取
 tasks_api.py     后台任务
 reports_api.py   会后报告
 export.py        导出（Markdown / JSON / 压缩包）
+auth.py          访问口令：登录、会话 Cookie、CSRF、登录限速
 """

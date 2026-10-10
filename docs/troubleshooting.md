@@ -23,6 +23,12 @@ already in use by a previous run.
 **Another device cannot use the microphone or share its screen.** Browsers require HTTPS for both.
 See [Access from other devices](getting-started.md#access-from-other-devices).
 
+**The page keeps asking for the password, or says there were too many attempts.** The password is
+read from the variable named by `server.password_env` when the application starts; restart it after
+changing `.env`. After 5 wrong attempts from one address within 5 minutes, logins from that address
+are refused until the oldest attempt is 5 minutes old. Over plain HTTP from another device the login
+works but the password is not encrypted; use HTTPS.
+
 **Inference processes are left running after a crash.** On Windows and Linux the operating system
 ends them when the application process disappears. macOS has no equivalent mechanism; stop
 `llama-server` and `tts-server` manually.

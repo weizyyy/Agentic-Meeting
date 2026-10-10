@@ -66,6 +66,9 @@ A few project rules are enforced by tests or review:
 Write a short summary line that says what changed, followed by a body explaining why when it is not
 obvious. Either English or Chinese is fine.
 
+The repository is public. Keep commit messages and pull request text free of links to AI tool
+sessions, session ids, local paths and personal contact details.
+
 ## License
 
 By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE).
