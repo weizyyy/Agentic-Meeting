@@ -60,6 +60,8 @@ you!
   were removed. ([#41]; browser suite [#43] and condition-based waits [#39] by [@gad-en1nd])
 - A pinned repository-wide Prettier formatter for client code, JSON, YAML and Markdown, with shared
   configuration, `npm run format` / `npm run format:check`, pre-commit and CI checks. ([#31])
+- `SECURITY.md` lists the supported versions and covers the anonymous health endpoints, TURN
+  credentials, the deployment checklist and the limits of deletion.
 
 ### Fixed
 
