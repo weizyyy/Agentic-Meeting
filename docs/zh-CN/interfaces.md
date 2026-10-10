@@ -37,6 +37,7 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
 | `transcript`   | 发言怎么分条：同一个人两段之间停顿不超过 `merge_gap_secs`（默认 2 秒，0 = 不并）就并成一条；一条已有 `merge_soft_chars`（40）个字并且停在句末时另起一条；一条最多 `merge_max_chars`（200）个字。整段可以不写                                                                                                                                                                                                              |
 | `report`       | 会后报告由谁写（`provider`：`realtime_llm` 或 `agent_llm`，默认前者）、一次请求最多放多少字的转录（`max_input_chars`，默认 8000，超过就分段提要点再合并）。整段可以不写                                                                                                                                                                                                                                                   |
 | `agent`        | 远端模型地址与密钥变量名、每个请求都并入的字段（`extra_body`，一般用来指定思考的强度，如 `{ reasoning_effort = "medium" }`；后台任务和直接生成都带）、直接生成（会后报告、滚动纪要、画面摘要）时的输出上限（`generation_max_tokens`，默认 16384；思考也算在里面）、要不要把截图原图也交给它（`attach_frames`，默认否；`max_attached_frames`，默认 40，规则见 architecture.md §5.3）、MCP 服务器列表、沙箱设置、并发与超时 |
+| `retention`    | 独立保留期限及清理周期（§1.1）                                                                                                                                                                                                                                                                                                                                                                                            |
 
 规则：
 
@@ -62,11 +63,30 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
   `config/asr_profiles/*.toml`（由 `load_asr_profile()` 读取）；各类提示词放在 `config/prompts/*.md`。
   `tests/test_config.py` 里有一条测试会扫描 `src/`，发现模型名即失败。
 
+### 1.1 保留期限与录制提示
+
+`[retention]` 可省略。四类自动清理各自默认关闭；未配置时已有数据无限期保留。
+取值必须是严格整数（布尔值不算整数）。
+
+| 配置项                  | 默认值 | 范围与含义                        |
+| ----------------------- | ------ | --------------------------------- |
+| `transcript_days`       | `0`    | 0–36500；0 关闭转录清理           |
+| `screenshots_days`      | `0`    | 0–36500；0 关闭截图清理           |
+| `reports_days`          | `0`    | 0–36500；0 关闭报告及滚动纪要清理 |
+| `task_artifacts_days`   | `0`    | 0–36500；0 关闭任务文件清理       |
+| `cleanup_interval_secs` | `3600` | 60–86400；两轮清理之间的秒数      |
+
+一天严格等于 86400 秒，使用服务端 UTC Unix 时间戳比较（§8.4）。0 不表示立即删除。
+负数、小数、非有限值和超范围值一律拒绝。这里不配置额外路径、端点或密钥。
+
+`session.recording_notice` 是布尔值，默认 `true`，控制转录连接就绪后发出的信息提示（§6.1）。
+关闭它不会隐藏始终可见的录制状态，也不会关闭转录；它不是同意门槛或连接前弹窗。
+
 ## 2. 数据库
 
 结构定义在 [`src/agentic_meeting/store/schema.sql`](../../src/agentic_meeting/store/schema.sql)。
 数据库文件：`<data_dir>/meetings.db`；截图：`<data_dir>/sessions/<会话id>/frames/<序号>.webp`；
-任务工作目录：`<data_dir>/sessions/<会话id>/tasks/<任务id>/`；日志：`<data_dir>/logs/`。
+任务工作目录：`<data_dir>/sessions/<会话id>/tasks/<短编号>/`；日志：`<data_dir>/logs/`。
 
 ### 2.1 连接初始化
 
@@ -161,6 +181,35 @@ rows = conn.execute(
 - `speakers.idx` 的保留值：`0` 未知、`-1` 助理、`-2` 键入的文字（默认显示名「文字输入」，可改名）；说话人区分的输出从 `1` 起。
 - `utterances.source`：`'asr'`（语音识别）、`'assistant'`（助理自己的话）、`'text'`（浏览器输入框键入）。
 - `tasks.modality`：`'voice'` / `'text'`，委托任务的那一轮是语音还是文字，任务完成后的播报据此决定出不出声。
+
+### 2.6 保留元数据与写回身份
+
+`Store._migrate` 以可重复执行的增量迁移保留旧数据与编号：
+
+| 表                     | 新增列                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| `sessions`             | `keep INTEGER NOT NULL DEFAULT 0`、`deletion_pending INTEGER NOT NULL DEFAULT 0` |
+| `utterances`、`frames` | `write_token TEXT NOT NULL DEFAULT ''`                                           |
+| `reports`              | `write_token TEXT NOT NULL DEFAULT ''`、`finished_at REAL`                       |
+
+`keep`、`deletion_pending` 只存 0/1，新会议都为 0。迁移为 token 为空的旧行分配新的不透明随机
+token，把旧终态报告的 `finished_at` 初始化为 `created_at`（运行中报告保持 null，等启动恢复处理）。
+迁移不清旧数据、不改向量维度；再次开库不改变这些值。
+
+每条新发言、截图、报告都分配新 token；改变发言文字时更换 token 并使旧向量失效。
+异步回调保留领取工作时读到的原 token；写回、失败更新、撤销删除都在 Store 写锁内比较原
+`session_id`、行编号与 token。目标缺失、会议待删除或身份不符就跳过。只检查数字编号不够，
+因为 SQLite 会复用它。跳过后不能发旧摘要、追加旧上下文或重建文件/数据行。
+token 仅供内部使用，不出现在 HTTP、数据通道消息或导出中。
+
+任务编号继续在同一会议内递增。任务文件过期后任务行仍保留，因此原有最大编号分配不会复用
+过期任务的短编号或目录。完整删除会议才删除全部任务；新会议使用新的会议编号。
+
+发言与截图编号在全库单调递增，类别/完整会议删除也不复用。既有 `meta` 表用
+`utterances_id_high_water`、`frames_id_high_water` 存十进制高水位。迁移至少初始化为现存最大编号
+及保留引用的最大值（`digests.last_utterance_id` 或任务截图编号）。分配时在同一 Store 锁和事务内
+推进高水位并显式 INSERT 编号；回滚/重启保持有效高水位，删除不得降低它。
+这样才能保留 HTTP `after_id`、纪要游标及历史任务外发截图引用；仅 token 校验不能保护这些持久引用。
 
 ## 3. 流式识别
 
@@ -462,22 +511,33 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 ### 5.1 会话与对时
 
-| 方法与路径                                           | 请求               | 响应                                                                                                                         |
-| ---------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/time`                                      | —                  | `{"server_time": <Unix 秒，浮点>}`                                                                                           |
-| `GET /api/sessions?limit=20&before=<last_active_at>` | —                  | `{"items": [会话摘要]}`，按 `last_active_at` 倒序；`before` 用来翻页                                                         |
-| `GET /api/sessions/{id}`                             | —                  | 会话摘要 + `"screen": {配置的 screen 段}` + `"connections": [{connected_at, disconnected_at, t_from, t_to}]`；不存在返回 404 |
-| `GET /api/session`                                   | —                  | 「当前会话」：活动连接所在的会话；没有就取最近一个未结束的；都没有返回 404。格式同上                                         |
-| `PATCH /api/sessions/{id}`                           | `{"title": "..."}` | 更新后的会话摘要                                                                                                             |
-| `POST /api/sessions/{id}/end`                        | —                  | `{"id", "ended_at"}`。会话正在进行时同时断开它的连接，并在后台生成最后一份滚动纪要（响应不等它）                             |
-| `POST /api/session/end`                              | —                  | 同上，作用于当前会话                                                                                                         |
-| `DELETE /api/sessions/{id}`                          | —                  | `{"id"}`。连同截图文件和任务目录一起删；会话正在进行返回 409                                                                 |
+| 方法与路径                                           | 请求                  | 响应                                                                                                                         |
+| ---------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/time`                                      | —                     | `{"server_time": <Unix 秒，浮点>}`                                                                                           |
+| `GET /api/sessions?limit=20&before=<last_active_at>` | —                     | `{"items": [会话摘要]}`，按 `last_active_at` 倒序；`before` 用来翻页                                                         |
+| `GET /api/sessions/{id}`                             | —                     | 会话摘要 + `"screen": {配置的 screen 段}` + `"connections": [{connected_at, disconnected_at, t_from, t_to}]`；不存在返回 404 |
+| `GET /api/session`                                   | —                     | 「当前会话」：活动连接所在的会话；没有就取最近一个未结束的；都没有返回 404。格式同上                                         |
+| `PATCH /api/sessions/{id}`                           | `{"title"?, "keep"?}` | 更新后的会话摘要；标题去首尾空白、最长 200 字；keep 是布尔值                                                                 |
+| `POST /api/sessions/{id}/end`                        | —                     | `{"id", "ended_at"}`。会话正在进行时同时断开它的连接，并在后台生成最后一份滚动纪要（响应不等它）                             |
+| `POST /api/session/end`                              | —                     | 同上，作用于当前会话                                                                                                         |
+| `DELETE /api/sessions/{id}`                          | —                     | 数据库、向量、文件完整移除后才返回 `{"id"}`；忙时 409，删除失败 500（§8.4）                                                  |
 
-**会话摘要**：`{"id", "title", "started_at", "ended_at", "last_active_at", "state": "live" | "interrupted" | "ended",
+**会话摘要**：`{"id", "title", "keep": <boolean>, "deletion_pending": <boolean>, "started_at", "ended_at", "last_active_at", "state": "live" | "interrupted" | "ended",
 "duration_secs", "utterance_count", "speakers": ["王老师", …], "preview": [{"speaker", "text"}（最后两条发言）]}`。
 `duration_secs` 是各次连接实际时长之和，不含中断的空档；正在进行的那一段算到现在。
 
 补充说明（`web/sessions_api.py`）：`GET /api/sessions` 的参数 `limit`（1–500，默认 20）、`before`；列表响应是 `{"items": [...]}`。`GET /api/session` 与 `GET /api/sessions/{id}` 的响应是会话摘要加上 `screen`、`members`（配置里的成员名单，给说话人改名当候选）和 `connections`（`[{connected_at, disconnected_at, t_from, t_to}]`）。`PATCH` 的 `title` 去首尾空白、最长 200 字，返回更新后的会话摘要。`POST …/end` 返回 `{"id", "ended_at"}`；会话正在进行时，先给页面发 `session_closed(reason="ended")`、取消管线、等它收尾，再写 `ended_at`。找不到会议返回 404 `找不到这场会议`；没有任何会议时 `GET /api/session` 返回 404 `现在没有会议`；`DELETE` 一场进行中的会议返回 409。
+
+PATCH 必须是 JSON 对象，至少含 `title`、`keep` 中一个，不能含未知字段。`keep` 只接受 JSON
+`true`/`false`，不接受 null、数字或字符串。只改 keep 保留原标题，只改 title 保留 keep；同时改两者
+是原子的。无效请求返回 400 且不改数据，未知会议返回 404。进行中的会议也可改 keep。
+keep 豁免全部四类自动清理，但不拦截人工删除。
+
+待删除会议仍出现在列表/详情中，让页面标明**待删除**；摘要与详情可读，`deletion_pending=true`，
+内容可能已经部分移除。读取内容/下载/导出、PATCH、结束、新报告/任务与继续返回 409。
+页面禁用这些操作，保留重试 DELETE，删除失败后刷新列表/详情。keep 不能撤销待删除。
+完整删除成功返回 200 `{"id"}`；再次删除已完整移除的编号返回 404；同编号已被另一轮删除持有时返回 409。
+鉴权与 CSRF 仍遵循 §5.7。没有活动会议时，「当前会话」查询跳过待删除会议。
 
 对时：浏览器记下发请求前后的本地时间 `t0`、`t1`，则「服务端时间 − 本地时间」的偏移量
 ≈ `server_time − (t0 + t1) / 2`。连接建立时测 3 次取往返最短的一次。
@@ -549,7 +609,7 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
   但不再追加上下文行；上一张没有成功的摘要时，它当作新画面重做（相当于每个兜底间隔重试一次）。
   摘要是「无关画面」时不进上下文。会议已经换了一场时，摘要只入库，不推给新的会议。
   `screen.caption_provider = "agent_llm"` 时由后台 agent 的那个模型生成（要求 `agent.supports_vision`，且地址和模型名已填）。
-- 图片响应带 `Cache-Control: private, no-cache`：删掉会议后新截图可能复用旧编号，不能让浏览器把图片当成永久不变的。
+- 图片响应带 `Cache-Control: private, no-cache`：不能把过期或已删除图片当成永久可用的内容继续展示。
 
 ### 5.4 转录与说话人
 
@@ -723,8 +783,21 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 | `task`             | `id, label, goal, status, brief, error, modality, created_at`             | 任务创建或状态变化（`id` 是完整编号，`label` 是会议内的短编号 `t3`）                                                                                                                     |
 | `task_event`       | `task_id, at, kind, summary`                                              | 任务进度                                                                                                                                                                                 |
 | `notice`           | `level`：`info` / `warn` / `error`，`text`                                | 需要让用户知道的提示（如某服务不可用）。实时模型、语音合成的请求出错时，服务端把管线里的错误换成一句中文发出来（`pipeline/errors.py`）；Pipecat 自带的 RTVI `error` 消息页面只显示致命的 |
-| `session`          | `id, title, started_at, resumed, base_secs, state`                        | 连接建立后发一次：这路连接挂在哪个会话上；`resumed` 为真表示是继续，不是新建；`base_secs` 是本次连接的时间轴起点                                                                         |
+| `session`          | `id, title, keep, started_at, resumed, base_secs, state`                  | 连接建立后发一次：所属会话与当前保留标记；`resumed` 表示继续；`base_secs` 是本次连接的时间轴起点                                                                                         |
 | `session_closed`   | `reason`：`taken_over` / `ended` / `server_stopping`                      | 连接即将被服务端关闭的原因（尽力而为地发出），页面据此提示而不是静默变成未连接                                                                                                           |
+
+发送连接就绪消息时，从当前持久状态读取 `session.keep`。`session.recording_notice=true` 时，
+每次连接就绪后在 session 消息之后发送一次现有 `notice`：`level="info"`，
+`text="会议正在转录，发言和共享画面会保存在服务器上"`。新会议与手动继续发送；
+同一路连接重复触发 ready 不重复发送。关闭配置只抑制此提示。锁定 SDK 自动重连不再次触发 RTVI
+client-ready（[pipecat-notes.md](pipecat-notes.md) §12），因此通过既有传输/HTTP 同步恢复状态，
+不重复此提示。不需要新增配置 HTTP 端点；
+会议详情加载失败也不能隐藏录制状态。
+
+客户端录制状态始终可见，独立于助理是否被唤醒或正在说话。只有本机已就绪并登记的转录连接
+显示**正在转录**；连接中/重连中、未连接与只读查看另一条活动连接使用不同状态。
+收到 `session_closed` 即刻清除转录指示，不等待传输断开回调。此状态表示转录，不表示保存原始音频；
+原始麦克风音频不归档。
 
 `segment_id` 是服务端生成的递增整数，一次「开始说话 → 停止说话」内可能因换人而产生多个。
 
@@ -930,6 +1003,71 @@ agent 的最终回答必须是如下 JSON 对象（由 agent 的系统提示词�
 「正在检索「…」」，有 `url` 时是「正在打开「…」」，否则「正在调用工具 xxx」；工具返回只说个大概——
 「工具返回了结果（约 N 字）」「工具返回了错误」「工具没有返回内容」，不朗读原文。沙箱的工具：「正在运行一段代码 / 代码运行完成 / 代码运行超时」「正在写文件」
 「正在查看图片」。另有 `note` 类的提示（沙箱不可用、检索服务连不上）。引用的查询词最多 60 个字。
+
+### 8.4 保留清理与完整删除
+
+**独立类别与时钟。** 每轮只采样一次 UTC `now`，启用类别的 `cutoff = now - days * 86400`；
+仅时间锚点严格小于 cutoff 才过期，等于时保留。
+`inactive_at = max(started_at, last_active_at, ended_at（若有）)` 是会议不活动时间锚点。
+即使墙钟跳向未来，也不清理活动会议或受保护的后台工作。已中断但未结束的会议可以过期，未来时间保留。
+
+| 类别     | 删除集合                                                          | 时间锚点                                                |
+| -------- | ----------------------------------------------------------------- | ------------------------------------------------------- |
+| 转录     | 会议的发言、对应 `utterances_vec` 行及 FTS 项                     | 会议 `inactive_at`                                      |
+| 截图     | 截图行及摘要、应用管理的 `frames/` 子树                           | 会议 `inactive_at`                                      |
+| 报告     | 终态报告行与滚动纪要（`digests`）行                               | 各报告 `finished_at`；各纪要 `created_at`               |
+| 任务产物 | 终态任务的应用管理目录及该任务 `artifacts_json` 列表（清为 `[]`） | 各任务 `finished_at`；旧终态缺此值时回退到 `created_at` |
+
+任务目标、结果、来源、事件及外发元数据（可能含原始会议文字或图像引用）保留到完整删除会议。会议标题、说话人、连接记录、keep
+及其他会议元数据也保留。报告、截图摘要、任务输入副本/结果以及已下载的导出都是独立内容副本：
+转录过期不会清空其他类别。新报告从完成时、新纪要从生成时、任务文件从任务完成时计时，不从会议开始计时。
+保留任务不扫描或删除操作者导出、日志、配置、证书、鉴权密钥、数据库根或模型/运行时目录。
+
+**调度与保护。** 单个 lifespan 持有的清理任务在 Store 迁移及任务/报告启动恢复后跑第一轮，之后每
+`cleanup_interval_secs` 跑一轮。四类期限全为 0 时仍运行以重试待删除的人工请求，但不做类别清理。
+轮次不重叠。每轮最多接纳 50 个候选会议，10 秒后不再启动新的破坏单元；这只是调度限制，
+不承诺能中断已开始的文件系统调用。慢文件工作不占事件循环，实际完成后才能释放所有权。
+一个候选失败不影响后续候选或识别/字幕；跳过/失败的候选在之后重试，不得永远饿死其他过期会议。
+
+SELECT 选中并不等于允许删除。最后 claim 与 begin/attach、keep PATCH、任务提交、报告启动及后台写入
+登记，使用既有 SessionManager 生命周期协调与 Store 写锁串行判定（先 manager 后 Store，禁止反向）。
+此处重读 keep/pending、时间锚点和任务状态。keep/attach 在自动 claim 前成功就阻止清理；
+claim 后冲突操作返回 409，直至释放。不能跨文件工作或模型调用持有全局生命周期/Store 锁。
+
+offer 校验在协商前检查 pending，但不代替最后挂接检查。`SessionManager.attach` 在同一协调下、
+重新打开会议或创建连接记录之前重查。若 offer 已通过初查、挂接前删除先获得所有权，则拒绝挂接、
+安全提示/关闭已协商连接，绝不能启动它的管线。
+
+活动会议（包括 worker 登记前的组装）、接管/停止后实际尚未收尾的旧 worker、数据库 queued/running
+任务、已登记的任务终态/事件写入、报告、纪要、截图摘要/跟随项、截图接收/文件写入、记录器重试/
+校正，都保护整场会议。SQL 已终态或接管超时后 `_live` 已清空，不代表所有生产者都完成。
+自动候选忙则跳过；人工 DELETE 忙则 409，不设 pending、不取消正在产出内容的工作。
+嵌入请求可在删除后完成，但只能通过 token 校验跳过已删除/改变的行（§2.6）。
+claimed/pending 会议不能启动新工作或接受迟到 INSERT；缓存来源编号或旧快照不能重新生成已移除内容。
+
+**文件与重试。** 自动类别清理先移除所属文件，再提交对应行或产物列表的删除/清空。
+真实 I/O 失败保留数据库所有权，之后轮次重试；文件已缺失是成功的幂等操作。数据库失败回滚。
+各类别不互相删除。这不是数据库/文件系统原子事务，可能已有部分文件移除。
+下一次 claim 前设置 keep 会阻止继续自动删除，但不会恢复已删除文件。
+
+人工 DELETE 忽略 keep。忙状态检查通过后，先持久设置 `deletion_pending=1`，再删除文件。
+仅删除该会议所属文件，之后提交向量移除及会议删除；外键级联清发言、截图、纪要、报告、
+说话人、连接、任务及任务事件，发言删除触发器清 FTS 索引。真实文件/数据库失败或 claim 后取消都保留 pending；
+HTTP 删除失败返回 500，记录并通过重复 DELETE、后续轮次、进程重启重试，即使自动保留全部关闭。
+文件仍在或数据库提交失败时不得确认完整成功。安全释放说话人区分/截图/摘要/任务缓存；
+迟到生产者不能重建删除文件，也不能写进复用编号。请求与后台重试对同一会议独占所有权，不并行删文件。
+
+**路径所有权。** 配置的数据根只解析一次；仅清固定后代 `sessions/<uuid-hex>/frames`、
+`sessions/<uuid-hex>/tasks/<tN>`，完整删除时才清该会议子树。校验会议/任务短编号，不把任意
+数据库路径当删除根。中间组件（包括 `sessions` 和会议目录）若是 symlink/reparse point 或路径逃逸
+就拒绝，不递归跟随链接目录。所属子树内部的链接只 unlink，不跟随目标。
+安全拒绝按真实失败处理，保留所有权，等操作者修复后重试。文件写入登记与实际落盘也遵循同一规则；
+取消 `to_thread` 不足以停止写入，必须等底层写入结束后才能释放该会议的在途保护。
+
+**日志与关闭。** 日志只写类别、操作、不透明编号/计数、结果和安全错误类型，不写转录、摘要、
+标题、目标、凭据，或带内容/私有路径的异常文字。所需文件工作与数据库提交都成功后才记成功；
+重试必须可见。关闭先停止清理接纳，取消/等待清理任务并等已开始文件工作完成，再关闭/等待
+原有生产者，最后 Store.close。待删尝试可跨关闭保留。无需调用推理、增加依赖或建立通用监控/任务框架。
 
 ## 9. 推理服务的命令行
 
