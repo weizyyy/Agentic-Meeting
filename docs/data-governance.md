@@ -32,6 +32,11 @@ Configuration, environment secrets, models, runtime files and certificates are o
 ## 2. Where data is sent
 
 The browser sends microphone audio and shared screenshots to the configured meeting server.
+The bundled browser audio manager captures the microphone locally using `WavMediaManager`; it
+does not fetch Daily's call-machine script or use its error-reporting service. This does not remove
+configured inference destinations or STUN/TURN connectivity. Microphone changes replace the
+connection's audio sender track; they do not change retention or the transcription indication.
+
 Whether inference stays on that server depends on **each actual endpoint**, not merely a mode
 called local or whether process launch is enabled. Another machine on a LAN is still a destination
 outside the meeting server. Review these settings before a meeting:
