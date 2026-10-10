@@ -153,6 +153,30 @@ Other devices can now open `https://<server LAN IP>`. To avoid the certificate w
 `rootCA.pem` from the directory printed by `mkcert -CAROOT` as a trusted root on each device.
 `*.pem` files are ignored by Git. No ICE servers are needed on a single LAN.
 
+### Access password
+
+Anyone who can reach the port can read and delete meeting records unless an access password is set.
+On a network shared with people who should not see the meetings, set one:
+
+```toml
+[server]
+password_env = "AGENTIC_MEETING_PASSWORD"
+```
+
+```bash
+# .env in the repository root (ignored by Git)
+AGENTIC_MEETING_PASSWORD=<a long passphrase, at least 8 characters>
+```
+
+The page then asks for the password once per browser; the login lasts `auth_session_days` (7 days by
+default). **退出登录** (Log out) in the top bar ends it on that browser. Changing the password, or
+deleting `data/auth_secret`, logs out every device. After 5 wrong attempts within 5 minutes a device
+has to wait before trying again.
+
+Use the password together with HTTPS: over plain HTTP it crosses the network unencrypted. The
+password protects the whole application with one shared secret; per-person accounts are not
+available yet.
+
 ## Enable the code sandbox
 
 The background agent can search and read images without Docker. To let it run code — calculations

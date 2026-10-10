@@ -17,6 +17,8 @@ interface Props {
   onToggleList: () => void;
   onStart: () => void;
   onStop: () => void;
+  /** 启用了访问口令时才有。会议进行中不显示，免得退出后页面上留着一个没人管的连接 */
+  onLogout?: () => void;
 }
 
 /** 顶部栏：标题、连接状态、麦克风电平、会议列表开关、开始新会议 / 结束会议。 */
@@ -28,6 +30,7 @@ export function ControlBar({
   onToggleList,
   onStart,
   onStop,
+  onLogout,
 }: Props) {
   // 自动重连的间隙里连接是断开的，但用户仍然「在会议里」：按钮还是「结束会议」
   const active = connection === "connected" || connection === "connecting" || reconnectAttempt > 0;
@@ -59,6 +62,11 @@ export function ControlBar({
       ) : (
         <button type="button" className="button button-start" onClick={onStart}>
           开始新会议
+        </button>
+      )}
+      {onLogout && !active && (
+        <button type="button" className="button button-quiet" onClick={onLogout}>
+          退出登录
         </button>
       )}
     </header>

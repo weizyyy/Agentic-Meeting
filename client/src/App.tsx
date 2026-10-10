@@ -14,7 +14,12 @@ import { pruneSelection } from "./selection.ts";
 import type { TimeBase } from "./timeline.ts";
 import { useMeetingClient } from "./useMeetingClient.ts";
 
-export function App() {
+interface Props {
+  /** 启用了访问口令时才有：顶部栏显示「退出登录」 */
+  onLogout?: () => void;
+}
+
+export function App({ onLogout }: Props = {}) {
   const meeting = useMeetingClient();
   const { client, state } = meeting;
   const [listOpen, setListOpen] = useState(false);
@@ -63,6 +68,7 @@ export function App() {
           }}
           onStart={() => void meeting.start()}
           onStop={() => void meeting.stop()}
+          onLogout={onLogout}
         />
         <SessionBanner
           session={state.viewing}

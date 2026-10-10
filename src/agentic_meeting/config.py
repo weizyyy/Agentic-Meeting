@@ -140,6 +140,10 @@ class ServerConfig(_Model):
     tls_key: str = ""
     # WebRTC ICE 服务器。同一局域网内留空即可。
     ice_servers: list[str] = Field(default_factory=list)
+    # 访问口令所在的环境变量名。留空 = 不需要登录（只在本机或可信网络里用）。见 docs/interfaces.md §5.7。
+    password_env: str = ""
+    # 登录一次的有效天数，到期需要重新输入口令。
+    auth_session_days: float = Field(default=7.0, gt=0, le=365)
 
 
 # --------------------------------------------------------------------------- #
@@ -552,6 +556,9 @@ def load_asr_profile(cfg: AppConfig) -> ASRProfile:
         return ASRProfile.model_validate(tomllib.load(f))
 
 
+MIN_PASSWORD_CHARS = 8
+
+
 def secret(env_name: str) -> str | None:
     """按环境变量名取密钥；名字为空时返回 None。"""
     return os.environ.get(env_name) if env_name else None
@@ -639,14 +646,34 @@ def check_ready(cfg: AppConfig) -> list[str]:
             problems.append(f"{label} 指向的文件不存在：{cfg.resolve(value)}")
     if bool(cfg.server.tls_cert) != bool(cfg.server.tls_key):
         problems.append("server.tls_cert 与 server.tls_key 必须同时填写或同时留空")
+    need_env("server.password_env", cfg.server.password_env)
+    password = secret(cfg.server.password_env)
+    if password and len(password) < MIN_PASSWORD_CHARS:
+        problems.append(f"server.password_env 指向的口令太短：至少需要 {MIN_PASSWORD_CHARS} 个字符")
 
     return problems
 
 
 def is_loopback(url: str) -> bool:
     """地址的主机是否是本机回环地址（localhost / 127.x / ::1）。"""
-    host = (urlparse(url).hostname or "").lower()
+    return is_loopback_host(urlparse(url).hostname or "")
+
+
+def is_loopback_host(host: str) -> bool:
+    """监听地址是否只在本机可达（localhost / 127.x / ::1）。"""
+    host = host.strip().strip("[]").lower()
     return host in ("localhost", "::1") or host.startswith("127.")
+
+
+def server_warnings(cfg: AppConfig) -> list[str]:
+    """服务端自身的安全提醒，只在命令行打印、不发给浏览器（目前只有「没有访问口令却对外监听」）。"""
+    if cfg.server.password_env or is_loopback_host(cfg.server.host):
+        return []
+    return [
+        f"服务监听在 {cfg.server.host}，同一网络里的其他设备都能访问，但没有设置访问口令："
+        "任何人都可以查看和删除会议记录。在可信网络之外使用时，请设置 server.password_env"
+        "（见 docs/configuration.md）。"
+    ]
 
 
 def check_warnings(cfg: AppConfig) -> list[str]:

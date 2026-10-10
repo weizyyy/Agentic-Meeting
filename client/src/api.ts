@@ -1,6 +1,8 @@
 // 服务端的 HTTP 接口（docs/interfaces.md §5.1、§5.4）。页面一打开就用它们取会议列表和最近的对话，
 // 不需要音频连接。错误统一是 {"error": "<中文说明>"}，这里转成 ApiError。
+// 启用了访问口令时（§5.7），改动性的请求带上 CSRF 令牌；回 401 说明登录失效，通知页面重新登录。
 
+import { authSession, withCsrf, type AuthSession } from "./auth.ts";
 import type { HistoryItem } from "./captions.ts";
 import type { ReportInfo } from "./report.ts";
 import type { FrameItem } from "./screenCapture.ts";
@@ -110,14 +112,18 @@ function query(params: Record<string, string | number | undefined>): string {
   return text ? `?${text}` : "";
 }
 
-export function createApi(fetchFn: FetchLike = (input, init) => fetch(input, init)): Api {
+export function createApi(
+  fetchFn: FetchLike = (input, init) => fetch(input, init),
+  session: AuthSession = authSession,
+): Api {
   async function request<T>(path: string, init?: RequestInit): Promise<T> {
     let response: Response;
     try {
-      response = await fetchFn(path, init);
+      response = await fetchFn(path, withCsrf(init, session.csrfToken));
     } catch {
       throw new ApiError("无法连接到服务端", 0);
     }
+    if (response.status === 401) session.notifyUnauthorized();
     if (!response.ok) {
       let message = `请求失败（${response.status}）`;
       try {

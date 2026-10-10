@@ -15,6 +15,9 @@ quoted as they appear, with an English gloss.
 ## Meetings
 
 The page shows the most recent meeting as soon as it loads — no connection is needed to browse.
+If the server has an access password, the page asks for it first; **退出登录** (Log out) in the top
+bar is shown when no meeting is running on this page. If the login expires during a meeting, a
+password prompt covers the page and the meeting continues underneath.
 
 | Action | How | What happens |
 |---|---|---|
