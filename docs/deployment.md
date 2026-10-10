@@ -54,6 +54,10 @@ third parties.
 - **TURN relays only to the meeting server.** Configured as in §4.2, coturn refuses to relay to any
   other address, so its credentials, which every logged-in browser can read, cannot be used to reach
   other machines.
+- **Health and metrics endpoints.** `/healthz`, `/readyz` and `/metrics` answer without a login
+  ([interfaces](interfaces.md#58-health-checks-and-basic-metrics)). They contain no meeting content,
+  but `/metrics` shows load and activity. The proxy examples in §3 allow them only from the monitoring
+  network (`10.0.0.0/8` stands for it); adjust or remove that block as you need.
 - **Where meeting data goes.** If the realtime LLM runs on another machine, `check` and `serve` say
   so: the transcript (and, with vision, screenshots) is sent there for the whole meeting.
 
@@ -88,6 +92,13 @@ default.
 ```caddy
 # /etc/caddy/Caddyfile
 meeting.example.org {
+	# Health checks and metrics need no login: refuse them outside the monitoring network
+	@ops {
+		path /healthz /readyz /metrics
+		not remote_ip 10.0.0.0/8
+	}
+	respond @ops 403
+
 	reverse_proxy 127.0.0.1:7860
 }
 ```
@@ -120,6 +131,13 @@ server {
 
     # Screenshots are uploaded up to 4 MB; nginx accepts 1 MB by default
     client_max_body_size 8m;
+
+    # Health checks and metrics need no login: allow only the monitoring network
+    location ~ ^/(healthz|readyz|metrics)$ {
+        allow 10.0.0.0/8;
+        deny all;
+        proxy_pass http://127.0.0.1:7860;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:7860;

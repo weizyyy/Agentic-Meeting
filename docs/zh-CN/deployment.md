@@ -43,6 +43,9 @@
   运行应用，并让这个目录只有该账号能读（`chmod 700 data`）。`.env` 也一样（`chmod 600 .env`）。
 - **TURN 只中继到会议服务器。** 按 §4.2 配置时，coturn 拒绝中继到其他任何地址；这样即使每个已登录的浏览器都能读到 TURN
   凭据，也没法拿它去连别的机器。
+- **健康检查与指标接口。** `/healthz`、`/readyz` 和 `/metrics` 不需要登录（[接口说明](interfaces.md#58-健康检查与基础指标)）。
+  它们不含会议内容，但 `/metrics` 能看出负载和活动情况。§3 的代理示例只允许监控网段访问它们（示例里用 `10.0.0.0/8` 代表），
+  按需要修改或删掉那一段。
 - **会议数据发往哪里。** 实时模型部署在另一台机器上时，`check` 和 `serve` 会说明：整场会议的转录（模型识图时还有截图）
   都会发往那里。
 
@@ -73,6 +76,13 @@ password_env = "AGENTIC_MEETING_PASSWORD"
 ```caddy
 # /etc/caddy/Caddyfile
 meeting.example.org {
+	# 健康检查和指标不需要登录：监控网段以外一律拒绝
+	@ops {
+		path /healthz /readyz /metrics
+		not remote_ip 10.0.0.0/8
+	}
+	respond @ops 403
+
 	reverse_proxy 127.0.0.1:7860
 }
 ```
@@ -105,6 +115,13 @@ server {
 
     # 截图上传最大 4 MB；nginx 默认只放行 1 MB
     client_max_body_size 8m;
+
+    # 健康检查和指标不需要登录：只允许监控所在网段访问
+    location ~ ^/(healthz|readyz|metrics)$ {
+        allow 10.0.0.0/8;
+        deny all;
+        proxy_pass http://127.0.0.1:7860;
+    }
 
     location / {
         proxy_pass http://127.0.0.1:7860;
