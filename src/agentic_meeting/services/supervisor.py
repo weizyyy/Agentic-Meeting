@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+import functools
 import os
 import signal
+import ssl
 import subprocess
 import sys
 from collections.abc import Callable
@@ -473,10 +475,21 @@ class ProbeResult:
     reason: str = ""
 
 
+@functools.cache
+def _ssl_context(trust_env: bool) -> ssl.SSLContext:
+    # 默认每个 client 都会重新加载整份 CA 证书（本机实测每次约 30 毫秒），而且是在事件循环里同步做的。
+    # /readyz 刷新一轮要建五个，事件循环因此卡住；慢机器上超过 0.5 秒，同时进行的存储检查就会超时，
+    # 就绪检查短暂报 not_ready。证书在进程内只加载一次，与 httpx 自己建立时的参数相同。
+    return httpx.create_ssl_context(trust_env=trust_env)
+
+
 def _new_client(url: str) -> httpx.AsyncClient:
     # 本机地址不走系统代理：设了 HTTP_PROXY 的机器上，经代理访问 127.0.0.1 会误判成不通。
     # 远端地址照系统设置走代理，与应用之后实际访问它的方式一致。
-    return httpx.AsyncClient(timeout=_timeout_for(url), trust_env=not is_loopback(url))
+    trust_env = not is_loopback(url)
+    return httpx.AsyncClient(
+        timeout=_timeout_for(url), trust_env=trust_env, verify=_ssl_context(trust_env)
+    )
 
 
 def _timeout_for(url: str, timeout_secs: float = PROBE_TIMEOUT_SECS) -> httpx.Timeout:

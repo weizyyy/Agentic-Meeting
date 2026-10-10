@@ -39,6 +39,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- `/readyz` no longer briefly reports `not_ready` with a storage `timeout` while service probes
+  refresh. Each probe used to reload the CA certificates on the event loop, which on slower machines
+  stalled it past the 0.5-second storage budget; the certificates are now loaded once per process.
 - A single `Ctrl+C` during a meeting now stops `agentic-meeting serve` (and then the inference
   services started with `--with-services`). Previously the server waited for the meeting to end,
   which only happened on a second `Ctrl+C`.
