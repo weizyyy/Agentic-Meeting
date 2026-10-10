@@ -7,12 +7,12 @@
 
 ## 1. 一览
 
-| 运行时 | 用途 | 获取方式 | 版本锁 |
-|---|---|---|---|
-| [llama.cpp](https://github.com/ggml-org/llama.cpp) | 语音识别、嵌入，以及 `llama_server` 方式下的实时模型 | 预编译包 | v0.6.0（二进制构建号 b11429） |
-| [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp) | 说话人区分（以动态库形式加载） | 预编译包（含 C SDK） | v0.2.0 |
-| [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp) | 语音合成 `tts-server` | 从源码构建 | commit 51512f1 |
-| [Confucius4-R2T2](https://github.com/netease-youdao/Confucius4-R2T2) 参考代码 | 流式识别算法的参考 | 仅源码，无需构建 | commit 26d55a5 |
+| 运行时                                                                        | 用途                                                 | 获取方式             | 版本锁                        |
+| ----------------------------------------------------------------------------- | ---------------------------------------------------- | -------------------- | ----------------------------- |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp)                            | 语音识别、嵌入，以及 `llama_server` 方式下的实时模型 | 预编译包             | v0.6.0（二进制构建号 b11429） |
+| [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp)                  | 说话人区分（以动态库形式加载）                       | 预编译包（含 C SDK） | v0.2.0                        |
+| [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp)                 | 语音合成 `tts-server`                                | 从源码构建           | commit 51512f1                |
+| [Confucius4-R2T2](https://github.com/netease-youdao/Confucius4-R2T2) 参考代码 | 流式识别算法的参考                                   | 仅源码，无需构建     | commit 26d55a5                |
 
 版本锁定在 [`runtimes.lock.toml`](../../runtimes.lock.toml) 中；源码以 Git 子模块的形式放在
 `third_party/` 下（浅克隆，只读）。
@@ -65,11 +65,11 @@ python scripts/runtimes.py source qwentts          # 只初始化子模块源码
 
 上游不发布预编译包，因此需要从源码构建。
 
-| 平台 | 需要 |
-|---|---|
+| 平台    | 需要                                                                                                     |
+| ------- | -------------------------------------------------------------------------------------------------------- |
 | Windows | Visual Studio 或 Build Tools（勾选「使用 C++ 的桌面开发」）、CMake、Ninja；GPU 版另需完整的 CUDA Toolkit |
-| Linux | gcc/g++、CMake；GPU 版另需 CUDA Toolkit（或 Vulkan SDK） |
-| macOS | Xcode 命令行工具、CMake |
+| Linux   | gcc/g++、CMake；GPU 版另需 CUDA Toolkit（或 Vulkan SDK）                                                 |
+| macOS   | Xcode 命令行工具、CMake                                                                                  |
 
 ```bash
 python scripts/runtimes.py build qwentts --backend cuda      # 或 vulkan / metal / cpu
@@ -108,13 +108,13 @@ CUDA 版默认为多代显卡各编译一份内核，较慢；只在这台机器
 
 使用 0.6B 内置音色模型（Q8 量化）的实测结果（测试环境见 [benchmarks.md](benchmarks.md)）：
 
-| 项目 | GPU 版 | CPU 版 |
-|---|---|---|
-| 实时率（耗时 ÷ 音频时长） | 0.19 | 约 1.1（略慢于实时） |
-| 流式首字节 | 0.08 秒（服务启动后第一次请求 0.24 秒） | 约 0.2 秒（第一次约 1 秒） |
-| 显存 | 约 2.4 GB | 0 |
-| 输出格式 | 24 kHz、16 位、单声道 | 同左 |
-| 中英混合文本 | 正常 | 正常 |
+| 项目                      | GPU 版                                  | CPU 版                     |
+| ------------------------- | --------------------------------------- | -------------------------- |
+| 实时率（耗时 ÷ 音频时长） | 0.19                                    | 约 1.1（略慢于实时）       |
+| 流式首字节                | 0.08 秒（服务启动后第一次请求 0.24 秒） | 约 0.2 秒（第一次约 1 秒） |
+| 显存                      | 约 2.4 GB                               | 0                          |
+| 输出格式                  | 24 kHz、16 位、单声道                   | 同左                       |
+| 中英混合文本              | 正常                                    | 正常                       |
 
 `tts-server` 默认用编号最小的显卡（CUDA0）。CPU 版可以用来开发和功能验证，长句朗读会比实时慢一点。
 
@@ -130,35 +130,35 @@ CUDA 版默认为多代显卡各编译一份内核，较慢；只在这台机器
 该子模块仅作为参考资料阅读，不安装、不导入（它依赖 PyTorch 系的包，且自带的预编译扩展只支持
 Linux + CUDA + Python 3.12）。要看的文件：
 
-| 文件 | 看什么 |
-|---|---|
+| 文件                                 | 看什么                                                                                                       |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
 | `r2t2_llama/llama_native_backend.py` | `LlamaServerClient.generate`：怎么向 `llama-server` 发带音频和前缀的请求；`LlamaServerStreaming`：流式状态机 |
-| `r2t2/r2t2_asr.py` | `streaming_transcribe_no_reset`：滚动窗口、文字与音频同步丢弃、回退规则 |
-| `ws_server.py` | `detect_and_fix_repetitions`、`detect_hallucination`：复读与幻觉的检测 |
-| `README.zh.md` | 模型能力、热词用法、官方评测数据 |
+| `r2t2/r2t2_asr.py`                   | `streaming_transcribe_no_reset`：滚动窗口、文字与音频同步丢弃、回退规则                                      |
+| `ws_server.py`                       | `detect_and_fix_repetitions`、`detect_hallucination`：复读与幻觉的检测                                       |
+| `README.zh.md`                       | 模型能力、热词用法、官方评测数据                                                                             |
 
 ## 4. 模型文件
 
 把下列文件放在 `models/` 下的任意位置，并在 `config/config.toml` 中填写路径。
 最后一栏是本项目测试时使用的模型；同类的其他模型以相同方式配置。
 
-| 配置项 | 文件 | 测试所用 |
-|---|---|---|
-| `realtime_llm.llama_server.launch.model_path` | 对话模型 GGUF（仅 `llama_server` 方式） | 任意支持工具调用的模型 |
-| `realtime_llm.llama_server.launch.mmproj_path` | 该模型配套的识图投影 GGUF | 模型不识图时留空并设 `supports_vision = false` |
-| `asr.launch.model_path` | 识别模型 GGUF | Confucius4-R2T2，Q8_0 与 f16 |
-| `asr.launch.mmproj_path` | 识别模型配套的音频投影 GGUF | 同一发布页里以 `mmproj` 开头的文件 |
-| `diarization.model_path` | 说话人区分 GGUF（NeMo-Speech.cpp 格式） | Nemotron-3-Diarization，q8_0 |
-| `tts.launch.model_path` | 语音合成的 talker GGUF（qwentts.cpp 格式） | Qwen3-TTS 内置音色版，0.6B 与 1.7B |
-| `tts.launch.codec_path` | 语音合成的 tokenizer/codec GGUF | 与 talker 同一发布页 |
-| `embedding.launch.model_path` | 嵌入模型 GGUF | Qwen3-Embedding 0.6B，Q8_0；`embedding.dimensions` 须设为模型的输出维度 |
+| 配置项                                         | 文件                                       | 测试所用                                                                |
+| ---------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
+| `realtime_llm.llama_server.launch.model_path`  | 对话模型 GGUF（仅 `llama_server` 方式）    | 任意支持工具调用的模型                                                  |
+| `realtime_llm.llama_server.launch.mmproj_path` | 该模型配套的识图投影 GGUF                  | 模型不识图时留空并设 `supports_vision = false`                          |
+| `asr.launch.model_path`                        | 识别模型 GGUF                              | Confucius4-R2T2，Q8_0 与 f16                                            |
+| `asr.launch.mmproj_path`                       | 识别模型配套的音频投影 GGUF                | 同一发布页里以 `mmproj` 开头的文件                                      |
+| `diarization.model_path`                       | 说话人区分 GGUF（NeMo-Speech.cpp 格式）    | Nemotron-3-Diarization，q8_0                                            |
+| `tts.launch.model_path`                        | 语音合成的 talker GGUF（qwentts.cpp 格式） | Qwen3-TTS 内置音色版，0.6B 与 1.7B                                      |
+| `tts.launch.codec_path`                        | 语音合成的 tokenizer/codec GGUF            | 与 talker 同一发布页                                                    |
+| `embedding.launch.model_path`                  | 嵌入模型 GGUF                              | Qwen3-Embedding 0.6B，Q8_0；`embedding.dimensions` 须设为模型的输出维度 |
 
 **硬件档位。** 使用测试所用的模型时，全部本地服务（识别、说话人区分、语音合成、嵌入）合计占用的显存：
 
-| 档位 | 识别 | 语音合成 | 显存 |
-|---|---|---|---|
-| 12 GB 显卡（最低） | Q8_0 | 0.6B | 略高于 10 GB |
-| 16 GB 及以上的显卡 | f16 | 1.7B | 约 15 GB |
+| 档位               | 识别 | 语音合成 | 显存         |
+| ------------------ | ---- | -------- | ------------ |
+| 12 GB 显卡（最低） | Q8_0 | 0.6B     | 略高于 10 GB |
+| 16 GB 及以上的显卡 | f16  | 1.7B     | 约 15 GB     |
 
 实时模型若由本机的 `llama-server` 提供，需要在上述数字之外另算显存；采用 `realtime_llm.mode = "openai_api"`
 时则不占用。各服务也可以分散到多块显卡上（见第 5 节）。
@@ -188,10 +188,10 @@ Linux + CUDA + Python 3.12）。要看的文件：
 
 以一台 22 GB + 6 GB 双显卡的机器为例：
 
-| llama.cpp 编号 | 显存 | 建议放置的服务 |
-|---|---|---|
-| CUDA0 | 22 GB | 实时模型、语音合成 |
-| CUDA1 | 6 GB | 语音识别、说话人区分 |
+| llama.cpp 编号 | 显存  | 建议放置的服务       |
+| -------------- | ----- | -------------------- |
+| CUDA0          | 22 GB | 实时模型、语音合成   |
+| CUDA1          | 6 GB  | 语音识别、说话人区分 |
 
 ```toml
 [realtime_llm.llama_server.launch]

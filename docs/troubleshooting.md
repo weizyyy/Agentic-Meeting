@@ -56,7 +56,7 @@ uv run python scripts/mic_check.py --wav recording.wav
 ```
 
 The script needs no model weights. It replays the recording at several gain levels through voice
-activity detection. A low *speech ratio* together with a high count of *speech starts* on the
+activity detection. A low _speech ratio_ together with a high count of _speech starts_ on the
 `0 dB` row means the input is being chopped up. Background and reference numbers are in
 [benchmarks.md](benchmarks.md#low-microphone-level).
 
@@ -120,14 +120,14 @@ The server log prints a latency breakdown after every spoken answer (`应答延�
 
 Transcription has the highest priority: no failure elsewhere stops it.
 
-| Failure | What you see | What still works |
-|---|---|---|
-| Realtime LLM unreachable | Notice "助理暂不可用" with the reason; no answers | Transcription, screenshots, export |
-| Speech synthesis unreachable | Notice "语音不可用"; answers appear as text only | Everything else; answers are still stored |
-| Embedding service unreachable | Nothing visible | Recall falls back to keyword search; embeddings are backfilled later |
-| Diarization fails to load | Notice at connection time; captions carry no speaker | Transcription and answers |
-| ASR server unreachable | Notice "识别服务暂时不可用，正在重试"; captions pause | Retries with backoff and resumes on its own |
-| Screen summary fails | That screenshot has no summary | The screenshot stays on the timeline and can still be viewed by the assistant |
-| Remote agent model or MCP unreachable | The task is marked failed with the reason | Everything else |
-| Docker missing | Tasks cannot run code and say so | Search and image reading |
-| Browser disconnects | The meeting becomes *interrupted* | The page reconnects automatically; the timeline continues |
+| Failure                               | What you see                                          | What still works                                                              |
+| ------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Realtime LLM unreachable              | Notice "助理暂不可用" with the reason; no answers     | Transcription, screenshots, export                                            |
+| Speech synthesis unreachable          | Notice "语音不可用"; answers appear as text only      | Everything else; answers are still stored                                     |
+| Embedding service unreachable         | Nothing visible                                       | Recall falls back to keyword search; embeddings are backfilled later          |
+| Diarization fails to load             | Notice at connection time; captions carry no speaker  | Transcription and answers                                                     |
+| ASR server unreachable                | Notice "识别服务暂时不可用，正在重试"; captions pause | Retries with backoff and resumes on its own                                   |
+| Screen summary fails                  | That screenshot has no summary                        | The screenshot stays on the timeline and can still be viewed by the assistant |
+| Remote agent model or MCP unreachable | The task is marked failed with the reason             | Everything else                                                               |
+| Docker missing                        | Tasks cannot run code and say so                      | Search and image reading                                                      |
+| Browser disconnects                   | The meeting becomes _interrupted_                     | The page reconnects automatically; the timeline continues                     |

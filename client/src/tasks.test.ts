@@ -70,7 +70,10 @@ test("用服务端的列表替换时，本地记着的最近一步留着", () =>
 });
 
 test("任务行第二行：结论、原因或最近一步", () => {
-  assert.equal(taskSubline(task("a", 1, { status: "succeeded", brief: "被引 1243 次" })), "被引 1243 次");
+  assert.equal(
+    taskSubline(task("a", 1, { status: "succeeded", brief: "被引 1243 次" })),
+    "被引 1243 次",
+  );
   assert.equal(taskSubline(task("a", 1, { status: "succeeded" })), "已完成");
   assert.equal(
     taskSubline(task("a", 1, { status: "failed", error: "连不上远端模型" })),

@@ -1,0 +1,25 @@
+# 上游源码、本地运行时、模型、会议数据和密钥。
+third_party/
+runtimes/
+models/
+data/
+certs/
+config/config.toml
+.env*
+
+# 依赖、构建产物、缓存和生成的锁文件。
+**/node_modules/
+**/dist/
+**/build/
+**/.vite/
+.venv*/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+**/package-lock.json
+uv.lock
+runtimes.lock.toml
+
+# 提示词的空白和排版属于运行时输入；只格式化该目录的说明文档。
+config/prompts/*.md
+!config/prompts/README.md

@@ -27,8 +27,12 @@ uv run ruff check src tests scripts   # lint
 uv run ruff format src tests scripts  # format
 uv run agentic-meeting check          # validate config/config.toml
 
+npm ci                               # install the locked repository formatter
+npm run format                       # format client code, JSON, YAML and Markdown
+npm run format:check                 # check formatting without writing files
+
 cd client
-npm install
+npm ci
 npm test                              # unit tests of the client's pure logic
 npm run build                         # type-check and build
 ```
@@ -69,6 +73,14 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
 
 ## Code style
 
+- Root `.prettierrc.json` defines the shared style for TypeScript/TSX, CSS, HTML, JSON, YAML and
+  Markdown: two-space indentation, double quotes, semicolons, trailing commas, a 100-column target
+  and LF line endings. Markdown prose keeps its existing wrapping, and fenced examples are not
+  reformatted. Python continues to use Ruff.
+- Root `.prettierignore` excludes upstream sources, runtime/model/data directories, secrets,
+  generated files and runtime prompt templates under `config/prompts/` (the README is included).
+  CLI commands, editors using the project's local Prettier, pre-commit and CI share this config.
+  Run `npm ci` at the root before installing hooks with `uvx pre-commit install`.
 - Python 3.12 is the minimum version; 3.13 and 3.14 are tested as well, so avoid syntax and
   standard-library features newer than 3.12. `asyncio` is used throughout. Blocking calls — ctypes, large file I/O, image decoding —
   run in threads.

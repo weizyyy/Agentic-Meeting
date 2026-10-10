@@ -24,8 +24,12 @@ uv run ruff check src tests scripts   # 静态检查
 uv run ruff format src tests scripts  # 格式化
 uv run agentic-meeting check          # 校验 config/config.toml
 
+npm ci                               # 安装锁定版本的仓库格式化工具
+npm run format                       # 格式化客户端代码、JSON、YAML 和 Markdown
+npm run format:check                 # 只检查格式，不写入文件
+
 cd client
-npm install
+npm ci
 npm test                              # 客户端纯逻辑的单元测试
 npm run build                         # 类型检查并构建
 ```
@@ -60,6 +64,13 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
 
 ## 代码风格
 
+- 根目录 `.prettierrc.json` 统一 TypeScript/TSX、CSS、HTML、JSON、YAML 和 Markdown 的格式：
+  两空格缩进、双引号、分号、尾逗号、100 列目标宽度和 LF 换行。
+  Markdown 正文保留现有折行，代码块中的示例不重新格式化。Python 继续使用 Ruff。
+- 根目录 `.prettierignore` 排除上游源码、运行时/模型/数据目录、密钥、生成文件和
+  `config/prompts/` 中的运行时提示词模板（README 参与格式化）。
+  命令行、使用项目本地 Prettier 的编辑器、pre-commit 和 CI 共用该配置。
+  安装钩子 `uvx pre-commit install` 之前，先在根目录执行 `npm ci`。
 - 最低支持 Python 3.12，同时在 3.13 和 3.14 上测试，因此不要使用 3.12 之后才有的语法和标准库功能。
   全程使用 `asyncio`。阻塞调用（ctypes、大文件读写、图像解码）放入线程执行。
 - 日志使用 `loguru`（与 Pipecat 一致）。`print` 仅用于命令行子命令和脚本。

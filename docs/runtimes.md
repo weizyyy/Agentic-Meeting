@@ -2,18 +2,18 @@
 
 **English** · [简体中文](zh-CN/runtimes.md)
 
-A *runtime* is an inference program such as `llama-server`; *model files* are weights. Neither is
+A _runtime_ is an inference program such as `llama-server`; _model files_ are weights. Neither is
 stored in the repository. Runtimes are fetched or built by a script. Model files are downloaded
 manually — nothing in this project downloads weights.
 
 ## 1. Overview
 
-| Runtime | Used for | How it is obtained | Pinned version |
-|---|---|---|---|
-| [llama.cpp](https://github.com/ggml-org/llama.cpp) | ASR, embeddings, and the realtime LLM in `llama_server` mode | Prebuilt package | v0.6.0 (build b11429) |
-| [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp) | Speaker diarization, loaded as a library | Prebuilt package with C SDK | v0.2.0 |
-| [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp) | Speech synthesis (`tts-server`) | Built from source | commit 51512f1 |
-| [Confucius4-R2T2](https://github.com/netease-youdao/Confucius4-R2T2) reference code | Reference for the streaming ASR algorithm | Source only; not built | commit 26d55a5 |
+| Runtime                                                                             | Used for                                                     | How it is obtained          | Pinned version        |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------- | --------------------- |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp)                                  | ASR, embeddings, and the realtime LLM in `llama_server` mode | Prebuilt package            | v0.6.0 (build b11429) |
+| [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp)                        | Speaker diarization, loaded as a library                     | Prebuilt package with C SDK | v0.2.0                |
+| [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp)                       | Speech synthesis (`tts-server`)                              | Built from source           | commit 51512f1        |
+| [Confucius4-R2T2](https://github.com/netease-youdao/Confucius4-R2T2) reference code | Reference for the streaming ASR algorithm                    | Source only; not built      | commit 26d55a5        |
 
 Versions are pinned in [`runtimes.lock.toml`](../runtimes.lock.toml). The sources are Git
 submodules under `third_party/` (shallow, read-only).
@@ -71,11 +71,11 @@ python scripts/runtimes.py source qwentts          # initialize the submodule on
 
 Upstream publishes no prebuilt packages, so the runtime is built from source.
 
-| Platform | Requirements |
-|---|---|
-| Windows | Visual Studio or Build Tools with the "Desktop development with C++" workload, CMake, Ninja; the full CUDA Toolkit for the GPU build |
-| Linux | gcc/g++, CMake; the CUDA Toolkit or the Vulkan SDK for the GPU build |
-| macOS | Xcode command-line tools, CMake |
+| Platform | Requirements                                                                                                                         |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Windows  | Visual Studio or Build Tools with the "Desktop development with C++" workload, CMake, Ninja; the full CUDA Toolkit for the GPU build |
+| Linux    | gcc/g++, CMake; the CUDA Toolkit or the Vulkan SDK for the GPU build                                                                 |
+| macOS    | Xcode command-line tools, CMake                                                                                                      |
 
 ```bash
 python scripts/runtimes.py build qwentts --backend cuda      # or vulkan / metal / cpu
@@ -116,12 +116,12 @@ MSVC 14.51 (the toolset shipped with Visual Studio 18) is such a combination: ev
 
 Measured with a 0.6B custom-voice model at Q8 (environment in [benchmarks.md](benchmarks.md)):
 
-| | GPU build | CPU build |
-|---|---|---|
-| Real-time factor (time ÷ audio duration) | 0.19 | about 1.1 |
-| Time to first byte, streaming | 0.08 s (0.24 s for the first request after start) | about 0.2 s (about 1 s for the first) |
-| GPU memory | about 2.4 GB | 0 |
-| Output | 24 kHz, 16-bit, mono | same |
+|                                          | GPU build                                         | CPU build                             |
+| ---------------------------------------- | ------------------------------------------------- | ------------------------------------- |
+| Real-time factor (time ÷ audio duration) | 0.19                                              | about 1.1                             |
+| Time to first byte, streaming            | 0.08 s (0.24 s for the first request after start) | about 0.2 s (about 1 s for the first) |
+| GPU memory                               | about 2.4 GB                                      | 0                                     |
+| Output                                   | 24 kHz, 16-bit, mono                              | same                                  |
 
 `tts-server` uses the lowest-numbered GPU by default. The CPU build is adequate for development;
 long sentences are synthesized slightly slower than real time.
@@ -138,12 +138,12 @@ Speech synthesis is optional: set `tts.enabled = false` to run without it.
 This submodule is read as reference material only. It is not installed or imported; it depends on
 PyTorch packages and ships a prebuilt extension for Linux, CUDA and Python 3.12 only.
 
-| File | Relevant content |
-|---|---|
+| File                                 | Relevant content                                                                                                                                   |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `r2t2_llama/llama_native_backend.py` | `LlamaServerClient.generate`: how requests with audio and a prefix are sent to `llama-server`; `LlamaServerStreaming`: the streaming state machine |
-| `r2t2/r2t2_asr.py` | `streaming_transcribe_no_reset`: rolling window, synchronized dropping of text and audio, rollback rule |
-| `ws_server.py` | `detect_and_fix_repetitions`, `detect_hallucination` |
-| `README.zh.md` | Model capabilities, hotword usage, official evaluation results |
+| `r2t2/r2t2_asr.py`                   | `streaming_transcribe_no_reset`: rolling window, synchronized dropping of text and audio, rollback rule                                            |
+| `ws_server.py`                       | `detect_and_fix_repetitions`, `detect_hallucination`                                                                                               |
+| `README.zh.md`                       | Model capabilities, hotword usage, official evaluation results                                                                                     |
 
 ## 4. Model files
 
@@ -151,24 +151,24 @@ Place the following files anywhere under `models/` and reference them in `config
 last column lists what the project has been tested with; other models of the same kind are
 configured the same way.
 
-| Configuration key | File | Tested with |
-|---|---|---|
-| `realtime_llm.llama_server.launch.model_path` | Chat model GGUF (`llama_server` mode only) | Any model with tool calling |
-| `realtime_llm.llama_server.launch.mmproj_path` | Its vision projector GGUF | Leave empty and set `supports_vision = false` for text-only models |
-| `asr.launch.model_path` | ASR model GGUF | Confucius4-R2T2, Q8_0 and f16 |
-| `asr.launch.mmproj_path` | The ASR model's audio projector GGUF | The `mmproj` file from the same release |
-| `diarization.model_path` | Diarization GGUF in NeMo-Speech.cpp format | Nemotron-3-Diarization, q8_0 |
-| `tts.launch.model_path` | Talker GGUF in qwentts.cpp format | Qwen3-TTS custom-voice, 0.6B and 1.7B |
-| `tts.launch.codec_path` | Tokenizer/codec GGUF | From the same release as the talker |
-| `embedding.launch.model_path` | Embedding GGUF | Qwen3-Embedding 0.6B, Q8_0; set `embedding.dimensions` to the model's output size |
+| Configuration key                              | File                                       | Tested with                                                                       |
+| ---------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------- |
+| `realtime_llm.llama_server.launch.model_path`  | Chat model GGUF (`llama_server` mode only) | Any model with tool calling                                                       |
+| `realtime_llm.llama_server.launch.mmproj_path` | Its vision projector GGUF                  | Leave empty and set `supports_vision = false` for text-only models                |
+| `asr.launch.model_path`                        | ASR model GGUF                             | Confucius4-R2T2, Q8_0 and f16                                                     |
+| `asr.launch.mmproj_path`                       | The ASR model's audio projector GGUF       | The `mmproj` file from the same release                                           |
+| `diarization.model_path`                       | Diarization GGUF in NeMo-Speech.cpp format | Nemotron-3-Diarization, q8_0                                                      |
+| `tts.launch.model_path`                        | Talker GGUF in qwentts.cpp format          | Qwen3-TTS custom-voice, 0.6B and 1.7B                                             |
+| `tts.launch.codec_path`                        | Tokenizer/codec GGUF                       | From the same release as the talker                                               |
+| `embedding.launch.model_path`                  | Embedding GGUF                             | Qwen3-Embedding 0.6B, Q8_0; set `embedding.dimensions` to the model's output size |
 
 **Hardware tiers.** GPU memory used by all local services together (ASR, diarization, speech
 synthesis, embeddings), with the tested models:
 
-| Tier | ASR | Speech synthesis | GPU memory |
-|---|---|---|---|
-| 12 GB cards (minimum) | Q8_0 | 0.6B | slightly more than 10 GB |
-| 16 GB cards and larger | f16 | 1.7B | about 15 GB |
+| Tier                   | ASR  | Speech synthesis | GPU memory               |
+| ---------------------- | ---- | ---------------- | ------------------------ |
+| 12 GB cards (minimum)  | Q8_0 | 0.6B             | slightly more than 10 GB |
+| 16 GB cards and larger | f16  | 1.7B             | about 15 GB              |
 
 A realtime LLM served by `llama-server` on the same machine needs memory on top of these figures;
 with `realtime_llm.mode = "openai_api"` it needs none. The services can also be spread over several
@@ -203,10 +203,10 @@ may list them in the opposite order.
 
 Example for a 22 GB + 6 GB pair:
 
-| llama.cpp id | Memory | Suggested services |
-|---|---|---|
-| CUDA0 | 22 GB | Realtime LLM, speech synthesis |
-| CUDA1 | 6 GB | ASR, diarization |
+| llama.cpp id | Memory | Suggested services             |
+| ------------ | ------ | ------------------------------ |
+| CUDA0        | 22 GB  | Realtime LLM, speech synthesis |
+| CUDA1        | 6 GB   | ASR, diarization               |
 
 ```toml
 [realtime_llm.llama_server.launch]

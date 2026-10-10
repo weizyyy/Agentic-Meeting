@@ -180,11 +180,11 @@ The assistant's name is an English word. Pipecat's `WakePhraseUserTurnStartStrat
 Its limitation is the word boundary. The pattern is `\b` + phrase + `\b`, and Python's `\b` treats
 CJK characters as word characters:
 
-| Transcription | Built-in strategy |
-|---|---|
-| `请 Jarvis 帮我查一下` (spaces around the name) | match |
-| `请Jarvis帮我查一下` (name adjacent to CJK characters) | **no match** |
-| `Jarvis，帮我查一下` (the comma is stripped first, leaving the name adjacent to 帮) | **no match** |
+| Transcription                                                                       | Built-in strategy |
+| ----------------------------------------------------------------------------------- | ----------------- |
+| `请 Jarvis 帮我查一下` (spaces around the name)                                     | match             |
+| `请Jarvis帮我查一下` (name adjacent to CJK characters)                              | **no match**      |
+| `Jarvis，帮我查一下` (the comma is stripped first, leaving the name adjacent to 帮) | **no match**      |
 
 About half of the mixed Chinese–English output of the ASR model takes the last two forms. The
 project therefore uses a small subclass, `WakeWordUserTurnStartStrategy`
@@ -243,6 +243,7 @@ Base class: `STTService` in `services/stt_service.py`.
 
   The rules about empty text and `finalized` in interfaces.md §3.4 derive from
   `turns/user_stop/turn_analyzer_user_turn_stop_strategy.py`.
+
 - `includes_inter_frame_spaces` defaults to `False` on text frames, and the user aggregator then
   inserts a space between consecutive transcriptions. Because one Chinese sentence is emitted as
   many frames, each frame sets `frame.includes_inter_frame_spaces = True` after construction (it is
@@ -443,7 +444,7 @@ context = LLMContext(tools=[recall, delegate_task, ...])   # listing them regist
   - `FunctionCallResultProperties(on_context_updated=coroutine_function)` is called, in a separate
     task, after the result has been written to the context.
 - `FunctionCallParams` fields: `function_name, tool_call_id, arguments, llm, pipeline_worker,
-  context, result_callback, app_resources, worker_runner`.
+context, result_callback, app_resources, worker_runner`.
 
 ## 7. MCP client
 
@@ -464,13 +465,13 @@ framework.
 
 ## 8. Context operations
 
-| Goal | How |
-|---|---|
-| Append messages without generating | Push `LLMMessagesAppendFrame(messages=[...], run_llm=False)` |
-| Append messages and generate | The same with `run_llm=True` |
-| Replace the whole context (compaction) | `LLMMessagesUpdateFrame(messages=[...], run_llm=False)` |
-| Make the assistant say something | `TTSSpeakFrame(text="...")` |
-| Read the current messages | `context.get_messages()` |
+| Goal                                   | How                                                          |
+| -------------------------------------- | ------------------------------------------------------------ |
+| Append messages without generating     | Push `LLMMessagesAppendFrame(messages=[...], run_llm=False)` |
+| Append messages and generate           | The same with `run_llm=True`                                 |
+| Replace the whole context (compaction) | `LLMMessagesUpdateFrame(messages=[...], run_llm=False)`      |
+| Make the assistant say something       | `TTSSpeakFrame(text="...")`                                  |
+| Read the current messages              | `context.get_messages()`                                     |
 
 - `LLMMessagesUpdateFrame` is consumed by the user aggregator (`set_messages`) and not forwarded.
   Both aggregators share one `LLMContext`, so the assistant side sees the new content. The system

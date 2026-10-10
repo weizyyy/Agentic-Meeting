@@ -75,7 +75,11 @@ export function createMeetingClient(
             dispatch({ type: "utteranceUpdate", message });
             break;
           case "speaker":
-            dispatch({ type: "speakerRenamed", idx: message.idx, displayName: message.display_name });
+            dispatch({
+              type: "speakerRenamed",
+              idx: message.idx,
+              displayName: message.display_name,
+            });
             break;
           case "speakers_merged":
             dispatch({

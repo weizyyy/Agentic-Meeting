@@ -90,16 +90,16 @@ flowchart LR
     agent --> ext
 ```
 
-| 组成 | 实现 |
-|---|---|
-| 语音管线 | [Pipecat](https://github.com/pipecat-ai/pipecat) 1.12，SmallWebRTC 传输 |
-| 实时模型 | [llama.cpp](https://github.com/ggml-org/llama.cpp) 的 `llama-server`，或任意 OpenAI 兼容的 chat completions 接口 |
-| 流式识别、嵌入 | `llama-server` |
-| 说话人区分 | [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp)，进程内加载 |
-| 语音合成 | [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp) |
-| 存储与检索 | SQLite（FTS5 + [sqlite-vec](https://github.com/asg017/sqlite-vec)） |
-| 后台 agent | [OpenAI Agents SDK](https://github.com/openai/openai-agents-python)、MCP 服务、Docker 沙箱 |
-| 网页客户端 | Vite、React、TypeScript |
+| 组成           | 实现                                                                                                             |
+| -------------- | ---------------------------------------------------------------------------------------------------------------- |
+| 语音管线       | [Pipecat](https://github.com/pipecat-ai/pipecat) 1.12，SmallWebRTC 传输                                          |
+| 实时模型       | [llama.cpp](https://github.com/ggml-org/llama.cpp) 的 `llama-server`，或任意 OpenAI 兼容的 chat completions 接口 |
+| 流式识别、嵌入 | `llama-server`                                                                                                   |
+| 说话人区分     | [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp)，进程内加载                                         |
+| 语音合成       | [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp)                                                    |
+| 存储与检索     | SQLite（FTS5 + [sqlite-vec](https://github.com/asg017/sqlite-vec)）                                              |
+| 后台 agent     | [OpenAI Agents SDK](https://github.com/openai/openai-agents-python)、MCP 服务、Docker 沙箱                       |
+| 网页客户端     | Vite、React、TypeScript                                                                                          |
 
 设计细节见 [docs/zh-CN/architecture.md](docs/zh-CN/architecture.md)。
 
@@ -148,17 +148,17 @@ uv run agentic-meeting serve --with-services
 
 ## 文档
 
-| 文档 | 内容 |
-|---|---|
-| [入门指南](docs/zh-CN/getting-started.md) | 安装、模型文件、首次运行、HTTPS |
-| [使用指南](docs/zh-CN/user-guide.md) | 会中与会后如何使用网页 |
-| [配置说明](docs/zh-CN/configuration.md) | `config.toml` 的各个小节 |
-| [故障排查](docs/zh-CN/troubleshooting.md) | 麦克风电平、唤醒、服务降级 |
-| [运行时与模型](docs/zh-CN/runtimes.md) | 推理运行时的获取与构建、模型文件、多显卡分配 |
-| [性能实测](docs/zh-CN/benchmarks.md) | 在真实硬件上测得的延迟、内存与准确率 |
-| [架构](docs/zh-CN/architecture.md) | 进程、管线、数据流、上下文管理 |
-| [接口参考](docs/zh-CN/interfaces.md) | 配置结构、数据库、HTTP 接口、数据通道消息、工具 |
-| [开发指南](docs/zh-CN/development.md) | 约定、测试、目录结构 |
+| 文档                                      | 内容                                            |
+| ----------------------------------------- | ----------------------------------------------- |
+| [入门指南](docs/zh-CN/getting-started.md) | 安装、模型文件、首次运行、HTTPS                 |
+| [使用指南](docs/zh-CN/user-guide.md)      | 会中与会后如何使用网页                          |
+| [配置说明](docs/zh-CN/configuration.md)   | `config.toml` 的各个小节                        |
+| [故障排查](docs/zh-CN/troubleshooting.md) | 麦克风电平、唤醒、服务降级                      |
+| [运行时与模型](docs/zh-CN/runtimes.md)    | 推理运行时的获取与构建、模型文件、多显卡分配    |
+| [性能实测](docs/zh-CN/benchmarks.md)      | 在真实硬件上测得的延迟、内存与准确率            |
+| [架构](docs/zh-CN/architecture.md)        | 进程、管线、数据流、上下文管理                  |
+| [接口参考](docs/zh-CN/interfaces.md)      | 配置结构、数据库、HTTP 接口、数据通道消息、工具 |
+| [开发指南](docs/zh-CN/development.md)     | 约定、测试、目录结构                            |
 
 英文文档位于 [docs](docs)。
 
@@ -167,13 +167,13 @@ uv run agentic-meeting serve --with-services
 以一段 50 分钟的真实多人座谈录音按实际速度回放，经完整链路测得
 （RTX 2080 Ti 22 GB，实时模型经局域网接口接入）：
 
-| 指标 | 结果 |
-|---|---|
-| 字幕延迟（定稿文字落后于音频） | 中位 0.70 秒，P95 0.78 秒 |
-| 唤醒 → 首字 | 中位 1.5 秒 |
-| 唤醒 → 首音 | 中位 2.5 秒 |
-| 区分出的说话人 | 8 位（说话人区分模型的上限） |
-| 应用进程内存 | 约 510 MB，前五分钟之后保持平稳 |
+| 指标                           | 结果                            |
+| ------------------------------ | ------------------------------- |
+| 字幕延迟（定稿文字落后于音频） | 中位 0.70 秒，P95 0.78 秒       |
+| 唤醒 → 首字                    | 中位 1.5 秒                     |
+| 唤醒 → 首音                    | 中位 2.5 秒                     |
+| 区分出的说话人                 | 8 位（说话人区分模型的上限）    |
+| 应用进程内存                   | 约 510 MB，前五分钟之后保持平稳 |
 
 完整结果与测试方法见 [docs/zh-CN/benchmarks.md](docs/zh-CN/benchmarks.md)。
 

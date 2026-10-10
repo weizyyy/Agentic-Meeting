@@ -156,7 +156,9 @@ export function fatalErrorText(data: unknown): string | null {
   if (typeof data !== "object" || data === null) return null;
   const { error, fatal } = data as { error?: unknown; fatal?: unknown };
   if (fatal !== true) return null;
-  return typeof error === "string" && error.trim() ? `服务端出错：${error}` : "服务端出错，连接可能已经中断";
+  return typeof error === "string" && error.trim()
+    ? `服务端出错：${error}`
+    : "服务端出错，连接可能已经中断";
 }
 
 export function parseServerMessage(data: unknown): ServerMessage | null {
@@ -172,7 +174,15 @@ export function parseServerMessage(data: unknown): ServerMessage | null {
         typeof stable === "string" &&
         typeof unstable === "string"
       ) {
-        return { type: "caption", segment_id, speaker_idx, speaker_name, t_start, stable, unstable };
+        return {
+          type: "caption",
+          segment_id,
+          speaker_idx,
+          speaker_name,
+          t_start,
+          stable,
+          unstable,
+        };
       }
       return null;
     }
@@ -232,7 +242,11 @@ export function parseServerMessage(data: unknown): ServerMessage | null {
     }
     case "speakers_merged": {
       const { from, into, display_name } = data;
-      if (typeof from === "number" && typeof into === "number" && typeof display_name === "string") {
+      if (
+        typeof from === "number" &&
+        typeof into === "number" &&
+        typeof display_name === "string"
+      ) {
         return { type: "speakers_merged", from, into, display_name };
       }
       return null;

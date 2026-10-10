@@ -22,6 +22,9 @@ uv run pytest                              # ~1000 tests, no GPU, weights or net
 uv run ruff check src tests scripts
 uv run ruff format --check src tests scripts
 
+npm ci                                    # repository formatter
+npm run format:check                       # client code, JSON, YAML and Markdown
+
 cd client
 npm ci
 npm test                                   # needs Node.js 22.18+ (runs .ts files directly)
@@ -33,22 +36,22 @@ and Linux with Python 3.12, 3.13 and 3.14, so avoid platform-specific paths and 
 
 ## Where things are
 
-| Path | Contents |
-|---|---|
-| `src/agentic_meeting/config.py` | Configuration schema and validation (`AppConfig`) |
-| `src/agentic_meeting/types.py` | Data types shared between modules |
-| `src/agentic_meeting/pipeline/` | Pipecat pipeline assembly, recorder, wake word, context, tools, reports |
-| `src/agentic_meeting/asr/`, `diar/` | Streaming recognition and speaker diarization backends |
-| `src/agentic_meeting/screen/` | Screenshot ingestion, captions, image attachment |
-| `src/agentic_meeting/agent/` | Background task manager, agent runner, sandbox |
-| `src/agentic_meeting/store/` | SQLite schema and access, vector search |
-| `src/agentic_meeting/services/` | Supervision of inference server processes |
-| `src/agentic_meeting/web/` | HTTP API and static site |
-| `client/src/` | Web client; pure logic lives in plain `.ts` files with `*.test.ts` next to them |
-| `config/config.example.toml` | Configuration template; `config/prompts/` and `config/asr_profiles/` hold prompts and model-specific formats |
-| `scripts/` | Runtime fetch/build, headless replay, realtime-LLM evaluation, microphone check |
-| `tests/` | Python tests; fakes for external services are in `tests/fakes.py` |
-| `docs/`, `docs/zh-CN/` | Documentation in English and Chinese with identical file names and section numbers |
+| Path                                | Contents                                                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `src/agentic_meeting/config.py`     | Configuration schema and validation (`AppConfig`)                                                            |
+| `src/agentic_meeting/types.py`      | Data types shared between modules                                                                            |
+| `src/agentic_meeting/pipeline/`     | Pipecat pipeline assembly, recorder, wake word, context, tools, reports                                      |
+| `src/agentic_meeting/asr/`, `diar/` | Streaming recognition and speaker diarization backends                                                       |
+| `src/agentic_meeting/screen/`       | Screenshot ingestion, captions, image attachment                                                             |
+| `src/agentic_meeting/agent/`        | Background task manager, agent runner, sandbox                                                               |
+| `src/agentic_meeting/store/`        | SQLite schema and access, vector search                                                                      |
+| `src/agentic_meeting/services/`     | Supervision of inference server processes                                                                    |
+| `src/agentic_meeting/web/`          | HTTP API and static site                                                                                     |
+| `client/src/`                       | Web client; pure logic lives in plain `.ts` files with `*.test.ts` next to them                              |
+| `config/config.example.toml`        | Configuration template; `config/prompts/` and `config/asr_profiles/` hold prompts and model-specific formats |
+| `scripts/`                          | Runtime fetch/build, headless replay, realtime-LLM evaluation, microphone check                              |
+| `tests/`                            | Python tests; fakes for external services are in `tests/fakes.py`                                            |
+| `docs/`, `docs/zh-CN/`              | Documentation in English and Chinese with identical file names and section numbers                           |
 
 Read these before changing behavior:
 
@@ -86,7 +89,7 @@ Read these before changing behavior:
 ## Things that need the user's go-ahead
 
 - Starting inference services (`agentic-meeting serve --with-services`, `agentic-meeting services
-  up`) or running `pytest -m gpu`: these load several gigabytes of model weights onto the GPU.
+up`) or running `pytest -m gpu`: these load several gigabytes of model weights onto the GPU.
 - Editing `config/config.toml` or anything under `data/`: both are the user's own and untracked.
 - Adding a dependency (`uv add`, `npm install <package>`).
 
@@ -102,6 +105,9 @@ the web UI. Global options come before the subcommand: `agentic-meeting --config
 - Comments, docstrings, UI text and prompts are written in Chinese; identifiers are in English.
   Match the surrounding file.
 - Ruff settings are in `pyproject.toml` (line length 100, rules E, F, I, UP, B, ASYNC).
+- Prettier settings are in root `.prettierrc.json`; use root `npm run format` to format client code,
+  JSON, YAML and Markdown. `.prettierignore` excludes upstream/generated/user files and runtime
+  prompt templates. The root lockfile pins the formatter used by CLI, pre-commit and CI.
 - Modules read configuration from `AppConfig`; they do not define their own default models or
   endpoints.
 - Example names, meeting content and screenshots in tests and documentation are fictional.
@@ -138,7 +144,7 @@ tests that require a GPU, weights or network access unless they are marked `@pyt
 - Tests, lint, format check and the client build pass.
 - Behavior or configuration changes are reflected in both `docs/` and `docs/zh-CN/`, keeping file
   names and section numbers aligned.
-- User-visible changes have an entry under *Unreleased* in `CHANGELOG.md`.
+- User-visible changes have an entry under _Unreleased_ in `CHANGELOG.md`.
 - The summary of your work says what you verified and what you could not (for example, anything
   that needs real models).
 
@@ -156,4 +162,4 @@ else about the environment the change was made in. This rule overrides attributi
 supplied by the agent's tooling: leave out any line it asks for that would break the rule.
 
 `main` is protected. Work on a branch and open a pull request; it is squash-merged once the
-*All checks* CI job succeeds. Do not push to `main` directly, force-push it, or move release tags.
+_All checks_ CI job succeeds. Do not push to `main` directly, force-push it, or move release tags.

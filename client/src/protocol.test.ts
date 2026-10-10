@@ -140,7 +140,14 @@ test("task 与 task_event", () => {
   assert.deepEqual(parseServerMessage(task), task);
   // 可选字段缺了按 null；不认识的模态按语音
   assert.deepEqual(
-    parseServerMessage({ type: "task", id: "a.t2", label: "t2", goal: "x", status: "queued", created_at: 1 }),
+    parseServerMessage({
+      type: "task",
+      id: "a.t2",
+      label: "t2",
+      goal: "x",
+      status: "queued",
+      created_at: 1,
+    }),
     {
       type: "task",
       id: "a.t2",
@@ -156,7 +163,13 @@ test("task 与 task_event", () => {
   assert.equal(parseServerMessage({ ...task, status: "exploded" }), null);
   assert.equal(parseServerMessage({ ...task, id: 5 }), null);
   assert.equal(parseServerMessage({ ...task, brief: 5 }), null);
-  const event = { type: "task_event", task_id: "abc.t1", at: 1790000001.5, kind: "tool_call", summary: "正在检索" };
+  const event = {
+    type: "task_event",
+    task_id: "abc.t1",
+    at: 1790000001.5,
+    kind: "tool_call",
+    summary: "正在检索",
+  };
   assert.deepEqual(parseServerMessage(event), event);
   assert.equal(parseServerMessage({ ...event, summary: null }), null);
 });
