@@ -140,11 +140,12 @@ async def test_health_endpoints_describe_the_services(app, http, inference, serv
     name = {"asr": "asr", "llm": "realtime"}[service]
 
     async def reported():
-        # 等一次确实探测到这个服务不通、其余照常的结果；慢机器上探测超时会短暂报 unknown
+        # 等一次确实探测到这个服务不通、其余照常的结果；慢机器（Windows CI）上探测和存储检查
+        # 偶尔超出预算，会短暂报 unknown 或存储 timeout
         response = await http.get("/readyz")
         body = response.json()
         services = body["services"]
-        others_ok = all(
+        others_ok = body["storage"]["status"] == "ok" and all(
             s["status"] in ("ok", "reachable") for n, s in services.items() if n != name
         )
         if services[name]["status"] == "unavailable" and others_ok:
