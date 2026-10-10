@@ -68,6 +68,12 @@ async def ice_candidate(request: SmallWebRTCPatchRequest):
 # 应用关闭时：await handler.close()
 ```
 
+- **不要把 bot 放进请求的后台任务。** 上面照抄 Pipecat 运行器的骨架把整场会议挂在 `POST /api/offer` 这个请求上。
+  uvicorn 收到 SIGINT 后，先等全部请求任务结束（日志里的 "Waiting for background tasks to complete"），
+  然后才执行 lifespan 收尾，而断开会议的正是收尾，所以会议进行中按一次 `Ctrl+C` 永远停不下来。
+  `web/app.py` 用 `asyncio.create_task` 启动 bot，任务登记在 `app.state.bots`，lifespan 收尾时断开连接后等它们结束
+  （几秒内没结束的取消）。
+
 - `request.request_data` 是浏览器在连接参数 `requestData` 中传入的对象。浏览器端 SDK 在请求体里用的是
   驼峰的 `requestData`，而 `SmallWebRTCRequest` 的字段是 `request_data`——像上面骨架那样让 FastAPI 直接按
   `SmallWebRTCRequest` 解析请求体，驼峰那个键会被忽略（`request_data` 恒为 `None`）。要拿到它，读原始 JSON 后用
