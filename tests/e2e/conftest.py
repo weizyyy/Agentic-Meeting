@@ -63,10 +63,18 @@ class App:
         return self.log.read_text(encoding="utf-8", errors="replace")
 
     def stop(self, timeout: float = 30) -> int:
-        """像用户按 Ctrl+C 一样停下（Windows 上没有对子进程发 Ctrl+C 的简单办法，直接结束进程）。"""
+        """像用户按 Ctrl+C 一样停下。
+
+        Windows 上没有对子进程发 Ctrl+C 的简单办法，直接结束进程树：虚拟环境里的 python.exe 只是个启动器，
+        真正的解释器是它的子进程，只结束启动器的话应用还在跑、还占着数据库。
+        """
         if self.process.poll() is None:
             if sys.platform == "win32":
-                self.process.terminate()
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
+                    capture_output=True,
+                    check=False,
+                )
             else:
                 self.process.send_signal(signal.SIGINT)
             try:
