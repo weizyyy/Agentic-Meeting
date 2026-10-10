@@ -169,12 +169,13 @@ class EmbeddingWorker:
 
     async def run_once(self) -> int:
         """取一批没有向量的发言，算向量、写回。返回写入的条数；嵌入服务出错时抛 ``EmbeddingError``。"""
-        pending = await self._store.unembedded_utterances(self._batch)
+        pending = await self._store.embedding_items(self._batch)
         if not pending:
             return 0
-        vectors = await self._client.embed([text for _, text in pending])
+        vectors = await self._client.embed([item.text for item in pending])
         return await self._store.set_embeddings(
-            [(uid, vec) for (uid, _), vec in zip(pending, vectors, strict=True)]
+            [(item.id, vec) for item, vec in zip(pending, vectors, strict=True)],
+            identities={item.id: (item.session_id, item.write_token) for item in pending},
         )
 
     async def _loop(self) -> None:

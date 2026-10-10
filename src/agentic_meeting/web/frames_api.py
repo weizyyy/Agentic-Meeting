@@ -55,32 +55,34 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         live = res.sessions.live
         if live is None:
             raise _fail(404, NO_LIVE_SESSION)
-        try:
-            at = float(captured_at)
-        except ValueError as e:
-            raise _fail(400, "captured_at 必须是数字（Unix 秒）") from e
-        # 多读一个字节就能知道超没超，不把超大的文件整个读进内存
-        data = await image.read(res.frames.max_bytes + 1)
-        try:
-            ingested = await res.frames.ingest(live.session, data, at)
-        except IngestError as e:
-            raise _fail(e.status, e.message) from e
-        frame = ingested.frame
-        await res.sessions.push(
-            {
-                "type": "frame",
-                "id": frame.id,
-                "t": frame.t,
-                "width": frame.width,
-                "height": frame.height,
-            }
-        )
-        if res.captions is not None:
+        async with res.store.session_work(live.session.id):
             try:
-                await res.captions.submit(ingested)
-            except Exception:  # 摘要出问题不影响截图进时间线
-                logger.exception("把截图交给画面摘要失败")
-        return {"id": frame.id, "t": frame.t}
+                at = float(captured_at)
+            except ValueError as e:
+                raise _fail(400, "captured_at 必须是数字（Unix 秒）") from e
+            # 多读一个字节就能知道超没超，不把超大的文件整个读进内存
+            data = await image.read(res.frames.max_bytes + 1)
+            try:
+                ingested = await res.frames.ingest(live.session, data, at)
+            except IngestError as e:
+                raise _fail(e.status, e.message) from e
+            frame = ingested.frame
+            await res.sessions.push_to(
+                live.session.id,
+                {
+                    "type": "frame",
+                    "id": frame.id,
+                    "t": frame.t,
+                    "width": frame.width,
+                    "height": frame.height,
+                },
+            )
+            if res.captions is not None:
+                try:
+                    await res.captions.submit(ingested)
+                except Exception:  # 摘要出问题不影响截图进时间线
+                    logger.exception("把截图交给画面摘要失败")
+            return {"id": frame.id, "t": frame.t}
 
     @app.get("/api/frames")
     async def list_frames(request: Request, session_id: str | None = None) -> dict[str, Any]:
@@ -91,16 +93,19 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
             session = await res.sessions.current_session()
         if session is None:
             raise _fail(404, "找不到这场会议" if session_id else "现在没有会议")
+        await res.store.require_available(session.id)
         return {"items": [frame_json(f) for f in await res.store.list_frames(session.id)]}
 
     @app.get("/api/frames/{frame_id}/image")
     async def frame_image(request: Request, frame_id: int) -> FileResponse:
         res = resources(request)
         frame = await res.store.get_frame(frame_id)
+        if frame is not None:
+            await res.store.require_available(frame.session_id)
         path = res.frames.path_of(frame) if frame is not None else None
         if frame is None or path is None or not path.is_file():
             raise _fail(404, "找不到这张截图")
-        # 不让浏览器长期缓存：删掉会议后，新截图可能复用旧的编号，缓存的旧图就会张冠李戴
+        # 删除或过期后，浏览器重新验证图片，避免继续展示旧图。
         return FileResponse(
             path,
             media_type=media_type_of(frame.path),

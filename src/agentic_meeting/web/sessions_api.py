@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import shutil
 import time
 from typing import Any
 
@@ -17,7 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from agentic_meeting.config import AppConfig
 from agentic_meeting.pipeline.bot import AppResources
 from agentic_meeting.pipeline.session import SessionManager
-from agentic_meeting.store.db import Store
+from agentic_meeting.store.db import SessionBusy, Store
 from agentic_meeting.types import NamedUtterance, Session, SessionSummary
 
 MAX_TITLE_CHARS = 200
@@ -39,6 +38,8 @@ def summary_json(summary: SessionSummary, *, live: bool) -> dict[str, Any]:
     return {
         "id": s.id,
         "title": s.title,
+        "keep": s.keep,
+        "deletion_pending": s.deletion_pending,
         "started_at": s.started_at,
         "ended_at": s.ended_at,
         "last_active_at": s.last_active_at,
@@ -83,17 +84,18 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
             raise _fail(503, "存储尚未就绪")
         return res.store, res.sessions
 
-    async def resolve(request: Request, session_id: str | None) -> Session:
-        """``session_id`` 省略时指「当前会话」。"""
+    async def resolve(
+        request: Request, session_id: str | None, *, metadata: bool = False
+    ) -> Session:
+        """元数据可读待删除行；内容和变更只允许当前可用会议。"""
         store, manager = parts(request)
-        if session_id:
-            session = await store.get_session(session_id)
-            if session is None:
-                raise _fail(404, NOT_FOUND_SESSION)
-            return session
-        session = await manager.current_session()
+        session = (
+            await store.get_session(session_id) if session_id else await manager.current_session()
+        )
         if session is None:
-            raise _fail(404, NO_CURRENT_SESSION)
+            raise _fail(404, NOT_FOUND_SESSION if session_id else NO_CURRENT_SESSION)
+        if not metadata:
+            await store.require_available(session.id)
         return session
 
     async def summary_of(request: Request, session: Session) -> dict[str, Any]:
@@ -116,11 +118,11 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
 
     @app.get("/api/session")
     async def current_session(request: Request) -> dict[str, Any]:
-        return await session_detail(request, await resolve(request, None))
+        return await session_detail(request, await resolve(request, None, metadata=True))
 
     @app.get("/api/sessions/{session_id}")
     async def get_session(request: Request, session_id: str) -> dict[str, Any]:
-        return await session_detail(request, await resolve(request, session_id))
+        return await session_detail(request, await resolve(request, session_id, metadata=True))
 
     async def session_detail(request: Request, session: Session) -> dict[str, Any]:
         store, _ = parts(request)
@@ -142,18 +144,24 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
 
     @app.patch("/api/sessions/{session_id}")
     async def rename_session(request: Request, session_id: str) -> dict[str, Any]:
-        store, _ = parts(request)
+        _, manager = parts(request)
         body = await _json_body(request)
+        if not body or set(body) - {"title", "keep"}:
+            raise _fail(400, "只接受 title、keep，至少给一个")
         title = body.get("title")
-        if not isinstance(title, str):
-            raise _fail(400, "title 必须是字符串")
-        title = title.strip()
-        if len(title) > MAX_TITLE_CHARS:
-            raise _fail(400, f"标题太长（最多 {MAX_TITLE_CHARS} 字）")
+        if "title" in body:
+            if not isinstance(title, str):
+                raise _fail(400, "title 必须是字符串")
+            title = title.strip()
+            if len(title) > MAX_TITLE_CHARS:
+                raise _fail(400, f"标题太长（最多 {MAX_TITLE_CHARS} 字）")
+        keep = body.get("keep")
+        if "keep" in body and not isinstance(keep, bool):
+            raise _fail(400, "keep 必须是布尔值")
         session = await resolve(request, session_id)
-        renamed = await store.rename_session(session.id, title)
-        assert renamed is not None
-        return await summary_of(request, renamed)
+        updated = await manager.update_session(session.id, title=title, keep=keep)
+        assert updated is not None
+        return await summary_of(request, updated)
 
     async def end(request: Request, session: Session) -> dict[str, Any]:
         _, manager = parts(request)
@@ -172,17 +180,18 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
 
     @app.delete("/api/sessions/{session_id}")
     async def delete_session(request: Request, session_id: str) -> dict[str, Any]:
-        store, manager = parts(request)
-        session = await resolve(request, session_id)
-        if manager.is_live(session.id):
-            raise _fail(409, "会议正在进行，请先结束它再删除")
-        if not await store.delete_session(session.id):
-            raise _fail(404, NOT_FOUND_SESSION)
-        await manager.forget(session.id)
-        # 截图和任务目录。目录名取自数据库里的会话 id（uuid 十六进制），只删这一个目录。
-        shutil.rmtree(
-            cfg.resolve(cfg.session.data_dir) / "sessions" / session.id, ignore_errors=True
-        )
+        session = await resolve(request, session_id, metadata=True)
+        cleaner = resources(request).retention
+        if cleaner is None:
+            raise _fail(503, "清理尚未就绪")
+        try:
+            await cleaner.delete_session(session.id)
+        except LookupError as exc:
+            raise _fail(404, NOT_FOUND_SESSION) from exc
+        except SessionBusy:
+            raise
+        except Exception as exc:
+            raise _fail(500, "删除未完成，会议待删除，请稍后重试") from exc
         return {"id": session.id}
 
     # ---- 发言 ----

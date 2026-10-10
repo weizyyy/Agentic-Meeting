@@ -23,6 +23,7 @@ from typing import Any
 from loguru import logger
 
 from agentic_meeting.store.db import Store
+from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import TaskRecord, TaskResult
 
 RECENT_STEPS = 3  # 回答「做到哪了」时带最近几条进度
@@ -90,6 +91,7 @@ class TaskManager:
         self._done: dict[str, asyncio.Event] = {}
         self._cancel_requested: set[str] = set()
         self._closing = False
+        self._admissions: set[asyncio.Task] = set()
 
     # ------------------------------------------------------------------ #
     # 生命周期
@@ -105,6 +107,9 @@ class TaskManager:
     async def close(self) -> None:
         """应用关闭：停掉还在跑的任务，标为失败（原因写明是服务停止）。"""
         self._closing = True
+        if self._admissions:
+            await asyncio.gather(*self._admissions, return_exceptions=True)
+        records = [await self._store.get_task(tid) for tid in list(self._running)]
         tasks = list(self._running.values())
         for task in tasks:
             task.cancel()
@@ -113,6 +118,16 @@ class TaskManager:
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
+        for record in records:
+            if record is None:
+                continue
+            current = await self._store.get_task(record.id)
+            if current is not None and not current.finished:
+                await self._finish(record, "failed", error=SHUTDOWN_REASON)
+            self._running.pop(record.id, None)
+            done = self._done.get(record.id)
+            if done is not None:
+                done.set()
 
     # ------------------------------------------------------------------ #
     # 接口（interfaces.md §8.1）
@@ -130,21 +145,33 @@ class TaskManager:
         modality: str = "voice",
     ) -> TaskRecord:
         """建任务（排队中）、落库、通知页面、安排执行。立刻返回，不等任务做完。"""
-        task = await self._store.create_task(
-            session_id,
-            goal=goal,
-            requested_by=requested_by,
-            requested_t=requested_t,
-            t_from=transcript_window[0],
-            t_to=transcript_window[1],
-            frame_ids=frame_ids or [],
-            modality=modality,
-            now=self._now(),
-        )
-        self._done[task.id] = asyncio.Event()
-        await self._announce(task)
-        self._running[task.id] = asyncio.create_task(self._run(task), name=f"task-{task.label}")
-        return task
+
+        async def admit() -> TaskRecord:
+            async with self._store.session_work(session_id):
+                task = await self._store.create_task(
+                    session_id,
+                    goal=goal,
+                    requested_by=requested_by,
+                    requested_t=requested_t,
+                    t_from=transcript_window[0],
+                    t_to=transcript_window[1],
+                    frame_ids=frame_ids or [],
+                    modality=modality,
+                    now=self._now(),
+                )
+                self._done[task.id] = asyncio.Event()
+                await self._announce(task)
+                self._running[task.id] = asyncio.create_task(
+                    self._run(task), name=f"task-{task.label}"
+                )
+                return task
+
+        if self._closing:
+            raise RunnerError("服务正在停止")
+        admission = asyncio.create_task(admit(), name="task-admission")
+        self._admissions.add(admission)
+        admission.add_done_callback(self._admissions.discard)
+        return await drain_io(admission)
 
     async def wait(self, task_id: str) -> TaskResult:
         """等任务结束并返回结果；失败或取消时抛 ``TaskFailed``。任务不存在抛 ``LookupError``。"""
@@ -167,6 +194,9 @@ class TaskManager:
 
     async def cancel(self, task_id: str) -> TaskRecord | None:
         """取消任务：中断运行器，状态置为 ``cancelled``。已经结束的原样返回；不存在返回 ``None``。"""
+        return await drain_io(self._cancel(task_id))
+
+    async def _cancel(self, task_id: str) -> TaskRecord | None:
         task = await self._store.get_task(task_id)
         if task is None or task.finished:
             return task
@@ -175,10 +205,16 @@ class TaskManager:
             return await self._finish(task, "cancelled", error=CANCELLED_TEXT)
         self._cancel_requested.add(task_id)
         runner_task.cancel()
+        await asyncio.gather(runner_task, return_exceptions=True)
+        current = await self._store.get_task(task_id)
+        if current is not None and not current.finished:
+            current = await self._finish(task, "cancelled", error=CANCELLED_TEXT)
+        self._running.pop(task_id, None)
+        self._cancel_requested.discard(task_id)
         done = self._done.get(task_id)
         if done is not None:
-            await done.wait()
-        return await self._store.get_task(task_id)
+            done.set()
+        return current
 
     async def status(self, session_id: str, label: str | None = None) -> dict[str, Any] | None:
         """给实时模型回答「做到哪了」用。``label`` 是短编号，不给就取这场会议最近的一个；没有任务返回 ``None``。"""
@@ -228,19 +264,20 @@ class TaskManager:
     # ------------------------------------------------------------------ #
 
     async def _run(self, task: TaskRecord) -> None:
-        try:
+        async with self._store.session_work(task.session_id):
             try:
-                async with self._slots:  # 超出并发上限的在这里排队
-                    await self._execute(task)
-            except asyncio.CancelledError:
-                # 还在排队时就被取消了（或应用正在关闭）
-                await self._on_cancelled(task)
-        finally:
-            self._running.pop(task.id, None)
-            self._cancel_requested.discard(task.id)
-            done = self._done.get(task.id)
-            if done is not None:
-                done.set()
+                try:
+                    async with self._slots:  # 超出并发上限的在这里排队
+                        await self._execute(task)
+                except asyncio.CancelledError:
+                    # 还在排队时就被取消了（或应用正在关闭）
+                    await self._on_cancelled(task)
+            finally:
+                self._running.pop(task.id, None)
+                self._cancel_requested.discard(task.id)
+                done = self._done.get(task.id)
+                if done is not None:
+                    done.set()
 
     async def _execute(self, task: TaskRecord) -> None:
         updated = await self._store.update_task(task.id, status="running", started_at=self._now())
@@ -283,28 +320,29 @@ class TaskManager:
         """写下结束状态、通知页面、记最后一条进度。收尾不能被再次取消打断，所以包在 shield 里。"""
 
         async def write() -> TaskRecord | None:
-            fields: dict[str, Any] = {"status": status, "finished_at": self._now()}
-            if result is not None:
-                fields.update(
-                    brief=result.brief,
-                    detail_md=result.detail_md,
-                    sources=result.sources,
-                    artifacts=result.artifacts,
-                )
-            if error is not None:
-                fields["error"] = error
-            updated = await self._store.update_task(task.id, **fields)
-            if updated is not None:
-                await self._announce(updated)
-            summary = {
-                "succeeded": "已完成",
-                "cancelled": CANCELLED_TEXT,
-            }.get(status, f"失败：{error}")
-            await self.add_event(task.id, "status", summary)
-            return updated
+            async with self._store.session_work(task.session_id):
+                fields: dict[str, Any] = {"status": status, "finished_at": self._now()}
+                if result is not None:
+                    fields.update(
+                        brief=result.brief,
+                        detail_md=result.detail_md,
+                        sources=result.sources,
+                        artifacts=result.artifacts,
+                    )
+                if error is not None:
+                    fields["error"] = error
+                updated = await self._store.update_task(task.id, **fields)
+                if updated is not None:
+                    await self._announce(updated)
+                summary = {
+                    "succeeded": "已完成",
+                    "cancelled": CANCELLED_TEXT,
+                }.get(status, f"失败：{error}")
+                await self.add_event(task.id, "status", summary)
+                return updated
 
         try:
-            return await asyncio.shield(write())
+            return await drain_io(write())
         except asyncio.CancelledError:
             raise
         except Exception:

@@ -17,7 +17,9 @@ import re
 import struct
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from itertools import zip_longest
 from pathlib import Path
 from typing import Any
@@ -25,6 +27,8 @@ from typing import Any
 import aiosqlite
 import sqlite_vec
 
+from agentic_meeting.config import RetentionConfig
+from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import (
     SPEAKER_ASSISTANT,
     SPEAKER_TYPED,
@@ -50,7 +54,7 @@ VECTOR_TOP_K = 8  # 召回时向量检索最多贡献几条（没有相关度门
 
 _UTTERANCE_COLUMNS = (
     "u.id, u.session_id, u.speaker_idx, u.t_start, u.t_end, u.text, u.source, "
-    "u.addressed_to_assistant, sp.display_name AS speaker_name"
+    "u.addressed_to_assistant, u.write_token, sp.display_name AS speaker_name"
 )
 _UTTERANCE_FROM = "FROM utterances u LEFT JOIN speakers sp ON sp.session_id = u.session_id AND sp.idx = u.speaker_idx"
 
@@ -62,6 +66,23 @@ MANUAL_SPEAKER_BASE = 1000
 
 class StoreError(RuntimeError):
     """数据库本身的问题（不是调用参数的问题），消息直接面向用户。"""
+
+
+class SessionBusy(RuntimeError):
+    """会议正在产出内容、清理或等待完整删除。"""
+
+
+@dataclass(frozen=True)
+class CleanupPlan:
+    """最终锁内领取的删除集合，文件工作期间由调用者独占。"""
+
+    session_id: str
+    manual: bool = False
+    transcript: bool = False
+    screenshots: bool = False
+    reports: tuple[int, ...] = ()
+    digests: tuple[int, ...] = ()
+    tasks: tuple[str, ...] = ()
 
 
 def default_speaker_name(idx: int, assistant_name: str) -> str:
@@ -94,6 +115,8 @@ class Store:
         self._db = db
         self._assistant_name = assistant_name
         self._lock = asyncio.Lock()
+        self._work: dict[str, int] = {}
+        self._claims: set[str] = set()
 
     # ------------------------------------------------------------------ #
     # 打开与关闭
@@ -126,6 +149,16 @@ class Store:
     async def _migrate(db: aiosqlite.Connection) -> None:
         """给旧库补上后来才有的列（``schema.sql`` 全是 ``IF NOT EXISTS``，已有的表不会被它改动）。"""
         added = {
+            "sessions": [
+                ("keep", "INTEGER NOT NULL DEFAULT 0"),
+                ("deletion_pending", "INTEGER NOT NULL DEFAULT 0"),
+            ],
+            "utterances": [("write_token", "TEXT NOT NULL DEFAULT ''")],
+            "frames": [("write_token", "TEXT NOT NULL DEFAULT ''")],
+            "reports": [
+                ("write_token", "TEXT NOT NULL DEFAULT ''"),
+                ("finished_at", "REAL"),
+            ],
             "digests": [("last_utterance_id", "INTEGER NOT NULL DEFAULT 0")],
             "tasks": [
                 ("t_from", "REAL NOT NULL DEFAULT 0"),
@@ -139,6 +172,33 @@ class Store:
             for name, ddl in columns:
                 if name not in existing:
                     await db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+        for table in ("utterances", "frames", "reports"):
+            await db.execute(
+                f"UPDATE {table} SET write_token = lower(hex(randomblob(16))) "
+                "WHERE write_token = ''"
+            )
+        await db.execute(
+            "UPDATE reports SET finished_at = created_at "
+            "WHERE status != 'running' AND finished_at IS NULL"
+        )
+        for table in ("utterances", "frames"):
+            async with db.execute(f"SELECT COALESCE(MAX(id), 0) FROM {table}") as cursor:
+                maximum = int((await cursor.fetchone())[0])
+            if table == "utterances":
+                async with db.execute(
+                    "SELECT COALESCE(MAX(last_utterance_id), 0) FROM digests"
+                ) as c:
+                    maximum = max(maximum, int((await c.fetchone())[0]))
+            else:
+                async with db.execute("SELECT frame_ids_json FROM tasks") as c:
+                    for row in await c.fetchall():
+                        maximum = max(maximum, *json.loads(row[0]), 0)
+            await db.execute(
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = "
+                "MAX(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER))",
+                (f"{table}_id_high_water", maximum),
+            )
 
     @staticmethod
     async def _ensure_vector_table(db: aiosqlite.Connection, dims: int) -> None:
@@ -160,6 +220,203 @@ class Store:
 
     async def close(self) -> None:
         await self._db.close()
+
+    @asynccontextmanager
+    async def _transaction(self) -> AsyncIterator[None]:
+        """失败或取消时回滚，不能让下一位调用者提交半次删除。"""
+        async with self._lock:
+            try:
+                yield
+            except BaseException:
+                await self._db.rollback()
+                raise
+
+    async def _writable(self, session_id: str) -> bool:
+        row = await self._one("SELECT deletion_pending FROM sessions WHERE id = ?", (session_id,))
+        return row is not None and not row[0] and session_id not in self._claims
+
+    async def _require_writable(self, session_id: str) -> None:
+        if not await self._writable(session_id):
+            raise SessionBusy("会议正在清理、等待删除或已不存在")
+
+    async def require_available(self, session_id: str) -> None:
+        """HTTP 内容请求与写入登记使用同一当前状态判定。"""
+        async with self._transaction():
+            await self._require_writable(session_id)
+
+    @asynccontextmanager
+    async def session_work(self, session_id: str) -> AsyncIterator[None]:
+        """登记一次会话生产工作；网络和文件等待期间不持数据库锁。"""
+        async with self._transaction():
+            await self._require_writable(session_id)
+            self._work[session_id] = self._work.get(session_id, 0) + 1
+        try:
+            yield
+        finally:
+            await drain_io(self._release_work(session_id))
+
+    async def _release_work(self, session_id: str) -> None:
+        async with self._transaction():
+            remaining = self._work[session_id] - 1
+            if remaining:
+                self._work[session_id] = remaining
+            else:
+                del self._work[session_id]
+
+    async def _next_id(self, table: str) -> int:
+        key = f"{table}_id_high_water"
+        row = await self._one("SELECT value FROM meta WHERE key = ?", (key,))
+        value = int(row[0]) + 1
+        await self._db.execute("UPDATE meta SET value = ? WHERE key = ?", (str(value), key))
+        return value
+
+    async def _identity(
+        self, table: str, row_id: int, session_id: str | None, write_token: str | None
+    ) -> aiosqlite.Row | None:
+        row = await self._one(f"SELECT * FROM {table} WHERE id = ?", (row_id,))
+        if row is None or not await self._writable(row["session_id"]):
+            return None
+        if session_id is not None and row["session_id"] != session_id:
+            return None
+        if write_token is not None and row["write_token"] != write_token:
+            return None
+        return row
+
+    async def update_session(
+        self, session_id: str, *, title: str | None = None, keep: bool | None = None
+    ) -> Session | None:
+        """PATCH 的两个可选字段一起提交，未给字段保持不变。"""
+        async with self._transaction():
+            if await self.get_session(session_id) is None:
+                return None
+            await self._require_writable(session_id)
+            await self._db.execute(
+                "UPDATE sessions SET title = COALESCE(?, title), keep = COALESCE(?, keep) WHERE id = ?",
+                (title, int(keep) if keep is not None else None, session_id),
+            )
+            await self._db.commit()
+            return await self.get_session(session_id)
+
+    async def cleanup_candidates(
+        self, *, enabled: bool, after: str = "", limit: int = 50
+    ) -> list[str]:
+        """按编号循环分批，不让失败的最老会议饿死后面的候选。"""
+        condition = "deletion_pending = 1" if not enabled else "deletion_pending = 1 OR keep = 0"
+        rows = await self._all(
+            f"SELECT id FROM sessions WHERE ({condition}) "
+            "ORDER BY CASE WHEN id > ? THEN 0 ELSE 1 END, id LIMIT ?",
+            (after, limit),
+        )
+        return [row[0] for row in rows]
+
+    async def claim_cleanup(
+        self, session_id: str, policy: RetentionConfig, now: float, *, manual: bool = False
+    ) -> CleanupPlan | None:
+        """调用者已协调连接状态；锁内重读数据库与生产者，领取一个确定的删除集合。"""
+        async with self._transaction():
+            session = await self.get_session(session_id)
+            if session is None:
+                return None
+            if session_id in self._claims or self._work.get(session_id):
+                raise SessionBusy("会议仍有工作正在进行")
+            busy = await self._one(
+                "SELECT 1 FROM tasks WHERE session_id = ? AND status IN ('queued', 'running') "
+                "UNION ALL SELECT 1 FROM reports WHERE session_id = ? AND status = 'running' LIMIT 1",
+                (session_id, session_id),
+            )
+            if busy:
+                raise SessionBusy("会议仍有任务或报告正在进行")
+            manual = manual or session.deletion_pending
+            if not manual and session.keep:
+                return None
+            anchor = max(session.started_at, session.last_active_at, session.ended_at or 0.0)
+
+            def expired(days: int) -> bool:
+                return days > 0 and anchor < now - days * 86400
+
+            reports, digests, tasks = (), (), ()
+            if policy.reports_days:
+                cutoff = now - policy.reports_days * 86400
+                reports = tuple(
+                    r[0]
+                    for r in await self._all(
+                        "SELECT id FROM reports WHERE session_id = ? AND status != 'running' "
+                        "AND finished_at < ?",
+                        (session_id, cutoff),
+                    )
+                )
+                digests = tuple(
+                    r[0]
+                    for r in await self._all(
+                        "SELECT id FROM digests WHERE session_id = ? AND created_at < ?",
+                        (session_id, cutoff),
+                    )
+                )
+            if policy.task_artifacts_days:
+                tasks = tuple(
+                    r[0]
+                    for r in await self._all(
+                        "SELECT id FROM tasks WHERE session_id = ? AND status NOT IN ('queued', 'running') "
+                        "AND COALESCE(finished_at, created_at) < ?",
+                        (session_id, now - policy.task_artifacts_days * 86400),
+                    )
+                )
+            plan = CleanupPlan(
+                session_id,
+                manual,
+                expired(policy.transcript_days),
+                expired(policy.screenshots_days),
+                reports,
+                digests,
+                tasks,
+            )
+            if not any((plan.manual, plan.transcript, plan.screenshots, reports, digests, tasks)):
+                return None
+            if manual:
+                await self._db.execute(
+                    "UPDATE sessions SET deletion_pending = 1 WHERE id = ?", (session_id,)
+                )
+                await self._db.commit()
+            self._claims.add(session_id)
+            return plan
+
+    async def release_cleanup(self, session_id: str) -> None:
+        async with self._transaction():
+            self._claims.discard(session_id)
+
+    async def complete_cleanup(self, plan: CleanupPlan) -> None:
+        """文件已移除；一次事务删对应行，失败回滚保留所有权。"""
+        async with self._transaction():
+            if plan.session_id not in self._claims:
+                raise SessionBusy("清理没有取得会议所有权")
+            if plan.manual or plan.transcript:
+                await self._db.execute(
+                    "DELETE FROM utterances_vec WHERE rowid IN "
+                    "(SELECT id FROM utterances WHERE session_id = ?)",
+                    (plan.session_id,),
+                )
+                if plan.transcript and not plan.manual:
+                    await self._db.execute(
+                        "DELETE FROM utterances WHERE session_id = ?", (plan.session_id,)
+                    )
+            if plan.manual:
+                await self._db.execute("DELETE FROM sessions WHERE id = ?", (plan.session_id,))
+            else:
+                if plan.screenshots:
+                    await self._db.execute(
+                        "DELETE FROM frames WHERE session_id = ?", (plan.session_id,)
+                    )
+                for table, ids in (("reports", plan.reports), ("digests", plan.digests)):
+                    for row_id in ids:
+                        await self._db.execute(
+                            f"DELETE FROM {table} WHERE id = ? AND session_id = ?",
+                            (row_id, plan.session_id),
+                        )
+                for task_id in plan.tasks:
+                    await self._db.execute(
+                        "UPDATE tasks SET artifacts_json = '[]' WHERE id = ?", (task_id,)
+                    )
+            await self._db.commit()
 
     # ------------------------------------------------------------------ #
     # 内部工具
@@ -184,6 +441,8 @@ class Store:
             started_at=row["started_at"],
             ended_at=row["ended_at"],
             last_active_at=row["last_active_at"],
+            keep=bool(row["keep"]),
+            deletion_pending=bool(row["deletion_pending"]),
         )
 
     def _named(self, row: aiosqlite.Row) -> NamedUtterance:
@@ -196,6 +455,7 @@ class Store:
             text=row["text"],
             source=row["source"],
             addressed_to_assistant=bool(row["addressed_to_assistant"]),
+            write_token=row["write_token"],
         )
         return NamedUtterance(utterance, self._name(row["speaker_idx"], row["speaker_name"]))
 
@@ -206,7 +466,7 @@ class Store:
     async def create_session(self, title: str = "", *, now: float | None = None) -> Session:
         now = time.time() if now is None else now
         session = Session(id=uuid.uuid4().hex, title=title, started_at=now, last_active_at=now)
-        async with self._lock:
+        async with self._transaction():
             await self._db.execute(
                 "INSERT INTO sessions (id, title, started_at, last_active_at) VALUES (?, ?, ?, ?)",
                 (session.id, title, now, now),
@@ -221,7 +481,10 @@ class Store:
     async def end_session(self, session_id: str, *, now: float | None = None) -> Session | None:
         """写 ``ended_at``。已经结束的不改写第一次的时间。"""
         now = time.time() if now is None else now
-        async with self._lock:
+        async with self._transaction():
+            if await self.get_session(session_id) is None:
+                return None
+            await self._require_writable(session_id)
             await self._db.execute(
                 "UPDATE sessions SET ended_at = COALESCE(ended_at, ?), "
                 "last_active_at = MAX(last_active_at, ?) WHERE id = ?",
@@ -232,7 +495,7 @@ class Store:
 
     async def end_unended_sessions(self) -> int:
         """把所有还没结束的会话标为已结束，结束时间取它最后一次活动的时间（会议实际停在那里）。返回条数。"""
-        async with self._lock:
+        async with self._transaction():
             cursor = await self._db.execute(
                 "UPDATE sessions SET ended_at = last_active_at WHERE ended_at IS NULL"
             )
@@ -240,7 +503,10 @@ class Store:
             return cursor.rowcount
 
     async def reopen_session(self, session_id: str) -> Session | None:
-        async with self._lock:
+        async with self._transaction():
+            if await self.get_session(session_id) is None:
+                return None
+            await self._require_writable(session_id)
             await self._db.execute(
                 "UPDATE sessions SET ended_at = NULL WHERE id = ?", (session_id,)
             )
@@ -249,7 +515,8 @@ class Store:
 
     async def touch_session(self, session_id: str, *, now: float | None = None) -> None:
         now = time.time() if now is None else now
-        async with self._lock:
+        async with self._transaction():
+            await self._require_writable(session_id)
             await self._db.execute(
                 "UPDATE sessions SET last_active_at = MAX(last_active_at, ?) WHERE id = ?",
                 (now, session_id),
@@ -258,22 +525,17 @@ class Store:
 
     async def latest_unended_session(self) -> Session | None:
         row = await self._one(
-            "SELECT * FROM sessions WHERE ended_at IS NULL "
+            "SELECT * FROM sessions WHERE ended_at IS NULL AND deletion_pending = 0 "
             "ORDER BY last_active_at DESC, started_at DESC LIMIT 1"
         )
         return self._session(row) if row else None
 
     async def rename_session(self, session_id: str, title: str) -> Session | None:
-        async with self._lock:
-            await self._db.execute(
-                "UPDATE sessions SET title = ? WHERE id = ?", (title, session_id)
-            )
-            await self._db.commit()
-        return await self.get_session(session_id)
+        return await self.update_session(session_id, title=title)
 
     async def delete_session(self, session_id: str) -> bool:
         """删除会话及其名下的全部行（外键级联），向量表要单独清。截图文件由调用方清理。"""
-        async with self._lock:
+        async with self._transaction():
             ids = [
                 r[0]
                 for r in await self._all(
@@ -352,7 +614,8 @@ class Store:
     # ------------------------------------------------------------------ #
 
     async def open_connection(self, session_id: str, *, connected_at: float, t_from: float) -> int:
-        async with self._lock:
+        async with self._transaction():
+            await self._require_writable(session_id)
             cursor = await self._db.execute(
                 "INSERT INTO session_connections (session_id, connected_at, t_from) VALUES (?, ?, ?)",
                 (session_id, connected_at, t_from),
@@ -367,7 +630,7 @@ class Store:
     async def close_connection(
         self, connection_id: int, *, disconnected_at: float, t_to: float
     ) -> None:
-        async with self._lock:
+        async with self._transaction():
             await self._db.execute(
                 "UPDATE session_connections SET disconnected_at = ?, t_to = ? WHERE id = ?",
                 (disconnected_at, t_to, connection_id),
@@ -412,7 +675,7 @@ class Store:
 
     async def close_dangling_connections(self) -> int:
         """服务启动时调用：上次崩溃或被强杀时没来得及关闭的连接记录，按会话最后一次活动的时间补关。"""
-        async with self._lock:
+        async with self._transaction():
             rows = await self._all(
                 "SELECT c.id, c.connected_at, c.t_from, s.last_active_at, "
                 "(SELECT MAX(u.t_end) FROM utterances u WHERE u.session_id = c.session_id) AS last_t "
@@ -439,7 +702,7 @@ class Store:
         self, session_id: str, idx: int, display_name: str | None = None
     ) -> SpeakerInfo:
         """不存在就以默认显示名（或给定的名字）创建；已存在的不改动（包括用户改过的名字）。"""
-        async with self._lock:
+        async with self._transaction():
             await self._ensure_speaker(session_id, idx, display_name)
             await self._db.commit()
         return SpeakerInfo(idx, await self.speaker_name(session_id, idx))
@@ -454,7 +717,8 @@ class Store:
         name = display_name.strip()
         if not name:
             raise ValueError("说话人的名字不能为空")
-        async with self._lock:
+        async with self._transaction():
+            await self._require_writable(session_id)
             cursor = await self._db.execute(
                 "UPDATE speakers SET display_name = ? WHERE session_id = ? AND idx = ?",
                 (name, session_id, idx),
@@ -478,7 +742,8 @@ class Store:
         name = display_name.strip()
         if not name:
             raise ValueError("说话人的名字不能为空")
-        async with self._lock:
+        async with self._transaction():
+            await self._require_writable(session_id)
             row = await self._one(
                 "SELECT MAX(idx) FROM speakers WHERE session_id = ?", (session_id,)
             )
@@ -507,7 +772,8 @@ class Store:
         if not wanted:
             return []
         marks = ",".join("?" * len(wanted))
-        async with self._lock:
+        async with self._transaction():
+            await self._require_writable(session_id)
             rows = await self._all(
                 f"SELECT id FROM utterances WHERE session_id = ? AND source = 'asr' "
                 f"AND id IN ({marks}) ORDER BY id",
@@ -533,13 +799,14 @@ class Store:
         """
         if src <= 0 or dst <= 0 or src == dst:
             return None
-        async with self._lock:
+        async with self._transaction():
             rows = await self._all(
                 "SELECT idx FROM speakers WHERE session_id = ? AND idx IN (?, ?)",
                 (session_id, src, dst),
             )
             if len(rows) != 2:
                 return None
+            await self._require_writable(session_id)
             cursor = await self._db.execute(
                 "UPDATE utterances SET speaker_idx = ? WHERE session_id = ? AND speaker_idx = ?",
                 (dst, session_id, src),
@@ -574,12 +841,17 @@ class Store:
 
     async def add_utterance(self, utterance: Utterance, *, now: float | None = None) -> int:
         now = time.time() if now is None else now
-        async with self._lock:
+        async with self._transaction():
+            await self._require_writable(utterance.session_id)
+            uid = await self._next_id("utterances")
+            token = uuid.uuid4().hex
             await self._ensure_speaker(utterance.session_id, utterance.speaker_idx, None)
-            cursor = await self._db.execute(
-                "INSERT INTO utterances (session_id, speaker_idx, t_start, t_end, text, source, "
-                "addressed_to_assistant) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            await self._db.execute(
+                "INSERT INTO utterances (id, write_token, session_id, speaker_idx, t_start, t_end, text, source, "
+                "addressed_to_assistant) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
+                    uid,
+                    token,
                     utterance.session_id,
                     utterance.speaker_idx,
                     utterance.t_start,
@@ -594,11 +866,20 @@ class Store:
                 (now, utterance.session_id),
             )
             await self._db.commit()
-            utterance.id = int(cursor.lastrowid or 0)
+            utterance.id = uid
+            utterance.write_token = token
         return utterance.id
 
     async def extend_utterance(
-        self, utterance_id: int, *, text: str, t_end: float, now: float | None = None
+        self,
+        utterance_id: int,
+        *,
+        text: str,
+        t_end: float,
+        now: float | None = None,
+        session_id: str | None = None,
+        write_token: str | None = None,
+        next_token: str | None = None,
     ) -> bool:
         """把一条发言的文字换成更长的版本（相邻片段并进来之后），结束时间跟着往后。
 
@@ -606,8 +887,8 @@ class Store:
         调用方照常另存一条。文字变了，向量要重算：清掉旧向量，交给嵌入回填。
         """
         now = time.time() if now is None else now
-        async with self._lock:
-            row = await self._one("SELECT session_id FROM utterances WHERE id = ?", (utterance_id,))
+        async with self._transaction():
+            row = await self._identity("utterances", utterance_id, session_id, write_token)
             if row is None:
                 return False
             digested = await self._one(
@@ -617,8 +898,8 @@ class Store:
             if digested is not None and (digested[0] or 0) >= utterance_id:
                 return False
             await self._db.execute(
-                "UPDATE utterances SET text = ?, t_end = MAX(t_end, ?), embedded = 0 WHERE id = ?",
-                (text, t_end, utterance_id),
+                "UPDATE utterances SET text = ?, t_end = MAX(t_end, ?), embedded = 0, write_token = ? WHERE id = ?",
+                (text, t_end, next_token or uuid.uuid4().hex, utterance_id),
             )
             await self._db.execute("DELETE FROM utterances_vec WHERE rowid = ?", (utterance_id,))
             await self._db.execute(
@@ -628,9 +909,16 @@ class Store:
             await self._db.commit()
         return True
 
-    async def update_utterance_speaker(self, utterance_id: int, speaker_idx: int) -> bool:
-        async with self._lock:
-            row = await self._one("SELECT session_id FROM utterances WHERE id = ?", (utterance_id,))
+    async def update_utterance_speaker(
+        self,
+        utterance_id: int,
+        speaker_idx: int,
+        *,
+        session_id: str | None = None,
+        write_token: str | None = None,
+    ) -> bool:
+        async with self._transaction():
+            row = await self._identity("utterances", utterance_id, session_id, write_token)
             if row is None:
                 return False
             await self._ensure_speaker(row["session_id"], speaker_idx, None)
@@ -813,15 +1101,28 @@ class Store:
         )
         return [(r["id"], r["text"]) for r in rows]
 
-    async def set_embeddings(self, items: Sequence[tuple[int, Sequence[float]]]) -> int:
+    async def embedding_items(self, limit: int = 16) -> list[Utterance]:
+        """领取原文字与身份；回填过程中内容变更时旧结果不可写回。"""
+        rows = await self._all(
+            f"SELECT {_UTTERANCE_COLUMNS} {_UTTERANCE_FROM} "
+            "JOIN sessions s ON s.id = u.session_id "
+            "WHERE u.embedded = 0 AND s.deletion_pending = 0 ORDER BY u.id LIMIT ?",
+            (limit,),
+        )
+        return [self._named(row).utterance for row in rows]
+
+    async def set_embeddings(
+        self,
+        items: Sequence[tuple[int, Sequence[float]]],
+        *,
+        identities: dict[int, tuple[str, str]] | None = None,
+    ) -> int:
         """写向量表并置位 ``embedded``。发言在这期间被删掉的跳过。返回写入的条数。"""
         written = 0
-        async with self._lock:
+        async with self._transaction():
             for utterance_id, vector in items:
-                if (
-                    await self._one("SELECT 1 FROM utterances WHERE id = ?", (utterance_id,))
-                    is None
-                ):
+                session_id, token = (identities or {}).get(utterance_id, (None, None))
+                if await self._identity("utterances", utterance_id, session_id, token) is None:
                     continue
                 # vec0 不支持 INSERT OR REPLACE（已核实），先删再插
                 await self._db.execute(
@@ -853,6 +1154,7 @@ class Store:
             height=row["height"],
             caption=row["caption"],
             caption_status=row["caption_status"],
+            write_token=row["write_token"],
         )
 
     async def add_frame(
@@ -871,13 +1173,15 @@ class Store:
         只写数据库；图片文件由调用方按返回的 ``path`` 落盘（落盘失败要调 ``delete_frame`` 撤销）。
         """
         now = time.time() if now is None else now
-        async with self._lock:
-            cursor = await self._db.execute(
-                "INSERT INTO frames (session_id, t, path, width, height, caption_status) "
-                "VALUES (?, ?, '', ?, ?, ?)",
-                (session_id, t, width, height, caption_status),
+        async with self._transaction():
+            await self._require_writable(session_id)
+            frame_id = await self._next_id("frames")
+            token = uuid.uuid4().hex
+            await self._db.execute(
+                "INSERT INTO frames (id, write_token, session_id, t, path, width, height, caption_status) "
+                "VALUES (?, ?, ?, ?, '', ?, ?, ?)",
+                (frame_id, token, session_id, t, width, height, caption_status),
             )
-            frame_id = int(cursor.lastrowid or 0)
             path = f"sessions/{session_id}/frames/{frame_id:06d}{suffix}"
             await self._db.execute("UPDATE frames SET path = ? WHERE id = ?", (path, frame_id))
             await self._db.execute(
@@ -893,10 +1197,15 @@ class Store:
             width=width,
             height=height,
             caption_status=caption_status,
+            write_token=token,
         )
 
-    async def delete_frame(self, frame_id: int) -> None:
-        async with self._lock:
+    async def delete_frame(
+        self, frame_id: int, *, session_id: str | None = None, write_token: str | None = None
+    ) -> None:
+        async with self._transaction():
+            if await self._identity("frames", frame_id, session_id, write_token) is None:
+                return
             await self._db.execute("DELETE FROM frames WHERE id = ?", (frame_id,))
             await self._db.commit()
 
@@ -928,10 +1237,18 @@ class Store:
         return self._frame(row) if row else None
 
     async def set_frame_caption(
-        self, frame_id: int, *, status: str, caption: str | None = None
+        self,
+        frame_id: int,
+        *,
+        status: str,
+        caption: str | None = None,
+        session_id: str | None = None,
+        write_token: str | None = None,
     ) -> bool:
         """写画面摘要的状态；``caption`` 不给时保留原来的文字。"""
-        async with self._lock:
+        async with self._transaction():
+            if await self._identity("frames", frame_id, session_id, write_token) is None:
+                return False
             cursor = await self._db.execute(
                 "UPDATE frames SET caption_status = ?, caption = COALESCE(?, caption) WHERE id = ?",
                 (status, caption, frame_id),
@@ -966,7 +1283,8 @@ class Store:
         now: float | None = None,
     ) -> Digest:
         now = time.time() if now is None else now
-        async with self._lock:
+        async with self._transaction():
+            await self._require_writable(session_id)
             cursor = await self._db.execute(
                 "INSERT INTO digests (session_id, t_from, t_to, text, created_at, last_utterance_id) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
@@ -1003,6 +1321,8 @@ class Store:
             provider=row["provider"],
             text_md=row["text_md"],
             error=row["error"],
+            write_token=row["write_token"],
+            finished_at=row["finished_at"],
         )
 
     async def create_report(
@@ -1010,36 +1330,65 @@ class Store:
     ) -> int:
         """建一份「生成中」的报告，返回编号。"""
         now = time.time() if now is None else now
-        async with self._lock:
+        async with self._transaction():
+            await self._require_writable(session_id)
             cursor = await self._db.execute(
-                "INSERT INTO reports (session_id, created_at, status, provider) "
-                "VALUES (?, ?, 'running', ?)",
-                (session_id, now, provider),
+                "INSERT INTO reports (session_id, created_at, status, provider, write_token) "
+                "VALUES (?, ?, 'running', ?, ?)",
+                (session_id, now, provider, uuid.uuid4().hex),
             )
             await self._db.commit()
             return int(cursor.lastrowid or 0)
 
-    async def finish_report(self, report_id: int, text_md: str) -> None:
-        async with self._lock:
-            await self._db.execute(
-                "UPDATE reports SET status = 'done', text_md = ?, error = NULL WHERE id = ?",
-                (text_md, report_id),
-            )
-            await self._db.commit()
+    async def get_report(self, report_id: int) -> Report | None:
+        row = await self._one("SELECT * FROM reports WHERE id = ?", (report_id,))
+        return self._report(row) if row else None
 
-    async def fail_report(self, report_id: int, error: str) -> None:
-        async with self._lock:
+    async def finish_report(
+        self,
+        report_id: int,
+        text_md: str,
+        *,
+        session_id: str | None = None,
+        write_token: str | None = None,
+        now: float | None = None,
+    ) -> bool:
+        async with self._transaction():
+            if await self._identity("reports", report_id, session_id, write_token) is None:
+                return False
             await self._db.execute(
-                "UPDATE reports SET status = 'failed', error = ? WHERE id = ?", (error, report_id)
+                "UPDATE reports SET status = 'done', text_md = ?, error = NULL, finished_at = ? WHERE id = ?",
+                (text_md, time.time() if now is None else now, report_id),
             )
             await self._db.commit()
+        return True
+
+    async def fail_report(
+        self,
+        report_id: int,
+        error: str,
+        *,
+        session_id: str | None = None,
+        write_token: str | None = None,
+        now: float | None = None,
+    ) -> bool:
+        async with self._transaction():
+            row = await self._identity("reports", report_id, session_id, write_token)
+            if row is None or row["status"] != "running":
+                return False
+            await self._db.execute(
+                "UPDATE reports SET status = 'failed', error = ?, finished_at = ? WHERE id = ?",
+                (error, time.time() if now is None else now, report_id),
+            )
+            await self._db.commit()
+        return True
 
     async def fail_running_reports(self, reason: str) -> int:
         """服务启动时调用：上次没生成完的报告标为失败。返回条数。"""
-        async with self._lock:
+        async with self._transaction():
             cursor = await self._db.execute(
-                "UPDATE reports SET status = 'failed', error = ? WHERE status = 'running'",
-                (reason,),
+                "UPDATE reports SET status = 'failed', error = ?, finished_at = ? WHERE status = 'running'",
+                (reason, time.time()),
             )
             await self._db.commit()
             return cursor.rowcount
@@ -1095,7 +1444,8 @@ class Store:
     ) -> TaskRecord:
         """建一个排队中的任务。编号是 ``<会话 id>.t<序号>``，序号在这场会议内递增（从 1 起，不复用）。"""
         now = time.time() if now is None else now
-        async with self._lock:
+        async with self._transaction():
+            await self._require_writable(session_id)
             rows = await self._all("SELECT id FROM tasks WHERE session_id = ?", (session_id,))
             taken = [int(m.group(1)) for r in rows if (m := _TASK_NUMBER.search(r["id"]))]
             task_id = f"{session_id}.t{max(taken, default=0) + 1}"
@@ -1164,7 +1514,11 @@ class Store:
                 for k, v in fields.items()
             ]
             assignments = ", ".join(f"{columns[k]} = ?" for k in fields)
-            async with self._lock:
+            async with self._transaction():
+                task = await self.get_task(task_id)
+                if task is None:
+                    return None
+                await self._require_writable(task.session_id)
                 await self._db.execute(
                     f"UPDATE tasks SET {assignments} WHERE id = ?", [*values, task_id]
                 )
@@ -1174,7 +1528,7 @@ class Store:
     async def fail_unfinished_tasks(self, reason: str, *, now: float | None = None) -> int:
         """把还在排队或运行中的任务一律标为失败（服务重启后调用：它们的执行已经不在了）。返回条数。"""
         now = time.time() if now is None else now
-        async with self._lock:
+        async with self._transaction():
             cursor = await self._db.execute(
                 "UPDATE tasks SET status = 'failed', error = ?, finished_at = ? "
                 "WHERE status IN ('queued', 'running')",
@@ -1193,7 +1547,8 @@ class Store:
         now: float | None = None,
     ) -> TaskEvent:
         now = time.time() if now is None else now
-        async with self._lock:
+        async with self._transaction():
+            await self._require_writable(task_id.rsplit(".", 1)[0])
             cursor = await self._db.execute(
                 "INSERT INTO task_events (task_id, at, kind, summary, payload_json) "
                 "VALUES (?, ?, ?, ?, ?)",

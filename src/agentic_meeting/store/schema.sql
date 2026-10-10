@@ -18,7 +18,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     title       TEXT NOT NULL DEFAULT '',
     started_at  REAL NOT NULL,              -- 会话时间轴 0 点对应的 Unix 时间
     ended_at    REAL,                       -- 空 = 没点过「结束」（进行中或已中断）
-    last_active_at REAL NOT NULL DEFAULT 0  -- 最近一次有连接挂上、断开或写入发言的时间；会议列表按它排序
+    last_active_at REAL NOT NULL DEFAULT 0, -- 最近一次有连接挂上、断开或写入发言的时间；会议列表按它排序
+    keep INTEGER NOT NULL DEFAULT 0,
+    deletion_pending INTEGER NOT NULL DEFAULT 0
 );
 
 -- 每次连接一行。t_from / t_to 是这次连接覆盖的会话时间轴（秒）；中断的空档就是相邻两行之间的缝。
@@ -50,7 +52,8 @@ CREATE TABLE IF NOT EXISTS utterances (
     text        TEXT    NOT NULL,
     source      TEXT    NOT NULL DEFAULT 'asr' CHECK (source IN ('asr', 'assistant', 'text')),
     addressed_to_assistant INTEGER NOT NULL DEFAULT 0,
-    embedded    INTEGER NOT NULL DEFAULT 0  -- 是否已写入 utterances_vec
+    embedded    INTEGER NOT NULL DEFAULT 0, -- 是否已写入 utterances_vec
+    write_token TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_utterances_session_time ON utterances (session_id, t_start);
 CREATE INDEX IF NOT EXISTS idx_utterances_speaker ON utterances (session_id, speaker_idx, t_start);
@@ -82,6 +85,7 @@ CREATE TABLE IF NOT EXISTS frames (
     width       INTEGER NOT NULL,
     height      INTEGER NOT NULL,
     caption     TEXT,
+    write_token TEXT NOT NULL DEFAULT '',
     caption_status TEXT NOT NULL DEFAULT 'pending'
         CHECK (caption_status IN ('pending', 'done', 'failed', 'skipped'))
 );
@@ -146,6 +150,8 @@ CREATE TABLE IF NOT EXISTS reports (
     status      TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'done', 'failed')),
     provider    TEXT NOT NULL DEFAULT '',
     text_md     TEXT NOT NULL DEFAULT '',
-    error       TEXT
+    error       TEXT,
+    write_token TEXT NOT NULL DEFAULT '',
+    finished_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_reports_session ON reports (session_id, id);

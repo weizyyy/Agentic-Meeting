@@ -32,9 +32,11 @@ from typing import Any
 from loguru import logger
 from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
 
+from agentic_meeting.config import RetentionConfig
 from agentic_meeting.diar.base import Diarizer, NullDiarizer
 from agentic_meeting.diar.stream import SessionDiarizer
-from agentic_meeting.store.db import Store
+from agentic_meeting.store.db import CleanupPlan, SessionBusy, Store
+from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import Session
 
 TAKEOVER_TIMEOUT_SECS = 10.0
@@ -61,6 +63,9 @@ class LiveConnection:
     resumed: bool = False  # 是继续一场已有的会议，不是新建
     stop_requested: bool = False
     done: asyncio.Event = field(default_factory=asyncio.Event)
+    finished: asyncio.Event = field(default_factory=asyncio.Event)
+    owner: asyncio.Task | None = None
+    finishing: bool = False
 
 
 class SessionManager:
@@ -79,6 +84,7 @@ class SessionManager:
         self._live: LiveConnection | None = None
         self._stream: SessionDiarizer | None = None  # 当前这场会议的说话人区分流
         self._lock = asyncio.Lock()
+        self._unfinished: set[LiveConnection] = set()
         # 连接结束（断开或会议结束）之后调用，参数是会话编号。滚动纪要用它做收尾。出错只记日志。
         self.on_finished: list[Callable[[str], Awaitable[None] | None]] = []
 
@@ -92,6 +98,21 @@ class SessionManager:
 
     def is_live(self, session_id: str) -> bool:
         return self._live is not None and self._live.session.id == session_id
+
+    async def claim_cleanup(
+        self, session_id: str, policy: RetentionConfig, now: float, *, manual: bool = False
+    ) -> CleanupPlan | None:
+        """与挂接同锁的最后判定；这里只领取所有权，不等待文件或模型。"""
+        async with self._lock:
+            if any(live.session.id == session_id for live in self._unfinished):
+                raise SessionBusy("会议连接尚未收尾")
+            return await self._store.claim_cleanup(session_id, policy, now, manual=manual)
+
+    async def update_session(
+        self, session_id: str, *, title: str | None = None, keep: bool | None = None
+    ) -> Session | None:
+        async with self._lock:
+            return await self._store.update_session(session_id, title=title, keep=keep)
 
     async def current_session(self) -> Session | None:
         """「当前会话」：活动连接所在的会话；没有就取最近一个未结束的；都没有返回 ``None``。"""
@@ -157,6 +178,12 @@ class SessionManager:
         except TimeoutError:
             logger.warning("应用关闭时活动连接没有及时收尾")
 
+    async def drain(self) -> None:
+        """关闭传输后等待真实管线和已开始的收尾，不让旧连接继续使用已关闭的库。"""
+        pending = [live for live in self._unfinished if live.owner is not None or live.finishing]
+        if pending:
+            await asyncio.gather(*(live.finished.wait() for live in pending))
+
     # ------------------------------------------------------------------ #
     # 连接的生命周期
     # ------------------------------------------------------------------ #
@@ -176,6 +203,7 @@ class SessionManager:
                 session.id, connected_at=now, t_from=0.0
             )
             live = LiveConnection(session, connection_id, now)
+            self._unfinished.add(live)
             self._live = live
             return live
 
@@ -190,6 +218,7 @@ class SessionManager:
             session = await self._store.get_session(session_id)
             if session is None:
                 raise SessionNotFound(session_id)
+            await self._store.require_available(session_id)
             if self._live is not None:
                 await self._stop(self._live, "taken_over")
             if self._stream is not None and self._stream.session_id != session_id:
@@ -202,6 +231,7 @@ class SessionManager:
                 session_id, connected_at=now, t_from=base_secs
             )
             live = LiveConnection(session, connection_id, now, base_secs=base_secs, resumed=True)
+            self._unfinished.add(live)
             self._live = live
             return live
 
@@ -282,6 +312,17 @@ class SessionManager:
 
     async def finish(self, live: LiveConnection) -> None:
         """连接结束（无论怎么结束）：关闭连接记录，释放位置。不写 ``ended_at``。"""
+        live.finishing = True
+        await drain_io(self._finish(live))
+
+    async def _finish(self, live: LiveConnection) -> None:
+        try:
+            await self._finish_connection(live)
+        finally:
+            self._unfinished.discard(live)
+            live.finished.set()
+
+    async def _finish_connection(self, live: LiveConnection) -> None:
         try:
             elapsed = float(getattr(live.recorder, "elapsed_secs", 0.0) or 0.0)
             await self._store.close_connection(

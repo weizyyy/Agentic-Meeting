@@ -101,6 +101,7 @@ def _wake_alias(value: str) -> str:
 
 class SessionConfig(_Model):
     data_dir: str = "data"
+    recording_notice: bool = True
     # 助理的名字。同时是唤醒词，也会写进系统提示词。必须是英文单词（可含数字、可多个词）：
     # 唤醒靠在识别文字里找这个词，英文词在中文句子里边界清楚、不会和同音字混淆。
     assistant_name: str
@@ -537,6 +538,16 @@ class AgentConfig(_Model):
 # --------------------------------------------------------------------------- #
 
 
+class RetentionConfig(_Model):
+    """四类保留期限独立关闭；0 不表示立即删除。"""
+
+    transcript_days: int = Field(default=0, strict=True, ge=0, le=36500)
+    screenshots_days: int = Field(default=0, strict=True, ge=0, le=36500)
+    reports_days: int = Field(default=0, strict=True, ge=0, le=36500)
+    task_artifacts_days: int = Field(default=0, strict=True, ge=0, le=36500)
+    cleanup_interval_secs: int = Field(default=3600, strict=True, ge=60, le=86400)
+
+
 class AppConfig(_Model):
     session: SessionConfig
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -551,6 +562,7 @@ class AppConfig(_Model):
     screen: ScreenConfig = Field(default_factory=ScreenConfig)
     transcript: TranscriptConfig = Field(default_factory=TranscriptConfig)
     report: ReportConfig = Field(default_factory=ReportConfig)
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
     agent: AgentConfig
 
     def resolve(self, path: str) -> Path:

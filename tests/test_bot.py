@@ -516,6 +516,7 @@ def test_session_message_says_whether_this_is_a_continuation():
         "type": "session",
         "id": "s1",
         "title": "周三组会",
+        "keep": False,
         "started_at": 1000.0,
         "resumed": False,
         "base_secs": 0.0,

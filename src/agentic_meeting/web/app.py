@@ -44,8 +44,9 @@ from agentic_meeting.pipeline.session import SessionManager
 from agentic_meeting.screen.attach import FrameAttacher
 from agentic_meeting.screen.caption import CaptionWorker
 from agentic_meeting.screen.ingest import FrameIngestor
-from agentic_meeting.store.db import Store
+from agentic_meeting.store.db import CleanupPlan, SessionBusy, Store
 from agentic_meeting.store.embeddings import EmbeddingClient, EmbeddingWorker
+from agentic_meeting.store.retention import RetentionWorker
 from agentic_meeting.web import auth, export, frames_api, reports_api, sessions_api, tasks_api
 
 DEFAULT_STATIC_DIR = REPO_ROOT / "client" / "dist"
@@ -225,6 +226,18 @@ def create_app(
             )
             await tasks.recover()
 
+        def cleaned(plan: CleanupPlan) -> None:
+            if plan.manual or plan.screenshots:
+                frames.forget(plan.session_id)
+                captions.forget(plan.session_id)
+
+        retention = RetentionWorker(
+            the_store,
+            sessions,
+            cfg.retention,
+            cfg.resolve(cfg.session.data_dir),
+            on_cleaned=cleaned,
+        )
         app.state.resources = AppResources(
             cfg,
             tasks=tasks,
@@ -237,7 +250,9 @@ def create_app(
             background=background,
             background_models=models,
             digests=digests,
+            retention=retention,
         )
+        retention.start()
         app.state.bot = bot
         # 同一局域网内不需要 ICE 服务器，留空即可。浏览器那一端用的是同一份（GET /api/ice）。
         ice_servers = [IceServer(**entry) for entry in browser_ice_servers]
@@ -245,10 +260,12 @@ def create_app(
         try:
             yield
         finally:
+            await retention.stop()
             # 先告诉页面「服务正在停止」（它据此不自动重连），再断开全部连接
             await sessions.shutdown()
             await app.state.handler.close()
             await sessions.wait_idle()  # 被断开的连接要把连接记录写完，再关库
+            await sessions.drain()
             if tasks is not None:
                 await tasks.close()
             await reports.stop()
@@ -264,6 +281,10 @@ def create_app(
     app = FastAPI(title="组会助理", lifespan=lifespan)
 
     # ---- 错误统一成 {"error": "..."} ----
+
+    @app.exception_handler(SessionBusy)
+    async def session_busy(_request: Request, _exc: SessionBusy) -> JSONResponse:
+        return JSONResponse({"error": "会议正在处理或等待删除，请稍后重试"}, status_code=409)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(_request: Request, exc: StarletteHTTPException) -> JSONResponse:
@@ -325,6 +346,7 @@ def create_app(
                     raise StarletteHTTPException(400, "session_id 必须是非空的字符串")
                 if store_ is None or await store_.get_session(wanted.strip()) is None:
                     raise StarletteHTTPException(404, sessions_api.NOT_FOUND_SESSION)
+                await store_.require_available(wanted.strip())
 
         async def on_connection(connection: Any) -> None:
             state = http_request.app.state

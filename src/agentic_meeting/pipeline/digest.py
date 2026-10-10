@@ -123,7 +123,7 @@ class DigestWorker:
         """
         if self._model is None:
             return None
-        async with self._lock:
+        async with self._lock, self._store.session_work(session_id):
             previous = await self._store.latest_digest(session_id)
             after_id = previous.last_utterance_id if previous else 0
             new = await self._store.list_utterances(

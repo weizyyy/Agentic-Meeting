@@ -317,7 +317,9 @@ class MemoryStore:
     async def speaker_name(self, session_id: str, idx: int) -> str:
         return default_speaker_name(idx, "Nova")
 
-    async def update_utterance_speaker(self, utterance_id: int, speaker_idx: int) -> bool:
+    async def update_utterance_speaker(
+        self, utterance_id: int, speaker_idx: int, **identity
+    ) -> bool:
         return True
 
 

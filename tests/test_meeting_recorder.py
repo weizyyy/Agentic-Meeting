@@ -94,7 +94,9 @@ class FakeStore:
     async def speaker_name(self, session_id: str, idx: int) -> str:
         return self.names.get(idx, default_speaker_name(idx, "Nova"))
 
-    async def update_utterance_speaker(self, utterance_id: int, speaker_idx: int) -> bool:
+    async def update_utterance_speaker(
+        self, utterance_id: int, speaker_idx: int, **identity
+    ) -> bool:
         self.updates.append((utterance_id, speaker_idx))
         for u in self.utterances:
             if u.id == utterance_id:
@@ -609,7 +611,9 @@ class MergingStore(FakeStore):
         self.extended: list[tuple[int, str, float]] = []
         self.refuse = refuse
 
-    async def extend_utterance(self, utterance_id: int, *, text: str, t_end: float) -> bool:
+    async def extend_utterance(
+        self, utterance_id: int, *, text: str, t_end: float, **identity
+    ) -> bool:
         if self.refuse:
             return False
         self.extended.append((utterance_id, text, t_end))

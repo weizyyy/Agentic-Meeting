@@ -26,6 +26,7 @@ from agentic_meeting.pipeline.background import Preempted
 from agentic_meeting.pipeline.clock import format_hms
 from agentic_meeting.screen.caption import IRRELEVANT_CAPTION
 from agentic_meeting.store.db import Store
+from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import NamedUtterance, ScreenFrame, SessionSummary, TaskRecord
 
 REPORT_MAX_TOKENS = 4096
@@ -247,6 +248,9 @@ class ReportWorker:
         self._timeout = timeout_secs
         self._now = now
         self._tz = tz
+        self._closing = False
+        self._admissions: set[asyncio.Task] = set()
+        self._identities: dict[str, tuple[int, str]] = {}
         self._running: dict[str, asyncio.Task | None] = {}  # 会议编号 → 正在生成的任务
 
     @property
@@ -261,6 +265,10 @@ class ReportWorker:
         return await self._store.fail_running_reports(INTERRUPTED_REASON)
 
     async def stop(self) -> None:
+        self._closing = True
+        if self._admissions:
+            await asyncio.gather(*self._admissions, return_exceptions=True)
+        identities = dict(self._identities)
         tasks = [t for t in self._running.values() if t is not None]
         for task in tasks:
             task.cancel()
@@ -269,6 +277,8 @@ class ReportWorker:
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
+        for sid, (report_id, token) in identities.items():
+            await self._mark_failed(sid, report_id, token, INTERRUPTED_REASON)
 
     async def wait(self, session_id: str) -> None:
         """等这场会议正在生成的那份报告结束（测试用）。"""
@@ -278,47 +288,72 @@ class ReportWorker:
 
     async def start(self, session_id: str) -> int:
         """开始生成一份报告，返回报告编号。没有模型抛 ``ReportUnavailable``，已有一份在生成抛 ``ReportBusy``。"""
-        if self._model is None:
+        if self._model is None or self._closing:
             raise ReportUnavailable("没有可用的模型，生成不了报告")
         if session_id in self._running:
             raise ReportBusy(session_id)
         # 先占位再写库：两次请求同时进来时，第二个在上面那一行就被拦下
         self._running[session_id] = None
+        admission = asyncio.create_task(self._start(session_id), name="report-admission")
+        self._admissions.add(admission)
+        admission.add_done_callback(self._admissions.discard)
+        return await drain_io(admission)
+
+    async def _start(self, session_id: str) -> int:
         try:
-            report_id = await self._store.create_report(
-                session_id, provider=self._provider, now=self._now()
-            )
+            async with self._store.session_work(session_id):
+                report_id = await self._store.create_report(
+                    session_id, provider=self._provider, now=self._now()
+                )
+                report = await self._store.get_report(report_id)
+                assert report is not None
+                self._identities[session_id] = (report.id, report.write_token)
         except BaseException:
             self._running.pop(session_id, None)
             raise
-        task = asyncio.create_task(self._run(session_id, report_id), name="meeting-report")
+        task = asyncio.create_task(
+            self._run(session_id, report_id, report.write_token), name="meeting-report"
+        )
         self._running[session_id] = task
 
         def _done(finished: asyncio.Task) -> None:
             if self._running.get(session_id) is finished:
                 del self._running[session_id]
+                self._identities.pop(session_id, None)
 
         task.add_done_callback(_done)
         return report_id
 
-    async def _run(self, session_id: str, report_id: int) -> None:
-        started = self._now()
-        try:
-            text = await asyncio.wait_for(self.generate(session_id, started), self._timeout)
-            await self._store.finish_report(report_id, text)
-            logger.info(f"会后报告已生成（{len(text)} 字，用时 {self._now() - started:.0f} 秒）")
-        except asyncio.CancelledError:
-            await self._mark_failed(report_id, INTERRUPTED_REASON)
-            raise
-        except Exception as e:
-            logger.warning(f"会后报告生成失败：{type(e).__name__}: {e}")
-            await self._mark_failed(report_id, failure_reason(e))
+    async def _run(self, session_id: str, report_id: int, write_token: str) -> None:
+        async with self._store.session_work(session_id):
+            started = self._now()
+            try:
+                text = await asyncio.wait_for(self.generate(session_id, started), self._timeout)
+                written = await self._store.finish_report(
+                    report_id, text, session_id=session_id, write_token=write_token, now=self._now()
+                )
+                if written:
+                    logger.info(
+                        "会后报告已生成（{} 字，用时 {:.0f} 秒）", len(text), self._now() - started
+                    )
+            except asyncio.CancelledError:
+                await drain_io(
+                    self._mark_failed(session_id, report_id, write_token, INTERRUPTED_REASON)
+                )
+                raise
+            except Exception as exc:
+                logger.warning("会后报告生成失败：{}", type(exc).__name__)
+                await self._mark_failed(session_id, report_id, write_token, failure_reason(exc))
 
-    async def _mark_failed(self, report_id: int, reason: str) -> None:
+    async def _mark_failed(
+        self, session_id: str, report_id: int, write_token: str, reason: str
+    ) -> None:
         try:
-            await self._store.fail_report(report_id, reason)
-        except Exception:
-            logger.exception("把报告标为失败时出错")
+            await self._store.fail_report(
+                report_id, reason, session_id=session_id, write_token=write_token, now=self._now()
+            )
+        except Exception as exc:
+            logger.warning("把报告标为失败时出错：{}", type(exc).__name__)
 
     async def generate(self, session_id: str, created_at: float | None = None) -> str:
         """生成报告的全文（不写库）。会议不存在、没有任何发言时抛 ``ValueError``。"""

@@ -23,6 +23,7 @@ from loguru import logger
 from agentic_meeting.pipeline.clock import format_hms
 from agentic_meeting.screen.caption import IRRELEVANT_CAPTION
 from agentic_meeting.screen.ingest import media_type_of
+from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import ScreenFrame
 
 ATTACH_INTRO = "下面是会议中的屏幕截图，按时间先后排列，每张前面标了它出现的时间："
@@ -79,7 +80,7 @@ class FrameAttacher:
     async def parts(self, frames: Sequence[ScreenFrame]) -> list[dict[str, Any]]:
         """挑选后的截图排成内容片段；一张都没有时返回空列表。读文件放线程里做。"""
         chosen = select_frames(frames, self.limit)
-        urls = await asyncio.to_thread(lambda: [self._read(frame) for frame in chosen])
+        urls = await drain_io(asyncio.to_thread(lambda: [self._read(frame) for frame in chosen]))
         parts: list[dict[str, Any]] = []
         for frame, url in zip(chosen, urls, strict=True):
             if url is None:
