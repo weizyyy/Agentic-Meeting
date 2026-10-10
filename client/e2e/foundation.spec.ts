@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures.ts";
+import { test, expect, emit, serverReady } from "./fixtures.ts";
 
 test("真实页面、WebRTC、RTVI 与合成媒体探针", async ({ page, request }) => {
   const seeds = await (await request.get("/__test/state")).json();
@@ -8,15 +8,14 @@ test("真实页面、WebRTC、RTVI 与合成媒体探针", async ({ page, reques
   await expect(page.getByRole("button", { name: /星河项目复盘 已结束/ })).toBeVisible();
   await page.getByRole("button", { name: "继续：月面计划讨论", exact: true }).click();
   await expect(page.getByRole("status").first()).toHaveText("已连接");
-  await expect.poll(async () => (await (await request.get("/__test/state")).json()).ready).toBe(1);
+  await serverReady(request, 1);
   await expect
     .poll(async () => (await (await request.get("/__test/state")).json()).audio_frames)
     .toBeGreaterThan(0);
   expect((await (await request.get("/__test/state")).json()).live).toBe(seeds.interrupted);
-  await request.post("/__test/emit", { data: { text: "来自真实数据通道的字幕", final: false } });
+  await emit(request, { text: "来自真实数据通道的字幕", final: false });
   await expect(page.getByText("来自真实数据通道的字幕", { exact: true })).toBeVisible();
-  const final = await request.post("/__test/emit", { data: { text: "已经保存的实时定稿" } });
-  expect(final.ok()).toBe(true);
+  await emit(request, { text: "已经保存的实时定稿" });
   await expect(page.getByText("已经保存的实时定稿", { exact: true })).toBeVisible();
   const detail = await (
     await request.get(`/api/utterances?session_id=${seeds.interrupted}`)

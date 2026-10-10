@@ -586,7 +586,7 @@ const client = new PipecatClient({
   enableMic: true,
   enableCam: false,
   callbacks: {
-    onTransportStateChanged: (state) => {},   // "ready" means the server pipeline is up
+    onTransportStateChanged: (state) => {},   // "ready": client-ready sent, not yet answered
     onServerMessage: (data) => { /* custom messages, interfaces.md §6.1 */ },
     onBotLlmStarted: () => {}, onBotLlmText: ({ text }) => {}, onBotLlmStopped: () => {},
     onBotStartedSpeaking: () => {}, onBotStoppedSpeaking: () => {},
@@ -600,8 +600,15 @@ await client.disconnect();
 ```
 
 - Connection parameters are `webrtcRequestParams: { endpoint, requestData? }`; `webrtcUrl` and
-  `connectionUrl` are deprecated. `connect()` resolves once the server pipeline is ready and rejects
-  on failure. `requestData` appears under the camel-case key in the body of `/api/offer` (§2).
+  `connectionUrl` are deprecated. `connect()` resolves when the server's `bot-ready` arrives and
+  rejects on failure. `requestData` appears under the camel-case key in the body of `/api/offer` (§2).
+- **Transport state `ready` comes before the server is ready.** `SmallWebRTCTransport` (1.10.8) sets
+  `ready` inside `sendReadyMessage()`, the moment it sends `client-ready`, not when `bot-ready`
+  comes back. The page shows 已连接 from this state, so at that point the server may not have
+  processed `client-ready`, run `on_client_ready` or even attached the connection to a session. A CI
+  run showed the controlled test bot answering `POST /__test/emit` with 409 while the page already
+  showed 已连接. Browser tests wait for the server side (`serverReady()` in `client/e2e/fixtures.ts`)
+  before pushing captions.
 - **The assistant's audio must be attached to an `<audio>` element.** The transport does not play
   it. Wrap the UI in `<PipecatClientProvider client={client}>` and include `<PipecatClientAudio />`.
   The client object is created once; starting and ending a meeting call `connect()` and

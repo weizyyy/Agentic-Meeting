@@ -1,4 +1,4 @@
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type APIRequestContext } from "@playwright/test";
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { once } from "node:events";
@@ -58,3 +58,20 @@ export const test = base.extend<{ serverURL: string }>({
   },
 });
 export { expect };
+
+/**
+ * 等受控管线处理完第 ``count`` 次 client-ready。页面显示「已连接」只说明浏览器发出了 client-ready，
+ * 服务端可能还没挂上这一路连接（docs/pipecat-notes.md §12），这时推字幕会得到 409。
+ */
+export async function serverReady(request: APIRequestContext, count: number) {
+  await expect
+    .poll(async () => (await (await request.get("/__test/state")).json()).ready)
+    .toBe(count);
+}
+
+/** 推一条受控字幕；服务端拒绝时立即失败并给出原因，而不是等字幕出现超时。 */
+export async function emit(request: APIRequestContext, data: { text: string; final?: boolean }) {
+  const response = await request.post("/__test/emit", { data });
+  expect(response.status(), await response.text()).toBe(200);
+  return response.json();
+}

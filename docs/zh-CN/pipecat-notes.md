@@ -555,7 +555,7 @@ const client = new PipecatClient({
   enableMic: true,
   enableCam: false,
   callbacks: {
-    onTransportStateChanged: (state) => {},   // "ready" 才是服务端管线就绪
+    onTransportStateChanged: (state) => {},   // "ready"：client-ready 已发出，服务端未必处理
     onServerMessage: (data) => { /* 自定义消息，见 interfaces.md §6.1 */ },
     onBotLlmStarted: () => {}, onBotLlmText: ({ text }) => {}, onBotLlmStopped: () => {},
     onBotStartedSpeaking: () => {}, onBotStoppedSpeaking: () => {},
@@ -569,8 +569,13 @@ await client.disconnect();
 ```
 
 - 连接参数用 `webrtcRequestParams: { endpoint, requestData? }`（`webrtcUrl` / `connectionUrl` 已弃用）；
-  `connect()` 在服务端的管线就绪（状态 `ready`）后才 resolve，失败时 reject。`requestData` 会以驼峰的
+  `connect()` 在收到服务端的 `bot-ready` 后才 resolve，失败时 reject。`requestData` 会以驼峰的
   `requestData` 键出现在 `/api/offer` 的请求体里（见 §2）。
+- **传输状态 `ready` 早于服务端就绪。** `SmallWebRTCTransport`（1.10.8）在 `sendReadyMessage()` 里、
+  发出 `client-ready` 的那一刻就把状态设成 `ready`，而不是等 `bot-ready` 回来。页面据此显示「已连接」，
+  这时服务端可能还没处理 `client-ready`、没跑 `on_client_ready`，甚至还没把这一路连接挂到会话上。
+  一次 CI 里，页面已经显示「已连接」，受控测试管线对 `POST /__test/emit` 却返回了 409。
+  浏览器测试推字幕前先等服务端就绪（`client/e2e/fixtures.ts` 里的 `serverReady()`）。
 - **助理的语音要自己挂到 `<audio>` 上**：传输层不会自动播放。用 `@pipecat-ai/client-react` 的
   `<PipecatClientProvider client={client}>` 包住界面，里面放一个 `<PipecatClientAudio />` 即可。
   客户端对象建一次，开始 / 结束只是对它 `connect()` / `disconnect()`。
