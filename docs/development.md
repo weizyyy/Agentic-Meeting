@@ -146,7 +146,7 @@ npm run test:e2e --prefix client
 # One engine
 npm run test:e2e --prefix client -- --project=chromium
 # One test in one engine
-npm run test:e2e --prefix client -- --project=chromium --grep '^真实页面、WebRTC、RTVI 与合成媒体探针$'
+npm run test:e2e --prefix client -- --project=chromium --grep '真实页面、WebRTC、RTVI 与合成媒体探针'
 ```
 
 Headless Linux also needs an audio output backend: Firefox's native `AudioContext.resume()`

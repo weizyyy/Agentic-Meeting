@@ -131,7 +131,7 @@ npm run test:e2e --prefix client
 # 单个引擎
 npm run test:e2e --prefix client -- --project=chromium
 # 单个引擎中的一个用例
-npm run test:e2e --prefix client -- --project=chromium --grep '^真实页面、WebRTC、RTVI 与合成媒体探针$'
+npm run test:e2e --prefix client -- --project=chromium --grep '真实页面、WebRTC、RTVI 与合成媒体探针'
 ```
 
 无界面的 Linux 还需要音频输出后端，否则 Firefox 原生 `AudioContext.resume()` 可能一直等待，
