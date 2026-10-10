@@ -38,6 +38,7 @@ When a browser cannot hold a meeting, the page says why instead of failing on co
   [Access from other devices](getting-started.md#access-from-other-devices).
 - **A recent browser with WebRTC, microphone capture or Web Audio turned off** by a setting, a
   policy or an extension. The same line names what is missing.
+- **Autoplay blocked.** See [Talking to the assistant](#talking-to-the-assistant).
 
 ## Meetings
 
@@ -92,6 +93,10 @@ Speakers appear as chips above the captions.
 **By voice.** Say the assistant's name followed by your request — "Nova, summarize the last ten
 minutes". It answers in speech and text, then goes back to listening for its name, so follow-up
 questions need the name again. You can interrupt it by speaking while it talks.
+
+If the browser's autoplay policy blocks the assistant's voice, a yellow line says
+**浏览器拦下了助理的声音** (The browser blocked the assistant's voice). Click **打开助理声音** (Turn on
+the assistant's voice) once to hear it.
 
 Things it can do directly:
 

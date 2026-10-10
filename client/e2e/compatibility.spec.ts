@@ -58,3 +58,42 @@ test("能开会的浏览器不显示兼容提示", async ({ page }) => {
   await expect(page.getByRole("button", { name: "开始新会议", exact: true })).toBeEnabled();
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+test("浏览器拦下助理声音时提示，点一下恢复播放", async ({ page }) => {
+  // 模拟自动播放限制：被拦之后、用户在页面上点一下之前，有声音的 <audio> 都不让播。
+  await page.addInitScript(() => {
+    let policy: "idle" | "blocked" | "allowed" = "idle";
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+      if (this instanceof HTMLAudioElement && !this.muted && policy !== "allowed") {
+        policy = "blocked";
+        return Promise.reject(new DOMException("自动播放被拦", "NotAllowedError"));
+      }
+      return play.call(this);
+    };
+    document.addEventListener(
+      "click",
+      () => {
+        if (policy === "blocked") policy = "allowed";
+      },
+      true,
+    );
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "开始新会议", exact: true }).click();
+  await expect(page.getByRole("status").first()).toHaveText("已连接");
+
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("浏览器拦下了助理的声音");
+  await alert.getByRole("button", { name: "打开助理声音", exact: true }).click();
+  await expect(alert).toHaveCount(0);
+  const audio = await page.locator("audio").evaluate((element: HTMLAudioElement) => ({
+    paused: element.paused,
+    tracks:
+      element.srcObject instanceof MediaStream ? element.srcObject.getAudioTracks().length : 0,
+  }));
+  expect(audio).toEqual({ paused: false, tracks: 1 });
+
+  await page.getByRole("button", { name: "结束会议", exact: true }).click();
+  await expect(page.getByRole("status").first()).toHaveText("未连接");
+});

@@ -12,6 +12,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   explains why a browser cannot hold a meeting: too old to run the page, not opened over HTTPS, or
   missing WebRTC, microphone capture or Web Audio. Starting and resuming are blocked in such a
   browser, and past meetings stay readable ([#47]).
+- When the browser's autoplay policy blocks the assistant's voice, the page says so and offers a
+  button that turns it on, instead of staying silent ([#47]).
 
 [#47]: https://github.com/weizyyy/Agentic-Meeting/pull/47
 

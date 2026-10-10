@@ -89,6 +89,19 @@ body {
   flex: 1;
 }
 
+/* 自动播放限制拦下了助理的声音：点按钮恢复 */
+.audio-blocked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--warn-bg);
+  font-size: 0.875rem;
+}
+
 /* 浏览器不能开会（缺接口或不是 HTTPS）；index.html 里脚本没能运行时的提示也用它 */
 .unsupported {
   margin: 0 0 12px;
