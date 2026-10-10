@@ -704,7 +704,7 @@ async def test_legacy_schema_migrates_tokens_and_finished_times_without_replacin
 
     schema = "\n".join(
         line
-        for line in SCHEMA_PATH.read_text().splitlines()
+        for line in SCHEMA_PATH.read_text(encoding="utf-8").splitlines()
         if not any(
             key in line
             for key in (
