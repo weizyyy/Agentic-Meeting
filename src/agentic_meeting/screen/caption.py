@@ -108,6 +108,11 @@ class CaptionWorker:
     def enabled(self) -> bool:
         return self._model is not None
 
+    @property
+    def pending_count(self) -> int:
+        """待处理新画面的槽位数，不含正在处理的画面和沿用摘要的截图。"""
+        return int(self._pending is not None)
+
     def start(self) -> None:
         if self._model is not None and self._task is None:
             self._task = asyncio.create_task(self._loop(), name="screen-caption")

@@ -50,15 +50,20 @@ Rules:
 - Relative paths are resolved against the repository root with `AppConfig.resolve()`.
 - Application code does not branch on the realtime LLM access mode. `RealtimeLLMConfig` exposes:
 
-  | Member                                 | Meaning                                                                                              |
-  | -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-  | `active`                               | The selected set of settings (`base_url`, `api_key_env`, `model`, `supports_vision`, `sampling`, …)  |
-  | `managed`                              | Whether the process supervisor launches the realtime LLM (`llama_server` mode with `launch.enabled`) |
-  | `request_extra_body(background=False)` | Fields to place in `extra_body` of each request, already merged for the mode                         |
-  | `cache_warm`                           | Whether to send warm-up requests                                                                     |
-  | `supports_developer_role`              | Whether the server accepts the `developer` role                                                      |
+  | Member                                 | Meaning                                                                                                  |
+  | -------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+  | `active`                               | The selected set of settings (`base_url`, `api_key_env`, `model`, `supports_vision`, `sampling`, …)      |
+  | `managed`                              | Whether the process supervisor launches the realtime LLM (`llama_server` mode with `launch.enabled`)     |
+  | `has_health_endpoint`                  | Whether read-only probes use the origin's dedicated `/health` endpoint; independent of process ownership |
+  | `request_extra_body(background=False)` | Fields to place in `extra_body` of each request, already merged for the mode                             |
+  | `cache_warm`                           | Whether to send warm-up requests                                                                         |
+  | `supports_developer_role`              | Whether the server accepts the `developer` role                                                          |
 
   Only the process supervisor reads `mode` and `llama_server.launch` directly.
+
+  `has_health_endpoint` is true for `llama_server`, including externally launched servers. Otherwise
+  probes use the selected `active.base_url` plus `/models`, even for loopback addresses; any HTTP
+  response establishes reachability only. This property adds no configuration or HTTP fields.
 
 - `config.check_warnings(cfg)` returns items that do not prevent startup but that the operator should
   know about — currently, data leaving the machine. `check` and `serve` print them, and the browser
@@ -578,10 +583,12 @@ Details of `TranscriptAssembler`:
 
 ## 5. HTTP API
 
-All endpoints except signaling exchange JSON. Errors are returned as `{"error": "<message>"}` with
+All endpoints except signaling exchange JSON. Business errors are returned as `{"error": "<message>"}` with
 an appropriate status code; messages are in Chinese. During development the client runs on port
-5173 and proxies `/api` to the application (`client/vite.config.ts`). When an access password is
-configured, every endpoint except those of §5.7 requires a login (§5.7).
+5173 and proxies `/api` to the application (`client/vite.config.ts`). Readiness 503 responses use
+the status snapshot in §5.8. When an access password is configured, the middleware guards `/api`
+and paths below it, except the public authentication routes in §5.7. The three operational GET
+routes in §5.8 are outside `/api` and remain anonymous.
 
 ### 5.1 Sessions and clock synchronization
 
@@ -868,6 +875,337 @@ They are not sent to the browser.
 
 A WebRTC connection that is already established is not interrupted when its cookie expires or the
 user logs out elsewhere; the next HTTP request is refused.
+
+### 5.8 Health checks and basic metrics
+
+These operational GET endpoints implement [#10](https://github.com/weizyyy/Agentic-Meeting/issues/10).
+They return `Content-Type: application/json`, take no request body or probe-target parameter, and
+remain anonymous even when an access password (§5.7) is enabled: `LoginRequired` guards `/api`
+and its descendants, while these three root paths are outside that prefix. Authentication changes
+must preserve **GET on these three exact paths** as anonymous; this does not exempt business API
+routes or promise additional operational methods.
+The bodies contain no meeting content or credentials, but anonymous numeric gauges reveal load
+and activity; these endpoints do not establish that an instance is safe to expose publicly.
+
+| Method and path | HTTP status and meaning                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `GET /healthz`  | 200, exactly `{"status":"ok"}`: the HTTP process can answer. No database, network, inference or filesystem probe |
+| `GET /readyz`   | 200 with `status="ok"` or `"degraded"`; 503 with `status="not_ready"`                                            |
+| `GET /metrics`  | Always 200 with `status="ok"` or `"partial"`, including collection failures                                      |
+
+Readiness requires `lifecycle="running"`, a successful read-only check on the open application
+database, and ASR `status="ok"`. ASR is required because transcription is the core function.
+Realtime LLM, TTS, embeddings and the agent endpoint are optional **for readiness**: their failure
+does not stop transcription (§3.4, architecture §9). This does not promise answers or semantic
+search. The architecture's realtime LLM requirement describes the complete assistant, not this
+readiness gate. An enabled optional service with `unavailable` or `unknown` makes readiness
+`degraded`; `ok`, `reachable` and `disabled` do not. A failing core condition always takes
+precedence and yields `not_ready`. The 503 readiness body is a status snapshot, not the ordinary
+`{"error": "..."}` business-error envelope.
+
+**Lifecycle and missing resources.** Each app instance starts at `starting`, switches to `running`
+only after lifespan initialization has completed, and becomes `stopping` before cleanup begins.
+Direct requests before startup or during/after shutdown produce safe readiness 503 responses
+without touching unavailable/closed resources. Storage is `unknown`, with `not_started` or
+`shutting_down`; enabled services are also `unknown` with that reason, disabled services stay
+`disabled`, and service snapshot age is `null`. Metrics in these phases are `partial`: connections,
+transcript retry depth, task queue depth, task counts and all sample ages are `null`; a disabled
+screen-caption queue is known to be 0, while an enabled queue has `depth=null`.
+Enabled/required metadata comes from configuration even before resources exist. After startup
+the screen-caption `enabled` flag uses the actual worker's `enabled` property; before that it uses
+whether `caption_provider(cfg)` selects a provider. Lifespan startup may finish before a real ASGI
+server begins accepting HTTP, and shutdown may stop listening first. No endpoint is promised to
+be reachable outside the server's actual listening interval.
+
+**Service coverage.** Every response contains exactly the five logical names below; no service
+entry is omitted. `launch.enabled=false` means externally managed, not disabled.
+
+| Logical name | `enabled`                                                                                                                                                 | `required` | Read-only probe                                                                                        |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------ |
+| `asr`        | Always true                                                                                                                                               | true       | `GET <origin of asr.base_url>/health`                                                                  |
+| `realtime`   | Always true, using `realtime_llm.active`                                                                                                                  | false      | llama-server access: origin `/health`; generic OpenAI-compatible access: selected base URL + `/models` |
+| `tts`        | `tts.enabled`                                                                                                                                             | false      | origin of its configured base URL + `/health`                                                          |
+| `embedding`  | `embedding.enabled`                                                                                                                                       | false      | origin of its configured base URL + `/health`                                                          |
+| `agent`      | `agent.enabled`, **or** `caption_provider(cfg) == "agent_llm"`, **or** `realtime.digest_provider == "agent_llm"`, **or** `report.provider == "agent_llm"` | false      | agent base URL + `/models`                                                                             |
+
+`caption_provider(cfg)` requires `screen.enabled`, `screen.caption` and vision support by the
+selected provider. Digest/report selection still uses the agent endpoint when background task
+delegation is disabled. A selected agent endpoint missing its base URL or model is
+`unavailable/invalid_config`, not `disabled`. Invalid HTTP(S) targets also use `invalid_config`;
+only configured targets are probed. Existing environment-variable credentials are sent where
+the configured service supports them. No executable discovery, template generation, process
+launch, model inference, chat-completion request or meeting-material read is part of a probe.
+Loopback probes bypass environment proxies; remote probes follow the existing proxy policy.
+Do not follow redirects, so a configured target cannot redirect credentials to a different host.
+Diarization is an in-process library. Docker, MCP, browser ICE and network bandwidth are outside
+this HTTP inference-service snapshot.
+
+| Service `status` | Allowed `reason`                                                     | Meaning                                                                                        |
+| ---------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `ok`             | `healthy`                                                            | A dedicated `/health` protocol returned HTTP 200                                               |
+| `reachable`      | `http_response`                                                      | A generic `/models` route returned any HTTP response                                           |
+| `unavailable`    | `timeout`, `connection_failed`, `http_error`, `invalid_config`       | Probe timed out, transport failed, health returned non-200, or configured target is unusable   |
+| `unknown`        | `not_started`, `shutting_down`, `refresh_failed`, `budget_exhausted` | No current observation: lifecycle state, refresh failure, or shared/request deadline exhausted |
+| `disabled`       | `disabled`                                                           | This optional service is not selected; `enabled=false`                                         |
+
+`enabled=false` implies `status="disabled"`, and `enabled=true` forbids that status.
+Even HTTP 200 on generic `/models` means only `reachable`, not `ok`; 401/403/404 (and 503)
+do not verify credentials, model access or successful inference. Conversely, HTTP 503 from a
+dedicated `/health` is `unavailable/http_error`.
+Storage has only `ok/checked`, `unavailable/timeout`, `unavailable/storage_error`,
+`unknown/not_started` or `unknown/shutting_down`. Its lightweight `SELECT 1` check verifies
+that the existing connection can read, not disk capacity or future write durability.
+
+**Closed response schemas.** The following JSON Schema 2020-12 defines the three complete bodies
+(`health`, `ready`, `metrics`); all listed fields are required, additional fields are forbidden.
+The state/reason combinations and cross-field rules above and below are also normative.
+All numeric values are finite; seconds and counts are nonnegative; `null` never means zero.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [{"$ref":"#/$defs/health"},{"$ref":"#/$defs/ready"},{"$ref":"#/$defs/metrics"}],
+  "$defs": {
+    "seconds": {
+      "type": ["number","null"],
+      "minimum": 0
+    },
+    "count": {
+      "type": ["integer","null"],
+      "minimum": 0
+    },
+    "zero_or_one": {
+      "type": ["integer","null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "lifecycle": {
+      "enum": ["starting","running","stopping"]
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled","required","status","reason"],
+      "properties": {"enabled":{"type":"boolean"},"required":{"type":"boolean"},"status":{"enum":["ok","reachable","unavailable","unknown","disabled"]},"reason":{"enum":["healthy","http_response","timeout","connection_failed","http_error","invalid_config","not_started","shutting_down","refresh_failed","budget_exhausted","disabled"]}}
+    },
+    "required_service": {
+      "allOf": [{"$ref":"#/$defs/service"},{"properties":{"enabled":{"const":true},"required":{"const":true}}}]
+    },
+    "active_optional_service": {
+      "allOf": [{"$ref":"#/$defs/service"},{"properties":{"enabled":{"const":true},"required":{"const":false}}}]
+    },
+    "optional_service": {
+      "allOf": [{"$ref":"#/$defs/service"},{"properties":{"required":{"const":false}}}]
+    },
+    "services": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asr","realtime","tts","embedding","agent"],
+      "properties": {"asr":{"$ref":"#/$defs/required_service"},"realtime":{"$ref":"#/$defs/active_optional_service"},"tts":{"$ref":"#/$defs/optional_service"},"embedding":{"$ref":"#/$defs/optional_service"},"agent":{"$ref":"#/$defs/optional_service"}}
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status","reason"],
+      "properties": {"status":{"enum":["ok","unavailable","unknown"]},"reason":{"enum":["checked","timeout","storage_error","not_started","shutting_down"]}}
+    },
+    "screen_queue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled","depth"],
+      "properties": {"enabled":{"type":"boolean"},"depth":{"$ref":"#/$defs/zero_or_one"}}
+    },
+    "queues": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transcript_retry","screen_caption","agent_tasks"],
+      "properties": {"transcript_retry":{"$ref":"#/$defs/count"},"screen_caption":{"$ref":"#/$defs/screen_queue"},"agent_tasks":{"$ref":"#/$defs/count"}}
+    },
+    "task_counts": {
+      "anyOf": [{"type":"object","additionalProperties":false,"required":["queued","running","succeeded","failed","cancelled"],"properties":{"queued":{"type":"integer","minimum":0},"running":{"type":"integer","minimum":0},"succeeded":{"type":"integer","minimum":0},"failed":{"type":"integer","minimum":0},"cancelled":{"type":"integer","minimum":0}}},{"type":"null"}]
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {"status":{"const":"ok"}}
+    },
+    "ready": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status","lifecycle","storage","services","service_snapshot_age_seconds"],
+      "properties": {"status":{"enum":["ok","degraded","not_ready"]},"lifecycle":{"$ref":"#/$defs/lifecycle"},"storage":{"$ref":"#/$defs/storage"},"services":{"$ref":"#/$defs/services"},"service_snapshot_age_seconds":{"$ref":"#/$defs/seconds"}}
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status","lifecycle","live_connections","caption_lag_seconds","caption_sample_age_seconds","queues","task_counts","task_counts_age_seconds","services","service_snapshot_age_seconds"],
+      "properties": {"status":{"enum":["ok","partial"]},"lifecycle":{"$ref":"#/$defs/lifecycle"},"live_connections":{"$ref":"#/$defs/zero_or_one"},"caption_lag_seconds":{"$ref":"#/$defs/seconds"},"caption_sample_age_seconds":{"$ref":"#/$defs/seconds"},"queues":{"$ref":"#/$defs/queues"},"task_counts":{"$ref":"#/$defs/task_counts"},"task_counts_age_seconds":{"$ref":"#/$defs/seconds"},"services":{"$ref":"#/$defs/services"},"service_snapshot_age_seconds":{"$ref":"#/$defs/seconds"}}
+    }
+  }
+}
+```
+
+**Metric definitions.** These are application-instance gauges, not cumulative process counters.
+Local fields are read from the current resources on each request; cached DB/service fields expose
+their own age.
+
+| Field                           | Exact meaning and reset/failure behavior                                                                                                                                                                                                                                                                                                  |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `live_connections`              | Number of current connections whose worker and recorder have been registered with `SessionManager`: 0 or 1. A connection still being assembled or a takeover gap is 0; missing/unreadable resources is `null`. Never count historical connection rows                                                                                     |
+| `caption_lag_seconds`           | At the first successful send of a non-blank `CaptionUpdate` for a new `ASRDelta`, compute `raw_lag = recorder.elapsed_secs - delta.audio_end_secs` on the shared session audio timeline. Accept a finite value only when `raw_lag >= -1 / ASR_SAMPLE_RATE`, and then store `max(0, raw_lag)`                                              |
+| `caption_sample_age_seconds`    | Seconds since that successful sample, measured with a monotonic clock. No sample means both caption fields are `null`                                                                                                                                                                                                                     |
+| `queues.transcript_retry`       | Number of unsaved utterances waiting for the active recorder's next storage retry; idle instance is 0, missing/unreadable recorder for a registered connection is `null`                                                                                                                                                                  |
+| `queues.screen_caption.enabled` | Whether the screen-caption worker is enabled, with the pre-start configuration fallback described above                                                                                                                                                                                                                                   |
+| `queues.screen_caption.depth`   | Pending new-screen slot count: 0 or 1, excluding the currently processed screen and summary-reuse followers. Disabled is 0; enabled but unavailable/unreadable worker is `null`                                                                                                                                                           |
+| `queues.agent_tasks`            | The `queued` count from the same DB aggregate as `task_counts`; `null` whenever that aggregate is unavailable                                                                                                                                                                                                                             |
+| `task_counts`                   | Counts over **all retained DB tasks**, grouped by `queued/running/succeeded/failed/cancelled`. Empty DB gives five zeros; disabling the agent does not hide retained tasks; deletion can reduce counts; restart recovery is reflected in the next snapshot. Query failure makes the whole group `null`; do not use `TaskManager._running` |
+| `task_counts_age_seconds`       | Monotonic age of the successful count snapshot. Valid for less than 5 seconds; `null` with unavailable counts                                                                                                                                                                                                                             |
+| `services`                      | The same fixed-name snapshot and state semantics used by readiness                                                                                                                                                                                                                                                                        |
+| `service_snapshot_age_seconds`  | Monotonic age since the completed service refresh. Valid for less than 5 seconds; `null` when the current snapshot has any enabled `unknown` service or no refresh has completed                                                                                                                                                          |
+
+Attempt to sample each delta at most once, even when it appears in both interim/final frames or produces
+multiple caption splits. Sample only after a nonempty caption message has successfully entered
+the output pipeline; failed sends, whitespace-only/empty captions, typed input and assistant
+utterances do not create a sample. Reject nonfinite sample inputs and a negative lag beyond one
+audio sample period (`1 / ASR_SAMPLE_RATE`, currently 1/16000 s), without disturbing captions or
+inventing zero. A rejected sample leaves the previous lag and sample timestamp intact, so age
+continues increasing; with no previous sample both caption fields stay `null`. Rejection alone
+does not make the metrics collector partial. The tolerance absorbs rounding, not clock mismatch.
+A new recorder/connection starts without a sample; metrics clear caption values when that
+connection disappears, including same-session reconnects. During silence the last lag stays
+unchanged and sample age increases. This estimates server-side audio backlog at caption emission,
+not browser display latency or final word stabilization, so it cannot prove the architecture's
+1.5-second finalized-caption target. Network delivery and browser rendering are not included.
+Resumed audio uses the shared session timeline; its resume base is not added a second time.
+Never subtract session-relative seconds from Unix time.
+
+`partial` means required metric collection failed, resources are unavailable, or an enabled
+service has `unknown` status. A completed observation of `unavailable` is useful service data and
+alone does not make metrics partial. Ordinary no-caption `null`, an idle queue's 0 and a disabled
+feature are not failures. Readiness `degraded` describes optional-service functionality;
+metrics `partial` describes incomplete observations. They are deliberately independent.
+
+**Cost, freshness and cleanup.** Constants are per application instance and not new config keys:
+
+- Service refreshes are on demand with a 5-second TTL. Probe enabled services concurrently within
+  one 2-second round; at most one service round runs per instance. Concurrent readiness/metrics
+  requests share it, including its failures; do not start a permanent polling task.
+- Dedicated health timeouts produce `unavailable/timeout`. A round/request budget that prevents
+  obtaining a target result produces `unknown/budget_exhausted`; preserve other completed targets.
+  Unexpected refresh failures produce `unknown/refresh_failed`, never stale `ok`.
+  Completed rounds containing unknown results may also be reused for 5 seconds to prevent storms,
+  but their public age is `null`. Expired snapshots are invalid until refreshed.
+- Readiness checks storage on every request with a 0.5-second budget, including any lock wait.
+  Overlapping requests may share an in-flight check; a completed success is never cached for
+  readiness. An observed storage failure immediately invalidates cached task counts.
+- Task counts use one read-only grouped query, a 0.5-second budget including any wait, and a
+  5-second successful-snapshot TTL. Concurrent metrics requests share an in-flight query.
+  Failed collection returns `null` rather than old counts; counts recover only after a new
+  successful query. Cached success describes the last sample, not continued DB availability.
+- The readiness/metrics collection deadline is 2.5 seconds from entering the endpoint, including
+  waiting for shared refreshes, locks and database reads. The event loop and HTTP transmission
+  can add scheduling time. A timed-out collector returns its safe status/partial body; request
+  cancellation still propagates and does not cancel a refresh shared by other requests.
+- Cancellation/cleanup closes owned HTTP clients and cancels/awaits in-flight collection work
+  before closing the DB. Cache timestamps and monotonic clocks belong to the app, never module
+  globals. Existing CLI probes retain their independent 5-second timeout.
+- Responses contain only the closed-schema fields, fixed logical service names, booleans, numeric
+  gauges and whitelisted states/reasons. Never expose URLs, ports, model names, paths, credentials,
+  exception messages, upstream bodies, process arguments, session/task/frame ids, speaker names,
+  transcript text or screenshots. Failures are converted to safe reason codes.
+
+**Examples.** The examples below are complete bodies; disabled services may differ with configuration.
+
+Normal readiness, HTTP 200:
+
+```json
+{
+  "status": "ok", "lifecycle": "running",
+  "storage": {"status": "ok", "reason": "checked"},
+  "services": {
+    "asr": {"enabled": true, "required": true, "status": "ok", "reason": "healthy"},
+    "realtime": {"enabled": true, "required": false, "status": "reachable", "reason": "http_response"},
+    "tts": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "embedding": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "agent": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"}
+  },
+  "service_snapshot_age_seconds": 0.0
+}
+```
+
+Optional TTS unavailable, HTTP 200:
+
+```json
+{
+  "status": "degraded", "lifecycle": "running",
+  "storage": {"status": "ok", "reason": "checked"},
+  "services": {
+    "asr": {"enabled": true, "required": true, "status": "ok", "reason": "healthy"},
+    "realtime": {"enabled": true, "required": false, "status": "ok", "reason": "healthy"},
+    "tts": {"enabled": true, "required": false, "status": "unavailable", "reason": "timeout"},
+    "embedding": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "agent": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"}
+  },
+  "service_snapshot_age_seconds": 1.0
+}
+```
+
+Core ASR unavailable, HTTP 503:
+
+```json
+{
+  "status": "not_ready", "lifecycle": "running",
+  "storage": {"status": "ok", "reason": "checked"},
+  "services": {
+    "asr": {"enabled": true, "required": true, "status": "unavailable", "reason": "http_error"},
+    "realtime": {"enabled": true, "required": false, "status": "ok", "reason": "healthy"},
+    "tts": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "embedding": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "agent": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"}
+  },
+  "service_snapshot_age_seconds": 0.0
+}
+```
+
+Idle metrics without a caption sample, HTTP 200:
+
+```json
+{
+  "status": "ok", "lifecycle": "running", "live_connections": 0,
+  "caption_lag_seconds": null, "caption_sample_age_seconds": null,
+  "queues": {"transcript_retry": 0, "screen_caption": {"enabled": false, "depth": 0}, "agent_tasks": 0},
+  "task_counts": {"queued": 0, "running": 0, "succeeded": 0, "failed": 0, "cancelled": 0},
+  "task_counts_age_seconds": 0.0,
+  "services": {
+    "asr": {"enabled": true, "required": true, "status": "ok", "reason": "healthy"},
+    "realtime": {"enabled": true, "required": false, "status": "ok", "reason": "healthy"},
+    "tts": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "embedding": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "agent": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"}
+  },
+  "service_snapshot_age_seconds": 0.0
+}
+```
+
+Task-count collection failed while a caption sample is available, HTTP 200:
+
+```json
+{
+  "status": "partial", "lifecycle": "running", "live_connections": 1,
+  "caption_lag_seconds": 0.3, "caption_sample_age_seconds": 2.0,
+  "queues": {"transcript_retry": 2, "screen_caption": {"enabled": true, "depth": 1}, "agent_tasks": null},
+  "task_counts": null, "task_counts_age_seconds": null,
+  "services": {
+    "asr": {"enabled": true, "required": true, "status": "ok", "reason": "healthy"},
+    "realtime": {"enabled": true, "required": false, "status": "ok", "reason": "healthy"},
+    "tts": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "embedding": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "agent": {"enabled": true, "required": false, "status": "reachable", "reason": "http_response"}
+  },
+  "service_snapshot_age_seconds": 0.5
+}
+```
 
 ## 6. Data-channel messages
 

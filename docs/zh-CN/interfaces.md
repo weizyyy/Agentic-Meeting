@@ -51,11 +51,16 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
   | -------------------------------------- | ------------------------------------------------------------------------------------------ |
   | `active`                               | 当前选中的那一套设置（`base_url`、`api_key_env`、`model`、`supports_vision`、`sampling`…） |
   | `managed`                              | 是否由进程管理器启动实时模型服务（只有 `llama_server` 方式且 `launch.enabled` 时为真）     |
+  | `has_health_endpoint`                  | 只读探测是否使用地址源的专用 `/health` 端点，与进程由谁启动无关                            |
   | `request_extra_body(background=False)` | 每次请求要放进 `extra_body` 的字段，已按接入方式合并好                                     |
   | `cache_warm`                           | 是否做缓存预热                                                                             |
   | `supports_developer_role`              | 服务端是否认识 `developer` 角色                                                            |
 
   只有进程管理器（要不要生成启动命令）需要直接看 `mode` 和 `llama_server.launch`。
+
+  `llama_server` 的 `has_health_endpoint` 为真，包括外部启动的服务。其他方式使用选中的
+  `active.base_url` 加 `/models`，即使地址为回环地址也一样；任意 HTTP 响应仅表示可达。
+  此属性不新增配置字段或 HTTP 字段。
 
 - `config.check_warnings(cfg)` 返回不妨碍启动、但运维者应当知情的事项（目前是数据外发）。
   `check` 与 `serve` 都会打印这些事项，浏览器连接后各收到一条 `notice` 消息。
@@ -505,9 +510,10 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 ## 5. HTTP 接口
 
-除信令外，全部是 JSON；错误统一返回 `{"error": "<中文说明>"}` 和合适的状态码。
+除信令外，全部是 JSON；业务错误返回 `{"error": "<中文说明>"}` 和合适的状态码。
 开发时前端跑在 5173 端口并把 `/api` 代理到应用（见 `client/vite.config.ts`）。
-配置了访问口令时，除 §5.7 列出的接口外，全部接口都要求先登录（§5.7）。
+就绪检查的 503 响应保留 §5.8 定义的状态快照。配置了访问口令时，中间件保护 `/api`
+及其下路径，§5.7 的公开认证接口除外。§5.8 的三个运维 GET 位于 `/api` 之外，保持匿名。
 
 ### 5.1 会话与对时
 
@@ -762,6 +768,317 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 （凭据可以经 `GET /api/ice` 读到）再返回一条。它们由 `check` 和 `serve` 打印，不发给浏览器。
 
 已经建立的 WebRTC 连接不会因为 Cookie 到期或在别处退出登录而中断；之后的 HTTP 请求会被拒绝。
+
+### 5.8 健康检查与基础指标
+
+这些运维 GET 接口实现 [#10](https://github.com/weizyyy/Agentic-Meeting/issues/10)，
+返回 `Content-Type: application/json`，不接收请求体或探测目标参数，保持匿名访问。
+启用访问口令（§5.7）后也保持匿名：`LoginRequired` 保护 `/api` 及其下路径，
+这三个根路径位于该前缀之外。后续鉴权改动须保持**这三个精确路径的 GET** 匿名，
+不因此免除业务 API 的鉴权，也不承诺额外运维方法。响应不含会议内容或凭据，
+但匿名数值会体现负载和活动程度；这些端点不代表实例可以安全地暴露到公网。
+
+| 方法与路径     | HTTP 状态及含义                                                                      |
+| -------------- | ------------------------------------------------------------------------------------ |
+| `GET /healthz` | 200，精确响应 `{"status":"ok"}`：HTTP 进程能响应；不探测数据库、网络、模型或文件系统 |
+| `GET /readyz`  | 200 时 `status="ok"` 或 `"degraded"`；503 时 `status="not_ready"`                    |
+| `GET /metrics` | 始终为 200，`status="ok"` 或 `"partial"`，包括采集失败                               |
+
+就绪要求 `lifecycle="running"`、已打开的应用数据库通过只读检查，以及 ASR `status="ok"`。
+ASR 承担核心转录功能，因此是必选。实时模型、TTS、嵌入与 agent 端点**对 readiness 而言**是可选项：
+它们故障时仍能转录（§3.4、architecture §9），并不保证应答或语义搜索可用。
+architecture 中实时模型的必选标注描述完整助理，而不是这里的就绪门槛。
+已启用的可选服务出现 `unavailable` 或 `unknown` 时，就绪状态为 `degraded`；
+`ok`、`reachable` 与 `disabled` 不触发降级。核心条件失败优先，统一为 `not_ready`。
+就绪检查的 503 响应是状态快照，不套普通业务错误的 `{"error": "..."}` 格式。
+
+**生命周期与资源缺失。** 每个应用实例初始为 `starting`，lifespan 完成资源初始化后才变为
+`running`，开始清理前先变为 `stopping`。直接请求尚未启动或正在/已经关闭的应用时，
+就绪接口安全地返回 503，不访问不存在或已关闭的资源。存储为 `unknown`，
+原因是 `not_started` 或 `shutting_down`；启用的服务同样为 `unknown` 并使用该原因，
+关闭的服务仍为 `disabled`，服务快照 age 为 `null`。
+这些阶段的指标状态为 `partial`：连接数、发言重试队列深度、任务队列深度、任务计数与所有样本
+age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资源不可用时 `depth=null`。
+即使尚无资源，enabled/required 元数据也按配置给出。启动后，画面摘要的 `enabled` 取实际 worker
+的 `enabled` 属性；启动前取 `caption_provider(cfg)` 是否选择了 provider。
+真实 ASGI 服务器可能在 lifespan 启动完成后才接受 HTTP，关闭时也可能先停止监听；
+不承诺在服务器实际监听区间之外还能访问任一端点。
+
+**服务覆盖范围。** 每份响应精确包含下列五个逻辑名称，不能省略条目。
+`launch.enabled=false` 仅表示进程由外部管理，不代表功能关闭。
+
+| 逻辑名称    | `enabled`                                                                                                                                                 | `required` | 只读探测                                                                                 |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------- |
+| `asr`       | 恒为 true                                                                                                                                                 | true       | `GET <asr.base_url 的 origin>/health`                                                    |
+| `realtime`  | 恒为 true，取 `realtime_llm.active`                                                                                                                       | false      | llama-server 接入取 origin 的 `/health`；通用 OpenAI 兼容接入取当前 base URL + `/models` |
+| `tts`       | `tts.enabled`                                                                                                                                             | false      | 配置 base URL 的 origin + `/health`                                                      |
+| `embedding` | `embedding.enabled`                                                                                                                                       | false      | 配置 base URL 的 origin + `/health`                                                      |
+| `agent`     | `agent.enabled`，**或** `caption_provider(cfg) == "agent_llm"`，**或** `realtime.digest_provider == "agent_llm"`，**或** `report.provider == "agent_llm"` | false      | agent base URL + `/models`                                                               |
+
+`caption_provider(cfg)` 要求 `screen.enabled`、`screen.caption` 和所选 provider 支持视觉。
+即使后台任务委托关闭，滚动纪要/报告的 provider 选择仍可能使用 agent 端点。
+已选择的 agent 端点缺少 base URL 或 model 时为 `unavailable/invalid_config`，不能当作 `disabled`。
+无效 HTTP(S) 目标也使用 `invalid_config`；只探测配置中的目标。配置支持凭据的服务沿用环境变量
+机制发送凭据。探测不查找可执行文件、不生成模板、不启动进程、不执行推理或 chat-completion 请求，
+不读取会议材料。回环地址绕过环境代理，远端沿用现有代理策略。
+不跟随重定向，避免配置中的目标把凭据转发到其他主机。
+说话人区分是进程内库；Docker、MCP、浏览器 ICE 与网络带宽不属于这份 HTTP 推理服务快照。
+
+| 服务 `status` | 允许的 `reason`                                                      | 含义                                                          |
+| ------------- | -------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `ok`          | `healthy`                                                            | 专用 `/health` 协议返回 HTTP 200                              |
+| `reachable`   | `http_response`                                                      | 通用 `/models` 收到了任意 HTTP 响应                           |
+| `unavailable` | `timeout`、`connection_failed`、`http_error`、`invalid_config`       | 探测超时、传输失败、health 返回非 200，或配置中的目标无法使用 |
+| `unknown`     | `not_started`、`shutting_down`、`refresh_failed`、`budget_exhausted` | 当前没有观测：生命周期阶段、刷新失败，或共享/请求预算耗尽     |
+| `disabled`    | `disabled`                                                           | 该可选服务未被选择；`enabled=false`                           |
+
+`enabled=false` 必须对应 `status="disabled"`，`enabled=true` 则禁止该状态。
+通用 `/models` 即使返回 HTTP 200 也只能是 `reachable`，不能是 `ok`；
+401/403/404（以及 503）不证明凭据正确、模型访问被允许或推理成功。
+相反，专用 `/health` 的 HTTP 503 是 `unavailable/http_error`。
+存储只允许 `ok/checked`、`unavailable/timeout`、`unavailable/storage_error`、
+`unknown/not_started`、`unknown/shutting_down`。轻量的 `SELECT 1` 只检查现有连接能否读取，
+不检查磁盘容量或承诺下一次写入一定持久化。
+
+**封闭的响应 schema。** 以下 JSON Schema 2020-12 定义三个完整响应体
+（`health`、`ready`、`metrics`），列出的字段全部必填，禁止额外字段。
+上文及下文中的状态/原因组合和跨字段规则同样具有约束力。
+所有数值必须有限，秒与计数非负，`null` 永远不等于零。
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [{"$ref":"#/$defs/health"},{"$ref":"#/$defs/ready"},{"$ref":"#/$defs/metrics"}],
+  "$defs": {
+    "seconds": {
+      "type": ["number","null"],
+      "minimum": 0
+    },
+    "count": {
+      "type": ["integer","null"],
+      "minimum": 0
+    },
+    "zero_or_one": {
+      "type": ["integer","null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "lifecycle": {
+      "enum": ["starting","running","stopping"]
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled","required","status","reason"],
+      "properties": {"enabled":{"type":"boolean"},"required":{"type":"boolean"},"status":{"enum":["ok","reachable","unavailable","unknown","disabled"]},"reason":{"enum":["healthy","http_response","timeout","connection_failed","http_error","invalid_config","not_started","shutting_down","refresh_failed","budget_exhausted","disabled"]}}
+    },
+    "required_service": {
+      "allOf": [{"$ref":"#/$defs/service"},{"properties":{"enabled":{"const":true},"required":{"const":true}}}]
+    },
+    "active_optional_service": {
+      "allOf": [{"$ref":"#/$defs/service"},{"properties":{"enabled":{"const":true},"required":{"const":false}}}]
+    },
+    "optional_service": {
+      "allOf": [{"$ref":"#/$defs/service"},{"properties":{"required":{"const":false}}}]
+    },
+    "services": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asr","realtime","tts","embedding","agent"],
+      "properties": {"asr":{"$ref":"#/$defs/required_service"},"realtime":{"$ref":"#/$defs/active_optional_service"},"tts":{"$ref":"#/$defs/optional_service"},"embedding":{"$ref":"#/$defs/optional_service"},"agent":{"$ref":"#/$defs/optional_service"}}
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status","reason"],
+      "properties": {"status":{"enum":["ok","unavailable","unknown"]},"reason":{"enum":["checked","timeout","storage_error","not_started","shutting_down"]}}
+    },
+    "screen_queue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled","depth"],
+      "properties": {"enabled":{"type":"boolean"},"depth":{"$ref":"#/$defs/zero_or_one"}}
+    },
+    "queues": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transcript_retry","screen_caption","agent_tasks"],
+      "properties": {"transcript_retry":{"$ref":"#/$defs/count"},"screen_caption":{"$ref":"#/$defs/screen_queue"},"agent_tasks":{"$ref":"#/$defs/count"}}
+    },
+    "task_counts": {
+      "anyOf": [{"type":"object","additionalProperties":false,"required":["queued","running","succeeded","failed","cancelled"],"properties":{"queued":{"type":"integer","minimum":0},"running":{"type":"integer","minimum":0},"succeeded":{"type":"integer","minimum":0},"failed":{"type":"integer","minimum":0},"cancelled":{"type":"integer","minimum":0}}},{"type":"null"}]
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {"status":{"const":"ok"}}
+    },
+    "ready": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status","lifecycle","storage","services","service_snapshot_age_seconds"],
+      "properties": {"status":{"enum":["ok","degraded","not_ready"]},"lifecycle":{"$ref":"#/$defs/lifecycle"},"storage":{"$ref":"#/$defs/storage"},"services":{"$ref":"#/$defs/services"},"service_snapshot_age_seconds":{"$ref":"#/$defs/seconds"}}
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status","lifecycle","live_connections","caption_lag_seconds","caption_sample_age_seconds","queues","task_counts","task_counts_age_seconds","services","service_snapshot_age_seconds"],
+      "properties": {"status":{"enum":["ok","partial"]},"lifecycle":{"$ref":"#/$defs/lifecycle"},"live_connections":{"$ref":"#/$defs/zero_or_one"},"caption_lag_seconds":{"$ref":"#/$defs/seconds"},"caption_sample_age_seconds":{"$ref":"#/$defs/seconds"},"queues":{"$ref":"#/$defs/queues"},"task_counts":{"$ref":"#/$defs/task_counts"},"task_counts_age_seconds":{"$ref":"#/$defs/seconds"},"services":{"$ref":"#/$defs/services"},"service_snapshot_age_seconds":{"$ref":"#/$defs/seconds"}}
+    }
+  }
+}
+```
+
+**指标字典。** 这些是应用实例的 gauge，不是进程启动后的累计 counter。
+内存字段每次从当前资源读取，缓存的数据库/服务字段给出各自 age。
+
+| 字段                            | 精确口径及重置/故障语义                                                                                                                                                                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `live_connections`              | 当前已向 `SessionManager` 登记 worker 和 recorder 的活动连接数，取 0 或 1。管线仍在组装或接管间隙为 0；资源不存在/不可读为 `null`。不计历史连接行数                                                                                  |
+| `caption_lag_seconds`           | 新 `ASRDelta` 第一次成功发送非空 `CaptionUpdate` 后，按共享会话音频时间轴计算 `raw_lag = recorder.elapsed_secs - delta.audio_end_secs`。只接受有限且 `raw_lag >= -1 / ASR_SAMPLE_RATE` 的值，再保存 `max(0, raw_lag)`                |
+| `caption_sample_age_seconds`    | 距该成功样本的单调时钟秒数。无样本时两个字幕字段都为 `null`                                                                                                                                                                          |
+| `queues.transcript_retry`       | 活动 recorder 等待下次存储重试的未写入发言数；空闲为 0；已登记连接的 recorder 不存在/不可读时为 `null`                                                                                                                               |
+| `queues.screen_caption.enabled` | 画面摘要 worker 是否启用，启动前按上文的配置后备规则给出                                                                                                                                                                             |
+| `queues.screen_caption.depth`   | 等待处理的新画面槽位数，取 0 或 1，不含正在处理的画面及复用摘要的 followers。关闭为 0；启用但 worker 不可用/不可读时为 `null`                                                                                                        |
+| `queues.agent_tasks`            | 与 `task_counts` 同一数据库聚合快照的 `queued` 数；聚合不可用时为 `null`                                                                                                                                                             |
+| `task_counts`                   | 对**数据库全部保留任务**按 `queued/running/succeeded/failed/cancelled` 分组计数。空库为五个零；关闭 agent 不会隐藏保留任务；删除任务可降低计数；重启恢复结果体现在下次快照。查询失败时整组为 `null`，不能使用 `TaskManager._running` |
+| `task_counts_age_seconds`       | 成功计数快照的单调时钟 age，有效期严格小于 5 秒；计数不可用时为 `null`                                                                                                                                                               |
+| `services`                      | 与就绪接口共用的固定名称快照及状态语义                                                                                                                                                                                               |
+| `service_snapshot_age_seconds`  | 自该轮服务刷新完成后的单调时钟 age，有效期严格小于 5 秒；当前快照中任一启用服务为 `unknown`，或尚无完成的刷新时为 `null`                                                                                                             |
+
+同一 delta 至多尝试采样一次，包括它同时出现在临时/最终帧或产生多个说话人字幕分片的情况。
+只在非空字幕消息成功送入输出管线后采样；发送失败、纯空白/空字幕、键入文字和助理发言不产生样本。
+非有限数值输入或负差超过一个音频采样周期（`1 / ASR_SAMPLE_RATE`，当前为 1/16000 秒）时，
+拒绝本次采样，不影响字幕、不伪造零。拒绝后保留之前的 lag 和采样时间戳，因此 age 继续增长；
+没有旧样本则两个字幕字段仍为 `null`。拒绝采样本身不触发指标采集 partial；
+该容差仅处理舍入误差，不能掩盖时钟不一致。新 recorder/连接初始没有样本；当前连接消失时，
+指标中的字幕字段清空，即使是同一会议的重连。静音期间 lag 保留上次值，样本 age 增长。
+它估计字幕输出时服务端的音频积压，不是浏览器显示延迟或逐词最终定稿延迟，
+不能据此证明达到 architecture 中的 1.5 秒最终字幕目标，也不包括网络传送和浏览器绘制。
+恢复后的音频沿用共享会话时间轴，不会再次叠加恢复 base。禁止用 Unix 时间减会话相对秒数。
+
+`partial` 表示所需指标采集失败、资源不可用，或启用服务的状态为 `unknown`。
+已经观测到 `unavailable` 本身是有效服务数据，不会单独触发 partial。
+自然的“尚无字幕样本” `null`、空闲队列的 0 和功能关闭都不是失败。
+就绪接口的 `degraded` 表示可选服务功能降级，指标的 `partial` 表示观测不完整，两者独立。
+
+**成本、新鲜度与清理。** 常量按应用实例拥有，不增加用户配置键：
+
+- 服务按需刷新，TTL 为 5 秒。已启用服务并发探测，一轮整体预算 2 秒；
+  每实例最多一轮刷新，并发就绪/指标请求共享它及其失败，不建立永久轮询任务。
+- 专用健康探测超时为 `unavailable/timeout`。一轮/请求预算耗尽导致目标结果无法获得时，
+  为 `unknown/budget_exhausted`，保留其他已完成目标的结果。
+  意外刷新失败为 `unknown/refresh_failed`，不能继续给出旧 `ok`。
+  含 unknown 的完成轮次同样可复用 5 秒以避免请求风暴，但对外 age 为 `null`；
+  已过期快照必须刷新后才可使用。
+- 就绪接口每次在 0.5 秒内检查存储，预算包含任何锁等待。
+  重叠请求可共享进行中的检查，已完成的成功结果不缓存供 readiness 使用。
+  已观测的存储失败立即使任务计数缓存失效。
+- 任务计数使用一次只读分组查询，预算 0.5 秒（包含等待），成功快照 TTL 为 5 秒。
+  并发指标请求共享进行中的查询；采集失败返回 `null`，不返回旧计数。
+  只有新的成功查询才能恢复计数。缓存的成功只描述最近样本，不保证数据库仍然可用。
+- 就绪/指标采集从进入端点起的整体截止时间为 2.5 秒，包含等待共享刷新、锁和数据库读取。
+  事件循环调度与 HTTP 传输可增加时间；采集超时返回安全的状态/partial 响应。
+  请求取消仍须传播，且不能取消其他请求共享的刷新。
+- 取消/清理时关闭自建 HTTP client，在关闭数据库前取消并等待进行中的采集任务。
+  缓存时间戳及单调时钟属于应用实例，不使用模块全局状态。
+  现有 CLI 探测仍保留独立的 5 秒超时。
+- 响应只能包含封闭 schema 中的字段、固定服务逻辑名、布尔值、数字 gauge 和白名单状态/原因。
+  不暴露 URL、端口、模型名、路径、凭据、异常消息、上游响应正文、进程参数、
+  session/task/frame id、说话人名字、转录文字或截图。故障转换为安全原因码。
+
+**示例。** 以下均为完整响应体，服务是否关闭随配置变化。
+
+正常就绪，HTTP 200：
+
+```json
+{
+  "status": "ok", "lifecycle": "running",
+  "storage": {"status": "ok", "reason": "checked"},
+  "services": {
+    "asr": {"enabled": true, "required": true, "status": "ok", "reason": "healthy"},
+    "realtime": {"enabled": true, "required": false, "status": "reachable", "reason": "http_response"},
+    "tts": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "embedding": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "agent": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"}
+  },
+  "service_snapshot_age_seconds": 0.0
+}
+```
+
+可选 TTS 不可用，HTTP 200：
+
+```json
+{
+  "status": "degraded", "lifecycle": "running",
+  "storage": {"status": "ok", "reason": "checked"},
+  "services": {
+    "asr": {"enabled": true, "required": true, "status": "ok", "reason": "healthy"},
+    "realtime": {"enabled": true, "required": false, "status": "ok", "reason": "healthy"},
+    "tts": {"enabled": true, "required": false, "status": "unavailable", "reason": "timeout"},
+    "embedding": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "agent": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"}
+  },
+  "service_snapshot_age_seconds": 1.0
+}
+```
+
+核心 ASR 不可用，HTTP 503：
+
+```json
+{
+  "status": "not_ready", "lifecycle": "running",
+  "storage": {"status": "ok", "reason": "checked"},
+  "services": {
+    "asr": {"enabled": true, "required": true, "status": "unavailable", "reason": "http_error"},
+    "realtime": {"enabled": true, "required": false, "status": "ok", "reason": "healthy"},
+    "tts": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "embedding": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "agent": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"}
+  },
+  "service_snapshot_age_seconds": 0.0
+}
+```
+
+空闲实例、尚无字幕样本，HTTP 200：
+
+```json
+{
+  "status": "ok", "lifecycle": "running", "live_connections": 0,
+  "caption_lag_seconds": null, "caption_sample_age_seconds": null,
+  "queues": {"transcript_retry": 0, "screen_caption": {"enabled": false, "depth": 0}, "agent_tasks": 0},
+  "task_counts": {"queued": 0, "running": 0, "succeeded": 0, "failed": 0, "cancelled": 0},
+  "task_counts_age_seconds": 0.0,
+  "services": {
+    "asr": {"enabled": true, "required": true, "status": "ok", "reason": "healthy"},
+    "realtime": {"enabled": true, "required": false, "status": "ok", "reason": "healthy"},
+    "tts": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "embedding": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "agent": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"}
+  },
+  "service_snapshot_age_seconds": 0.0
+}
+```
+
+有字幕样本但任务计数采集失败，HTTP 200：
+
+```json
+{
+  "status": "partial", "lifecycle": "running", "live_connections": 1,
+  "caption_lag_seconds": 0.3, "caption_sample_age_seconds": 2.0,
+  "queues": {"transcript_retry": 2, "screen_caption": {"enabled": true, "depth": 1}, "agent_tasks": null},
+  "task_counts": null, "task_counts_age_seconds": null,
+  "services": {
+    "asr": {"enabled": true, "required": true, "status": "ok", "reason": "healthy"},
+    "realtime": {"enabled": true, "required": false, "status": "ok", "reason": "healthy"},
+    "tts": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "embedding": {"enabled": false, "required": false, "status": "disabled", "reason": "disabled"},
+    "agent": {"enabled": true, "required": false, "status": "reachable", "reason": "http_response"}
+  },
+  "service_snapshot_age_seconds": 0.5
+}
+```
 
 ## 6. 数据通道消息
 

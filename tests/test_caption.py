@@ -185,6 +185,49 @@ async def test_backlog_only_latest_frame_is_captioned(rig):
     ]
 
 
+async def test_pending_count_excludes_current_and_followers_during_replacement(rig, monkeypatch):
+    completed = asyncio.Event()
+    append = rig.worker._append_context
+
+    async def appended(session_id, t, line):
+        await append(session_id, t, line)
+        if t == 4.0:
+            completed.set()
+
+    monkeypatch.setattr(rig.worker, "_append_context", appended)
+    assert rig.worker.enabled and rig.worker.pending_count == 0
+    rig.model.resumed.clear()
+    first = await rig.frame(1.0)
+    await rig.worker.submit(first)
+    same = await rig.frame(2.0, changed=False, same_as=first.frame.id)
+    await rig.worker.submit(same)
+    assert rig.worker.pending_count == 1
+    latest = await rig.frame(3.0)
+    await rig.worker.submit(latest)
+    assert rig.worker.pending_count == 1
+    assert (await rig.status(first))[0] == (await rig.status(same))[0] == "skipped"
+    rig.model.gate.clear()
+    rig.model.resumed.set()
+    await asyncio.wait_for(rig.model.started.wait(), 1.0)
+    assert rig.worker.pending_count == 0  # 处理中不计槽位
+    follower = await rig.frame(3.5, changed=False, same_as=latest.frame.id)
+    await rig.worker.submit(follower)
+    assert rig.worker.pending_count == 0
+    pending = await rig.frame(4.0)
+    await rig.worker.submit(pending)
+    assert rig.worker.pending_count == 1
+    rig.model.gate.set()
+    await asyncio.wait_for(completed.wait(), 1.0)
+    assert rig.worker.pending_count == 0
+    assert await rig.status(follower) == ("done", "摘要1")
+    assert await rig.status(pending) == ("done", "摘要2")
+    assert [m[1]["id"] for m in rig.messages] == [
+        latest.frame.id,
+        follower.frame.id,
+        pending.frame.id,
+    ]
+
+
 async def test_no_requests_while_paused_and_latest_wins_after_resume(rig):
     rig.model.resumed.clear()
     older = await rig.frame(1.0)
@@ -393,10 +436,12 @@ async def test_disabled_worker_marks_frames_skipped(store, tmp_path):
     rig = Rig(store, tmp_path, None)
     rig.session_id = (await store.create_session(now=1000.0)).id
     assert not rig.worker.enabled
+    assert rig.worker.pending_count == 0
     rig.worker.start()  # 不启动任何任务
     assert rig.worker._task is None
     item = await rig.frame(1.0)
     await rig.worker.submit(item)
+    assert rig.worker.pending_count == 0
     assert (await rig.status(item))[0] == "skipped"
     assert rig.messages == [] and rig.context == []
     await rig.worker.stop()

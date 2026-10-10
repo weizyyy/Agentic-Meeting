@@ -11,6 +11,7 @@
 | [使用指南](user-guide.md)      | 会中与会后如何使用网页                       |
 | [配置说明](configuration.md)   | `config.toml` 的各个小节                     |
 | [故障排查](troubleshooting.md) | 麦克风电平、唤醒、服务降级                   |
+| [部署](deployment.md)          | 反向代理与 HTTPS、TURN、对外开放前的检查清单 |
 | [运行时与模型](runtimes.md)    | 推理运行时的获取与构建、模型文件、多显卡分配 |
 | [性能实测](benchmarks.md)      | 在真实硬件上测得的延迟、内存与准确率         |
 

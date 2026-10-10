@@ -9,6 +9,7 @@
 - [准备模型文件](#准备模型文件)
 - [配置](#配置)
 - [运行](#运行)
+- [检查健康状态与指标](#检查健康状态与指标)
 - [从其他设备访问](#从其他设备访问)
 - [启用代码沙箱](#启用代码沙箱)
 - [不用麦克风进行验证](#不用麦克风进行验证)
@@ -122,7 +123,43 @@ uv run agentic-meeting serve              # 仅启动应用
 
 日志写入 `data/logs/<服务名>.log`，会议数据保存在 `data/` 目录下。
 
+全局 CLI 参数放在子命令前，例如：
+
+```bash
+uv run agentic-meeting --config config/config.example.toml check
+```
+
 接下来请阅读[使用指南](user-guide.md)。
+
+## 检查健康状态与指标
+
+后端开始监听后，直接请求应用端口（默认为 7860）：
+
+```bash
+curl -i http://localhost:7860/healthz
+curl -i http://localhost:7860/readyz
+curl -i http://localhost:7860/metrics
+```
+
+这三个精确 GET 路由无需登录，返回 `Content-Type: application/json`，位于后端根路径，不带 `/api`。
+5173 端口的 Vite 开发服务器目前只代理 `/api`；这些检查请请求 7860 或自行配置的后端端口。
+
+| 端点       | 用途与响应                                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/healthz` | 进程存活：HTTP 200，精确响应 `{"status":"ok"}`。无外部 I/O；模型故障不使存活检查失败                                                             |
+| `/readyz`  | 应用就绪：生命周期为 running，已打开 Store 的 `SELECT 1` 成功，且必选 ASR `/health` 健康。HTTP 200 时为 `ok` 或 `degraded`；503 时为 `not_ready` |
+| `/metrics` | JSON gauge 和服务观测，始终 HTTP 200。`ok` 表示观测完整；`partial` 保留可得字段，缺失观测使用 `null`/`unknown`                                   |
+
+仅启用的可选服务故障或未知时，就绪状态为 `degraded`；ASR、存储或生命周期失败则为 `not_ready`。
+就绪检查用于判断能否接收转录流量，存活检查用于判断 HTTP 进程能否响应。
+对服务故障的完整观测仍可使 metrics 为 `ok`。完整响应示例和封闭 schema 见
+[interfaces.md §5.8](interfaces.md#58-健康检查与基础指标)，解释和恢复见
+[故障排查](troubleshooting.md#健康状态与指标)。
+
+响应不含会议内容、标识符、URL 或凭据，但匿名数值仍会体现负载和活动程度。
+启用访问口令后，中间件保护 `/api` 及其下路径，这三个根路径 GET 仍保持匿名。
+后续鉴权改动须保留它们的匿名访问，不因此免除业务 API 的鉴权。
+这项功能不代表实例可以安全地暴露到公网。
 
 ## 从其他设备访问
 
@@ -144,6 +181,8 @@ tls_key = "config/meeting-key.pem"
 
 其他设备即可访问 `https://<服务器的局域网 IP>`。如需消除证书警告，把 `mkcert -CAROOT` 所示目录中的
 `rootCA.pem` 安装为各设备的受信任根证书。`*.pem` 文件已被 Git 忽略。同一局域网内无需配置 ICE 服务器。
+
+要在整个单位范围内开放实例（用正式证书的反向代理、其他网络里的客户端、TURN），见[部署指南](deployment.md)。
 
 ### 访问口令
 

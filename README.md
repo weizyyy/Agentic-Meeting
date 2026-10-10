@@ -173,6 +173,7 @@ Browsers on other machines need HTTPS — see the
 | [Data governance](docs/data-governance.md) | Storage, destinations, retention and deletion limits                   |
 | [Configuration](docs/configuration.md)     | Every section of `config.toml`                                         |
 | [Troubleshooting](docs/troubleshooting.md) | Microphone level, wake word, degraded services                         |
+| [Deployment](docs/deployment.md)           | Reverse proxy and HTTPS, TURN, checklist before exposing an instance   |
 | [Runtimes and models](docs/runtimes.md)    | Fetching and building runtimes, model files, multi-GPU setups          |
 | [Benchmarks](docs/benchmarks.md)           | Latency, memory and accuracy measured on real hardware                 |
 | [Architecture](docs/architecture.md)       | Processes, pipeline, data flow, context management                     |

@@ -4,15 +4,16 @@
 
 ## Using Agentic-Meeting
 
-| Document                              | Contents                                                       |
-| ------------------------------------- | -------------------------------------------------------------- |
-| [Getting started](getting-started.md) | Installation, model files, first run, HTTPS                    |
-| [User guide](user-guide.md)           | Working with the web page during and after a meeting           |
-| [Data governance](data-governance.md) | Stored data, destinations, retention, keep and deletion limits |
-| [Configuration](configuration.md)     | Every section of `config.toml`                                 |
-| [Troubleshooting](troubleshooting.md) | Microphone level, wake word, degraded services                 |
-| [Runtimes and models](runtimes.md)    | Fetching and building runtimes, model files, multi-GPU setups  |
-| [Benchmarks](benchmarks.md)           | Latency, memory and accuracy measured on real hardware         |
+| Document                              | Contents                                                             |
+| ------------------------------------- | -------------------------------------------------------------------- |
+| [Getting started](getting-started.md) | Installation, model files, first run, HTTPS                          |
+| [User guide](user-guide.md)           | Working with the web page during and after a meeting                 |
+| [Data governance](data-governance.md) | Stored data, destinations, retention, keep and deletion limits       |
+| [Configuration](configuration.md)     | Every section of `config.toml`                                       |
+| [Troubleshooting](troubleshooting.md) | Microphone level, wake word, degraded services                       |
+| [Deployment](deployment.md)           | Reverse proxy and HTTPS, TURN, checklist before exposing an instance |
+| [Runtimes and models](runtimes.md)    | Fetching and building runtimes, model files, multi-GPU setups        |
+| [Benchmarks](benchmarks.md)           | Latency, memory and accuracy measured on real hardware               |
 
 ## Understanding and changing the code
 

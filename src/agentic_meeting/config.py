@@ -290,6 +290,11 @@ class RealtimeLLMConfig(_Model):
         )
 
     @property
+    def has_health_endpoint(self) -> bool:
+        """是否支持专用健康端点，与进程是否由本项目启动无关。"""
+        return self.mode == "llama_server"
+
+    @property
     def supports_developer_role(self) -> bool:
         """服务端是否认识 developer 角色；llama-server 加载的本地模型一般不认识。"""
         return self.mode == "openai_api" and self.active.supports_developer_role  # type: ignore[attr-defined]

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -30,6 +31,7 @@ from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
 from pipecat.tests.utils import SleepFrame, run_test
 
 from agentic_meeting.diar.base import NullDiarizer
+from agentic_meeting.diar.fusion import CaptionUpdate
 from agentic_meeting.pipeline.clock import SessionClock
 from agentic_meeting.pipeline.recorder import MeetingRecorder
 from agentic_meeting.store.db import default_speaker_name
@@ -566,6 +568,177 @@ async def test_typed_text_is_stored_as_a_text_utterance_addressed_to_the_assista
 # --------------------------------------------------------------------------- #
 # 会话时钟
 # --------------------------------------------------------------------------- #
+
+
+def capture_recorder(monkeypatch, **kwargs):
+    rec = MeetingRecorder(recheck_attempts=0, **kwargs)
+    output = []
+
+    async def push(frame, direction=FrameDirection.DOWNSTREAM):
+        output.append(frame)
+
+    monkeypatch.setattr(rec, "push_frame", push)
+    monkeypatch.setattr(rec, "_spawn", lambda coro, name: coro.close())
+    return rec, output
+
+
+async def test_caption_sample_uses_audio_timeline_and_monotonic_age(monkeypatch):
+    now = [100.0]
+    monkeypatch.setattr("agentic_meeting.pipeline.recorder.monotonic", lambda: now[0])
+    store = FakeStore()
+    rec, output = capture_recorder(monkeypatch, store=store, clock=SessionClock(100.0))
+    assert rec.caption_lag_seconds is None and rec.caption_sample_age_seconds is None
+    rec._on_audio(audio(2000))
+    delta = ASRDelta("虚构发言", "", 101.25, segment_end=True)
+    await rec._handle_delta(interim(delta.stable_text, delta))
+    assert rec.caption_lag_seconds == 0.75 and rec.caption_sample_age_seconds == 0
+    now[0] += 3.0
+    rec._on_audio(audio(1000))  # 静音推进音频，但不重新采样
+    await rec._handle_delta(final(delta.stable_text, delta))
+    assert rec.caption_lag_seconds == 0.75 and rec.caption_sample_age_seconds == 3.0
+    assert len(messages(output, "caption")) == len(appended(output)) == len(store.utterances) == 1
+    await rec.record_typed("虚构键盘输入")
+    await rec.record_assistant("虚构助理回复")
+    await rec._handle_delta(interim("", ASRDelta("", "", 103.0, segment_end=True)))
+    rec.set_speaker_name(1, "虚构发言人")
+    assert rec.caption_lag_seconds == 0.75 and rec.caption_sample_age_seconds == 3.0
+    fresh = MeetingRecorder(clock=SessionClock(103.0))
+    assert fresh.caption_lag_seconds is None and fresh.caption_sample_age_seconds is None
+
+
+async def test_caption_sample_only_follows_first_successful_nonblank_split(monkeypatch):
+    rec, output = capture_recorder(monkeypatch)
+    rec._on_audio(audio(2000))
+    events = [
+        CaptionUpdate(1, 1, 0.0, " \t", ""),
+        CaptionUpdate(2, 1, 0.0, "第一位", ""),
+        CaptionUpdate(3, 2, 1.0, "第二位", ""),
+    ]
+    monkeypatch.setattr(rec._assembler, "on_delta", lambda delta, segments: events)
+    reads = []
+
+    def monotonic():
+        reads.append(len(output))
+        return 100.0
+
+    monkeypatch.setattr("agentic_meeting.pipeline.recorder.monotonic", monotonic)
+    delta = ASRDelta("多人发言", "", 1.0)
+    await rec._handle_delta(interim("多人发言", delta))
+    await rec._handle_delta(final("多人发言", delta))
+    assert reads == [2]  # 空字幕不采，第一条非空字幕已经成功推送，后面的拆分不重采
+    assert rec.caption_lag_seconds == 1.0
+    assert len(messages(output, "caption")) == 3
+
+
+@pytest.mark.parametrize("offset, expected", [(0.0, 0.0), (1 / 32000, 0.0), (0.25, None)])
+async def test_caption_sample_accepts_only_one_audio_sample_negative_tolerance(
+    monkeypatch, offset, expected
+):
+    rec, output = capture_recorder(monkeypatch)
+    rec._on_audio(audio(1000))
+    await rec._handle_delta(interim("字幕", ASRDelta("", "字幕", 1.0 + offset)))
+    assert rec.caption_lag_seconds == expected
+    assert len(messages(output, "caption")) == 1
+    assert (rec.caption_sample_age_seconds is None) == (expected is None)
+
+
+async def test_caption_sample_accepts_exact_negative_sample_period(monkeypatch):
+    rec, output = capture_recorder(monkeypatch)
+    await rec._handle_delta(interim("字幕", ASRDelta("", "字幕", 1 / 16000)))
+    assert rec.caption_lag_seconds == 0.0 and rec.caption_sample_age_seconds is not None
+    assert len(messages(output, "caption")) == 1
+
+
+@pytest.mark.parametrize("invalid_elapsed", [float("nan"), float("inf"), -float("inf")])
+async def test_caption_sample_rejects_nonfinite_recorder_timeline(monkeypatch, invalid_elapsed):
+    rec, output = capture_recorder(monkeypatch, clock=SessionClock(invalid_elapsed))
+    monkeypatch.setattr(
+        rec._assembler, "on_delta", lambda delta, segments: [CaptionUpdate(1, 0, 0.0, "字幕", "")]
+    )
+    await rec._handle_delta(interim("字幕", ASRDelta("", "字幕", 0.0)))
+    assert rec.caption_lag_seconds is None and rec.caption_sample_age_seconds is None
+    assert len(messages(output, "caption")) == 1
+
+
+@pytest.mark.parametrize("invalid_end", [2.0, float("nan"), float("inf"), -float("inf")])
+async def test_rejected_caption_sample_preserves_old_lag_and_age(monkeypatch, invalid_end):
+    now = [100.0]
+    monkeypatch.setattr("agentic_meeting.pipeline.recorder.monotonic", lambda: now[0])
+    rec, output = capture_recorder(monkeypatch)
+    rec._on_audio(audio(1000))
+    await rec._handle_delta(interim("先前字幕", ASRDelta("", "先前字幕", 0.5)))
+    now[0] += 4.0
+    await rec._handle_delta(interim("之后字幕", ASRDelta("", "之后字幕", invalid_end)))
+    assert rec.caption_lag_seconds == 0.5 and rec.caption_sample_age_seconds == 4.0
+    assert [m["unstable"] for m in messages(output, "caption")] == ["先前字幕", "之后字幕"]
+
+
+async def test_failed_caption_push_and_echo_do_not_sample(monkeypatch):
+    rec, output = capture_recorder(monkeypatch)
+    rec._on_audio(audio(2000))
+    push = rec.push_frame
+
+    async def broken(frame, direction=FrameDirection.DOWNSTREAM):
+        raise RuntimeError("虚构输出故障")
+
+    monkeypatch.setattr(rec, "push_frame", broken)
+    delta = ASRDelta("", "未输出字幕", 1.0)
+    await rec._guard(rec._handle_delta(interim("未输出字幕", delta)))
+    assert rec.caption_lag_seconds is None and rec.caption_sample_age_seconds is None
+    monkeypatch.setattr(rec, "push_frame", push)
+    await rec._handle_delta(final("未输出字幕", delta))
+    assert output == []  # 重复 delta 不再处理
+    rec._assembler.on_speech_started(0.0)
+    rec._assembler.on_bot_speaking(0.0, None)
+    await rec._handle_delta(interim("回声", ASRDelta("", "回声", 2.0)))
+    assert output == [] and rec.caption_lag_seconds is None
+
+
+async def test_sampling_failure_does_not_change_captions_storage_or_context(monkeypatch):
+    stores = [FakeStore(), FakeStore()]
+    recorders = [capture_recorder(monkeypatch, store=s, session_id="s1") for s in stores]
+    for index, (rec, _) in enumerate(recorders):
+        rec._on_audio(audio(1000))
+        if index:
+
+            def broken_monotonic():
+                raise RuntimeError("虚构采集故障")
+
+            monkeypatch.setattr("agentic_meeting.pipeline.recorder.monotonic", broken_monotonic)
+        await rec._handle_delta(interim("虚构定稿", ASRDelta("虚构定稿", "", 0.8, True)))
+    first, second = [output for _, output in recorders]
+    assert messages(first, "caption") == messages(second, "caption")
+    assert messages(first, "utterance") == messages(second, "utterance")
+    assert [f.messages for f in appended(first)] == [f.messages for f in appended(second)]
+    assert stores[0].utterances == stores[1].utterances
+    assert recorders[0][0].caption_lag_seconds == pytest.approx(0.2)
+    assert recorders[1][0].caption_lag_seconds is None
+
+
+async def test_retry_depth_tracks_failed_writes_recovery_and_cancellation(monkeypatch):
+    store = FakeStore(fail_adds=2)
+    rec, output = capture_recorder(monkeypatch, store=store, session_id="s1")
+    rec._on_audio(audio(2000))
+    for text, end in [("第一句", 0.8), ("第二句", 1.8)]:
+        await rec._handle_delta(interim(text, ASRDelta(text, "", end, True)))
+    assert rec.unsaved_utterance_count == 2 and len(appended(output)) == 2
+    await rec._write_unsaved()
+    assert rec.unsaved_utterance_count == 0
+    assert [u.text for u in store.utterances] == ["第一句", "第二句"]
+    entered, blocked = asyncio.Event(), asyncio.Event()
+
+    async def cancelled_write(utterance):
+        entered.set()
+        await blocked.wait()
+
+    monkeypatch.setattr(store, "add_utterance", cancelled_write)
+    task = asyncio.create_task(rec.record_typed("取消中的写入"))
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert rec.unsaved_utterance_count == 1
+    assert len(messages(output, "utterance")) == 2  # 取消继续传播，没有虚构成功写入通知
 
 
 async def test_elapsed_secs_follows_the_audio_on_the_session_timeline():

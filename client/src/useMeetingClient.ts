@@ -1,5 +1,5 @@
 import { PipecatClient } from "@pipecat-ai/client-js";
-import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
+import { SmallWebRTCTransport, WavMediaManager } from "@pipecat-ai/small-webrtc-transport";
 import {
   useCallback,
   useEffect,
@@ -13,6 +13,7 @@ import {
 import { ApiError, createApi, type Api, type SessionDetail } from "./api.ts";
 import { authSession } from "./auth.ts";
 import { backfillAfterId, firstUtteranceId } from "./captions.ts";
+import { sendLocalAudio } from "./localAudio.ts";
 import { describeTrackSettings } from "./micLevel.ts";
 import { PAGE_SIZE, initialState, reduce, type Action, type MeetingState } from "./meetingState.ts";
 import { fatalErrorText, parseServerMessage } from "./protocol.ts";
@@ -55,8 +56,10 @@ export function createMeetingClient(
   dispatch: Dispatch<Action>,
   onMicTrack: (track: MediaStreamTrack | null) => void = () => undefined,
 ): PipecatClient {
+  // 不用默认的 DailyMediaManager：它要从 c.daily.co 下载脚本，浏览器上不了外网就连不上（pipecat-notes.md §12）。
+  const transport = new SmallWebRTCTransport({ mediaManager: new WavMediaManager() });
   return new PipecatClient({
-    transport: new SmallWebRTCTransport(),
+    transport,
     enableMic: true,
     enableCam: false,
     callbacks: {
@@ -126,6 +129,10 @@ export function createMeetingClient(
       onTrackStarted: (track, participant) => {
         if (!participant?.local || track.kind !== "audio") return;
         void ensureEchoCancellation(track);
+        // 系统默认麦克风变了时这是一条新轨道，要换进连接，否则服务端收到的是已经停掉的旧轨道
+        void sendLocalAudio(transport, track).catch((error: unknown) =>
+          console.warn("换麦克风轨道失败：", error),
+        );
         // 浏览器的自动增益 / 降噪有没有开，直接影响麦克风有多轻（docs/pipecat-notes.md §12）。
         console.info("麦克风轨道设置：", describeTrackSettings(track.getSettings()));
         onMicTrack(track);

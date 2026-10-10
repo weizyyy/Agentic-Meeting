@@ -8,6 +8,11 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Anonymous JSON `GET /healthz`, `/readyz` and `/metrics` endpoints for process liveness,
+  transcription readiness and basic connection, caption-lag, queue, retained-task and HTTP-service
+  gauges. Optional service failures allow degraded readiness; incomplete metrics preserve available
+  observations. Responses exclude meeting content and credentials, while numeric gauges expose load.
+- English and Chinese guidance for requesting and interpreting health checks and metrics.
 - Optional access password for the web application (`server.password_env`,
   `server.auth_session_days`): a login page, a signed HTTP-only session cookie that lasts 7 days by
   default, logout, CSRF protection for state-changing requests including WebRTC signaling, and a
@@ -27,6 +32,17 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Complete manual deletion retries partial failures with a visible pending state. The client
   shows a fixed transcription indicator and a configurable start notice; bilingual data governance
   documentation explains data destinations, surviving copies and deletion limits.
+- A deployment guide (`docs/deployment.md`): Caddy and nginx examples with the headers, upload size
+  and streaming the application needs, when and how to use TURN with a coturn example that relays
+  only to the meeting server, a checklist before exposing an instance, and troubleshooting.
+
+### Fixed
+
+- The web client no longer depends on `c.daily.co`. The Pipecat SDK's default media manager
+  downloaded a script from that host and sent error reports to `sentry.io` when a meeting started,
+  so browsers without access to it could not connect at all. The page now uses the SDK's
+  `WavMediaManager`, which makes no requests of its own, and switches the connection to the new
+  microphone track itself when the system default microphone changes.
 
 ## [0.1.1] - 2026-10-09
 

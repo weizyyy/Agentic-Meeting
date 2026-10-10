@@ -109,6 +109,57 @@ async def rig(store):
 # --------------------------------------------------------------------------- #
 
 
+async def test_task_counts_follow_real_queue_terminal_states_and_session_deletion(store):
+    first_session = await store.create_session("虚构会议一")
+    second_session = await store.create_session("虚构会议二")
+    started = asyncio.Queue()
+    release = asyncio.Event()
+    notifications = []
+
+    async def runner(task, on_event):
+        await started.put(task.id)
+        await release.wait()
+        release.clear()
+        if task.goal == "失败任务":
+            raise RunnerError("虚构任务故障")
+        return TaskResult(brief="虚构结果")
+
+    async def notify(session_id, data):
+        notifications.append(data)
+
+    manager = TaskManager(
+        store=store, runner=runner, notify=notify, max_concurrent=1, timeout_secs=30.0
+    )
+    zeros = dict.fromkeys(("queued", "running", "succeeded", "failed", "cancelled"), 0)
+    try:
+        success = await manager.submit(session_id=first_session.id, goal="成功任务")
+        assert await asyncio.wait_for(started.get(), 1.0) == success.id
+        failure = await manager.submit(session_id=first_session.id, goal="失败任务")
+        cancelled = await manager.submit(session_id=second_session.id, goal="取消任务")
+        assert await store.task_counts() == {**zeros, "queued": 2, "running": 1}
+        release.set()
+        assert (await manager.wait(success.id)).brief == "虚构结果"
+        assert await asyncio.wait_for(started.get(), 1.0) == failure.id
+        assert await store.task_counts() == {**zeros, "queued": 1, "running": 1, "succeeded": 1}
+        release.set()
+        with pytest.raises(TaskFailed, match="虚构任务故障"):
+            await manager.wait(failure.id)
+        assert await asyncio.wait_for(started.get(), 1.0) == cancelled.id
+        await manager.cancel(cancelled.id)
+        assert await store.task_counts() == {**zeros, "succeeded": 1, "failed": 1, "cancelled": 1}
+        assert [n["status"] for n in notifications if n.get("id") == success.id] == [
+            "queued",
+            "running",
+            "succeeded",
+        ]
+        assert await store.delete_session(first_session.id)
+        assert await store.task_counts() == {**zeros, "cancelled": 1}
+        assert await store.delete_session(second_session.id)
+        assert await store.task_counts() == zeros
+    finally:
+        await manager.close()
+
+
 async def test_submit_runs_the_task_to_success_and_records_everything(rig):
     task = await rig.submit(
         "查一下这篇论文的引用数",
@@ -338,7 +389,21 @@ async def test_recover_fails_tasks_left_over_from_a_previous_run(store):
     await store.update_task(done.id, status="succeeded", brief="好了")
 
     rig = Rig(store, session.id)
+    assert await store.task_counts() == {
+        "queued": 1,
+        "running": 1,
+        "succeeded": 1,
+        "failed": 0,
+        "cancelled": 0,
+    }
     assert await rig.manager.recover() == 2
+    assert await store.task_counts() == {
+        "queued": 0,
+        "running": 0,
+        "succeeded": 1,
+        "failed": 2,
+        "cancelled": 0,
+    }
     for task in (queued, running):
         stored = await store.get_task(task.id)
         assert (stored.status, stored.error, stored.finished_at) == (
