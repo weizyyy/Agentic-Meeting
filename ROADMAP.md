@@ -11,7 +11,7 @@ architectural changes in the order in which they depend on each other. Dates are
 
 ## [v0.2 – Secure access](https://github.com/weizyyy/Agentic-Meeting/milestone/1)
 
-Make it safe to let other people reach an instance.
+Make it safe to let other people reach an instance. **Released in [0.2.0](CHANGELOG.md#020---2026-10-10).**
 
 | Item                                                                       | Issue                                                       |
 | -------------------------------------------------------------------------- | ----------------------------------------------------------- |
@@ -28,10 +28,10 @@ Verify the system beyond the platform it was developed on and make it easier to 
 | ----------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | Full-system verification on Linux and macOS, long runs, the llama.cpp realtime mode | [#12](https://github.com/weizyyy/Agentic-Meeting/issues/12) |
 | Desktop browser compatibility: Chrome, Edge, Safari and Firefox                     | [#13](https://github.com/weizyyy/Agentic-Meeting/issues/13) |
-| Browser end-to-end tests in CI                                                      | [#14](https://github.com/weizyyy/Agentic-Meeting/issues/14) |
+| Browser end-to-end tests in CI (done in 0.2.0)                                      | [#14](https://github.com/weizyyy/Agentic-Meeting/issues/14) |
 | Containers for the application and all inference services                           | [#15](https://github.com/weizyyy/Agentic-Meeting/issues/15) |
 | Lower GPU memory requirements while keeping most of the quality                     | [#16](https://github.com/weizyyy/Agentic-Meeting/issues/16) |
-| Condition-based waits in the test suite                                             | [#17](https://github.com/weizyyy/Agentic-Meeting/issues/17) |
+| Condition-based waits in the test suite (done in 0.2.0)                             | [#17](https://github.com/weizyyy/Agentic-Meeting/issues/17) |
 
 ## [v0.4 – Frontend redesign](https://github.com/weizyyy/Agentic-Meeting/milestone/3)
 

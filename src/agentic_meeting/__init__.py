@@ -3,4 +3,4 @@
 模块划分与各自职责见 docs/architecture.md；开发约定见 docs/development.md。
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

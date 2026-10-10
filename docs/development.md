@@ -70,6 +70,10 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
    and failures are logged and degraded rather than raised to the top of the pipeline.
 8. **Secrets come from environment variables.** Configuration holds variable names (`*_env` fields)
    only. Keys never appear in code, templates, logs or the database.
+9. **Tests are end-to-end.** New tests are scenarios in `tests/e2e/` or `client/e2e/` (see
+   [Testing](#testing)). Unit tests of single functions or classes are not added, including ones
+   written test-first during development; the only exception is a repository rule that a running
+   system cannot reveal, explained in the pull request.
 
 ## Code style
 
