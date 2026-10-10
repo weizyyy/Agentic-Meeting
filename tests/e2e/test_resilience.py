@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import time
 
@@ -136,12 +137,13 @@ async def test_health_endpoints_describe_the_services(app, http, inference, serv
     name = {"asr": "asr", "llm": "realtime"}[service]
 
     async def reported():
-        # 等一次确实探测到这个服务不通、其余照常的结果；慢机器（Windows CI）上探测和存储检查
-        # 偶尔超出预算，会短暂报 unknown 或存储 timeout
+        # 等一次确实探测到这个服务不通、其余照常的结果；慢机器（Windows CI）上探测偶尔超出预算，
+        # 会短暂报 unknown。存储一直可用，检查不能因为服务探测而超时
         response = await http.get("/readyz")
         body = response.json()
+        assert body["storage"] == {"status": "ok", "reason": "checked"}, body
         services = body["services"]
-        others_ok = body["storage"]["status"] == "ok" and all(
+        others_ok = all(
             s["status"] in ("ok", "reachable") for n, s in services.items() if n != name
         )
         if services[name]["status"] == "unavailable" and others_ok:
@@ -153,3 +155,25 @@ async def test_health_endpoints_describe_the_services(app, http, inference, serv
         assert (status, body["status"]) == (503, "not_ready"), body
     else:
         assert (status, body["status"]) == (200, "degraded"), body
+
+
+async def test_readiness_storage_check_is_not_disturbed_by_service_probes(app, http):
+    """服务探测每 5 秒刷新一次；刷新时存储检查照常在 0.5 秒内完成，就绪检查不会短暂报 not_ready。"""
+
+    async def probed():
+        body = (await http.get("/readyz")).json()
+        return body["service_snapshot_age_seconds"] is not None
+
+    await until(probed, "启动后完成第一次服务探测")
+    refreshes, last_age = 0, None
+    deadline = time.monotonic() + 30
+    while refreshes < 3:  # 跨过三次刷新
+        assert time.monotonic() < deadline, f"30 秒内只看到 {refreshes} 次服务探测刷新"
+        body = (await http.get("/readyz")).json()
+        assert body["storage"] == {"status": "ok", "reason": "checked"}, body
+        age = body["service_snapshot_age_seconds"]
+        if age is not None:
+            if last_age is not None and age < last_age:
+                refreshes += 1
+            last_age = age
+        await asyncio.sleep(0.05)
