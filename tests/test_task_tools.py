@@ -27,6 +27,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.tests.utils import SleepFrame, run_test
 from test_bot import PCM, FakeTransport, completion_chunk, sse
 from test_meeting_recorder import CallSignal, Hook
+from waiting import wait_until
 
 from agentic_meeting.agent.tasks import RunnerError, TaskManager
 from agentic_meeting.pipeline import tools as tools_module
@@ -60,8 +61,8 @@ class GatedRunner:
 
     async def __call__(self, task, on_event):
         self.tasks.append(task)
-        self.started.set()
         await on_event("tool_call", "正在检索「引用数」", None)
+        self.started.set()
         await self.gate.wait()
         if self.error is not None:
             raise self.error
@@ -143,11 +144,6 @@ class Rig:
             else:
                 out.append(entry[1].get("status", "error"))
         return out
-
-
-async def settle(times=20):
-    for _ in range(times):
-        await asyncio.sleep(0.002)
 
 
 @pytest.fixture
@@ -235,7 +231,7 @@ async def test_delegate_acknowledges_first_then_reports_the_result(rig):
         )
     )
     await rig.runner.started.wait()
-    await settle()
+    await wait_until(lambda: bool(rig.log), description="委托已受理")
     (accepted,) = rig.log
     assert accepted[1] == {"task_id": "t1", "status": "accepted"}
     assert accepted[2].is_final is False  # 中间结果：调用还没结束
@@ -290,7 +286,7 @@ async def test_failed_and_cancelled_tasks_are_reported_truthfully(rig):
     rig.runner.started.clear()
     call = asyncio.create_task(rig.delegate(rig.params(), goal="再查一个"))
     await rig.runner.started.wait()
-    await settle()
+    await wait_until(lambda: bool(rig.log), description="委托已受理")
     await cancel_task(rig.params(), task_id="t2")
     await call
     final = next(r for r in rig.results() if r.get("task_id") == "t2" and "reason" in r)
@@ -302,7 +298,7 @@ async def test_voice_announcement_waits_until_nobody_is_speaking(rig):
     rig.quiet.clear()  # 有人正在说话
     rig.runner.gate.set()
     call = asyncio.create_task(rig.delegate(rig.params(), goal="查一下"))
-    await settle(60)
+    await wait_until(lambda: bool(rig.quiet_waits), description="完成结果等待语音空隙")
     assert rig.kinds() == ["accepted"]  # 任务已经做完，但结果还压着
     assert (await rig.store.find_task(rig.session.id, "t1")).status == "succeeded"
     rig.quiet.set()  # 说完了
@@ -352,7 +348,7 @@ async def test_task_status_and_cancel_by_label_or_latest(rig):
 
     call = asyncio.create_task(rig.delegate(rig.params(), goal="核实引用数"))
     await rig.runner.started.wait()
-    await settle()
+    await wait_until(lambda: bool(rig.log), description="委托已受理")
     await task_status(rig.params())
     status = rig.results()[-1]
     assert (status["task_id"], status["status"], status["goal"]) == ("t1", "running", "核实引用数")

@@ -11,6 +11,7 @@ import asyncio
 
 import pytest
 from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
+from waiting import wait_until
 
 from agentic_meeting.diar.base import NullDiarizer
 from agentic_meeting.diar.stream import Anchor, SessionDiarizer
@@ -541,12 +542,14 @@ async def test_finish_survives_a_store_error_and_still_releases_the_slot(
 async def test_a_stop_requested_before_the_pipeline_is_ready_cancels_it_on_register(manager):
     live = await manager.begin()
     ender = asyncio.create_task(manager.end(live.session.id))  # 管线还没造好，先等着
-    await asyncio.sleep(0.05)
-    worker = FakeWorker()
-    await manager.register(live, worker, FakeRecorder())
-    assert worker.cancelled.is_set()  # 登记的那一刻立刻取消
-    await manager.finish(live)
-    ended = await ender
+    try:
+        await wait_until(lambda: live.stop_requested, description="登记前停止已请求")
+        worker = FakeWorker()
+        await manager.register(live, worker, FakeRecorder())
+        assert worker.cancelled.is_set()  # 登记的那一刻立刻取消
+    finally:
+        await manager.finish(live)
+        ended = await asyncio.wait_for(ender, 2.0)
     assert ended is not None and ended.ended_at is not None
 
 

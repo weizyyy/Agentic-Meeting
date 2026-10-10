@@ -20,6 +20,7 @@ from typing import Any, NamedTuple
 import httpx
 import numpy as np
 import pytest
+from waiting import wait_until
 
 from agentic_meeting.asr import build_asr_backend
 from agentic_meeting.asr.base import ASRBackendError
@@ -180,13 +181,6 @@ async def quiet(rig: Rig, secs: float = 0.05) -> None:
     with pytest.raises(TimeoutError):
         await asyncio.wait_for(anext(rig.it), secs)
     rig.it = rig.backend.deltas()
-
-
-async def wait_until(predicate: Callable[[], bool], secs: float = 2.0) -> None:
-    deadline = asyncio.get_running_loop().time() + secs
-    while not predicate():
-        assert asyncio.get_running_loop().time() < deadline, "等待条件超时"
-        await asyncio.sleep(0.005)
 
 
 @pytest.fixture

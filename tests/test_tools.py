@@ -367,16 +367,29 @@ async def test_look_at_screen_places_image_after_the_call_record(rig, monkeypatc
     monkeypatch.setattr(tools_module, "IN_PROGRESS_WAIT_SECS", 1.0)
     await add_frame(rig, 10.0)
 
+    waiting = asyncio.Event()
+    wait_for_call = tools_module._wait_for_call_record
+
+    async def entered_wait(params):
+        waiting.set()
+        await wait_for_call(params)
+
+    monkeypatch.setattr(tools_module, "_wait_for_call_record", entered_wait)
+
     async def aggregator_writes_record_later():
-        await asyncio.sleep(0.05)
+        await asyncio.wait_for(waiting.wait(), 2.0)
         rig.context.add_message({"role": "assistant", "tool_calls": [{"id": "call_7"}]})
         rig.context.add_message(
             {"role": "tool", "content": "IN_PROGRESS", "tool_call_id": "call_7"}
         )
 
     writer = asyncio.create_task(aggregator_writes_record_later())
-    await look_at_screen(rig.params("call_7"))
-    await writer
+    try:
+        await asyncio.wait_for(look_at_screen(rig.params("call_7")), 2.0)
+        await writer
+    finally:
+        writer.cancel()
+        await asyncio.gather(writer, return_exceptions=True)
     assert [m["role"] for m in rig.context.get_messages()] == ["assistant", "tool", "user"]
 
 

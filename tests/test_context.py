@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import nullcontext
 
 import httpx
 import pytest
@@ -20,6 +21,7 @@ from test_meeting_recorder import (
     final,
     one_utterance_frames,
 )
+from waiting import wait_until
 
 from agentic_meeting.pipeline.activity import AssistantActivity
 from agentic_meeting.pipeline.background import Preempted
@@ -329,7 +331,6 @@ async def test_compaction_without_cache_warm_still_happens_but_never_warms(store
     manager.on_wake()
     await manager._warm_if_due()
     assert await manager.warm() is False
-    await asyncio.sleep(0.02)
     assert llm.warmed == [] and manager._spawned == set()
 
 
@@ -446,9 +447,12 @@ async def test_wake_warms_even_though_assistant_is_awaiting_the_request():
     context = LLMContext([{"role": "user", "content": "[00:00:01 甲] 开始吧"}])
     manager, llm, _, activity = manager_for(None, "", context)
     activity.busy = True  # 等着作答
-    manager.on_wake()
-    await asyncio.sleep(0.02)
-    assert len(llm.warmed) == 1
+    try:
+        manager.on_wake()
+        await wait_until(lambda: not manager._spawned, description="唤醒预热收尾")
+        assert len(llm.warmed) == 1
+    finally:
+        await manager.stop()
 
 
 async def test_warm_failure_is_logged_not_raised():
@@ -491,13 +495,12 @@ async def test_loop_runs_checks_and_stop_cancels_everything(store):
     manager, llm, recorder, _ = manager_for(store, sid, filled_context(), check_interval_secs=0.01)
     manager.start()
     manager.start()
-    for _ in range(200):
-        if recorder.rebuilds and llm.warmed:
-            break
-        await asyncio.sleep(0.005)
-    llm.gate.clear()
-    manager.on_wake()
-    await manager.stop()
+    try:
+        await wait_until(lambda: recorder.rebuilds and llm.warmed, description="循环压缩并预热")
+        llm.gate.clear()
+        manager.on_wake()
+    finally:
+        await manager.stop()
     await manager.stop()
     assert len(recorder.rebuilds) == 1  # 冷却期内不会反复压缩
     assert manager._task is None
@@ -617,9 +620,12 @@ async def test_wake_event_triggers_a_warm_up():
     wake = Emitter()
     wire_context_manager(manager, wake)
     assert wake.name == "on_wake_phrase_detected"
-    await wake.fn(wake, "nova")
-    await asyncio.sleep(0.02)
-    assert len(llm.warmed) == 1
+    try:
+        await wake.fn(wake, "nova")
+        await wait_until(lambda: not manager._spawned, description="唤醒事件预热收尾")
+        assert len(llm.warmed) == 1
+    finally:
+        await manager.stop()
 
 
 # --------------------------------------------------------------------------- #
@@ -654,13 +660,26 @@ async def test_recorder_rebuild_pushes_an_update_frame_that_does_not_run_the_llm
     assert append.messages == [{"role": "user", "content": "[画面 00:00:01] 一页"}]
 
 
-async def test_lines_finalized_during_a_rebuild_are_appended_after_the_update_frame():
+@pytest.mark.parametrize("signal_finalizing", [True, False])
+async def test_lines_finalized_during_a_rebuild_are_appended_after_the_update_frame(
+    monkeypatch, signal_finalizing
+):
     """重建读完数据库之后才落库的发言，必须排在替换帧后面——否则它会被替换掉，从上下文里消失。"""
     store = FakeStore()
     rec = MeetingRecorder(store=store, session_id="s1")
     reading = asyncio.Event()
+    finalizing = asyncio.Event()
     release = asyncio.Event()
+    on_final = rec._on_final
+
+    async def entered_final(final):
+        if signal_finalizing:
+            finalizing.set()
+        await on_final(final)
+
+    monkeypatch.setattr(rec, "_on_final", entered_final)
     tasks: list[asyncio.Task] = []
+    callback_errors: list[Exception] = []
 
     async def slow_build():
         snapshot = [u.text for u in store.utterances]  # 读数据库：这时还没有「你好」
@@ -673,19 +692,37 @@ async def test_lines_finalized_during_a_rebuild_are_appended_after_the_update_fr
         await reading.wait()
 
     async def finish_rebuild():
-        await asyncio.sleep(0.05)  # 给那句发言足够的时间抢跑（如果没有锁的话）
-        release.set()
-        await tasks[0]
+        try:
+            try:
+                await asyncio.wait_for(finalizing.wait(), 2.0)  # 发言确实进入了重建锁的竞争
+            finally:
+                release.set()  # 管线会捕获回调异常；超时也必须先释放重建锁
+            await tasks[0]
+        except Exception as error:
+            callback_errors.append(error)
+            raise
 
-    down, _ = await run_test(
-        Pipeline([Hook(), rec]),
-        frames_to_send=[
-            CallSignal(start_rebuild),
-            *one_utterance_frames("你好"),
-            CallSignal(finish_rebuild),
-            SleepFrame(sleep=0.1),
-        ],
-    )
+    try:
+        async with asyncio.timeout(5.0):
+            with nullcontext() if signal_finalizing else pytest.raises(TimeoutError):
+                down, _ = await run_test(
+                    Pipeline([Hook(), rec]),
+                    frames_to_send=[
+                        CallSignal(start_rebuild),
+                        *one_utterance_frames("你好"),
+                        CallSignal(finish_rebuild),
+                        SleepFrame(sleep=0.1),
+                    ],
+                )
+                if callback_errors:
+                    raise callback_errors[0]  # 不能只让 Pipecat 记日志而把测试判为成功
+    finally:
+        release.set()
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+    if not signal_finalizing:
+        assert len(callback_errors) == 1 and isinstance(callback_errors[0], TimeoutError)
     kinds = [type(f).__name__ for f in context_frames(down)]
     assert kinds == ["LLMMessagesUpdateFrame", "LLMMessagesAppendFrame"]
     update, append = context_frames(down)

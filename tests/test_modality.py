@@ -28,6 +28,7 @@ from pipecat.processors.frame_processor import FrameDirection
 from pipecat.tests.utils import SleepFrame, run_test
 from test_bot import PCM, FakeTransport, completion_chunk, sse
 from test_meeting_recorder import CallSignal, Hook
+from waiting import wait_until
 
 from agentic_meeting.pipeline.activity import AssistantActivity
 from agentic_meeting.pipeline.bot import (
@@ -148,9 +149,11 @@ async def test_tool_round_that_never_resumes_does_not_block_forever():
     await handler.set_generating(False)
     await handler.handle("第二条")
     assert len(requests()) == 1
-    await asyncio.sleep(0.15)  # 工具一直没有带来下一次生成
-    assert len(requests()) == 2
-    await handler.close()
+    try:
+        await wait_until(lambda: len(requests()) == 2, description="工具超时后处理排队请求")
+        assert len(requests()) == 2
+    finally:
+        await handler.close()
 
 
 async def test_activity_stays_busy_through_the_tool_round():
@@ -173,8 +176,11 @@ async def test_activity_tool_round_has_a_watchdog():
     await activity.tools_started()
     await activity.set_generating(False)
     assert activity.busy
-    await asyncio.sleep(0.1)
-    assert not activity.busy
+    try:
+        await wait_until(lambda: not activity.busy, description="工具轮次看门狗解除忙状态")
+        assert not activity.busy
+    finally:
+        await activity.close()
 
 
 async def test_wire_tool_activity_notifies_both():
