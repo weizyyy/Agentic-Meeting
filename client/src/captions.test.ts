@@ -112,7 +112,11 @@ function item(id: number, text: string, over: Partial<HistoryItem> = {}): Histor
 }
 
 test("实时字幕行带着说话人编号，没有发言编号，还没定稿", () => {
-  const [line] = applyCaption([], { ...caption(4, "你好", "吗"), speaker_idx: 2, speaker_name: "王老师" });
+  const [line] = applyCaption([], {
+    ...caption(4, "你好", "吗"),
+    speaker_idx: 2,
+    speaker_name: "王老师",
+  });
   assert.deepEqual(
     [line.speakerIdx, line.speakerName, line.utteranceId, line.final, line.source],
     [2, "王老师", null, false, "asr"],
@@ -136,7 +140,10 @@ test("已经定稿的行不再被迟到的实时字幕改写", () => {
   let lines = applyCaption([], caption(1, "你好"));
   lines = applyUtterance(lines, utt(10, 1, "你好。"));
   const after = applyCaption(lines, caption(1, "旧的内容", "尾巴"));
-  assert.deepEqual(after.map((l) => l.stable), ["你好。"]);
+  assert.deepEqual(
+    after.map((l) => l.stable),
+    ["你好。"],
+  );
 });
 
 test("文字全空的实时字幕表示清掉这一行的临时字幕", () => {
@@ -144,15 +151,34 @@ test("文字全空的实时字幕表示清掉这一行的临时字幕", () => {
   lines = applyCaption(lines, caption(2, "保留"));
   assert.equal(lines.length, 2);
   lines = applyCaption(lines, caption(1, "", ""));
-  assert.deepEqual(lines.map((l) => l.segmentId), [2]);
-  assert.deepEqual(applyCaption(lines, caption(9, "", "")).map((l) => l.segmentId), [2]); // 没有这一行：什么也不做
+  assert.deepEqual(
+    lines.map((l) => l.segmentId),
+    [2],
+  );
+  assert.deepEqual(
+    applyCaption(lines, caption(9, "", "")).map((l) => l.segmentId),
+    [2],
+  ); // 没有这一行：什么也不做
 });
 
 test("助理的话和键入的文字没有对应的实时字幕行：追加在最后", () => {
   let lines = applyCaption([], caption(1, "正在说"));
-  lines = applyUtterance(lines, utt(11, null, "好的。", { speaker_idx: -1, speaker_name: "Nova", source: "assistant" }));
-  lines = applyUtterance(lines, utt(12, null, "查一下", { speaker_idx: -2, speaker_name: "文字输入", source: "text" }));
-  assert.deepEqual(lines.map((l) => [l.source, l.final]), [["asr", false], ["assistant", true], ["text", true]]);
+  lines = applyUtterance(
+    lines,
+    utt(11, null, "好的。", { speaker_idx: -1, speaker_name: "Nova", source: "assistant" }),
+  );
+  lines = applyUtterance(
+    lines,
+    utt(12, null, "查一下", { speaker_idx: -2, speaker_name: "文字输入", source: "text" }),
+  );
+  assert.deepEqual(
+    lines.map((l) => [l.source, l.final]),
+    [
+      ["asr", false],
+      ["assistant", true],
+      ["text", true],
+    ],
+  );
 });
 
 test("落库失败的发言（id 为 null）也能定稿显示，之后不会被当成重复", () => {
@@ -178,32 +204,61 @@ test("说话人更正：只改那一条发言", () => {
     speaker_idx: 3,
     speaker_name: "说话人 3",
   });
-  assert.deepEqual(lines.map((l) => [l.speakerIdx, l.speakerName]), [[1, "说话人 1"], [3, "说话人 3"]]);
+  assert.deepEqual(
+    lines.map((l) => [l.speakerIdx, l.speakerName]),
+    [
+      [1, "说话人 1"],
+      [3, "说话人 3"],
+    ],
+  );
 });
 
 test("说话人改名：这个人的所有行都跟着变，包括已经显示的", () => {
   let lines = applyUtterance([], utt(10, null, "甲", { speaker_idx: 2, speaker_name: "说话人 2" }));
   lines = applyUtterance(lines, utt(11, null, "乙"));
-  lines = applyCaption(lines, { ...caption(3, "还在说"), speaker_idx: 2, speaker_name: "说话人 2" });
+  lines = applyCaption(lines, {
+    ...caption(3, "还在说"),
+    speaker_idx: 2,
+    speaker_name: "说话人 2",
+  });
   lines = applySpeakerRename(lines, { idx: 2, display_name: "王老师" });
-  assert.deepEqual(lines.map((l) => l.speakerName), ["王老师", "说话人 1", "王老师"]);
+  assert.deepEqual(
+    lines.map((l) => l.speakerName),
+    ["王老师", "说话人 1", "王老师"],
+  );
 });
 
 test("上限对发言同样生效", () => {
   let lines: CaptionLine[] = [];
   for (let i = 1; i <= 5; i++) lines = applyUtterance(lines, utt(i, null, `第${i}句`), 3);
-  assert.deepEqual(lines.map((l) => l.utteranceId), [3, 4, 5]);
+  assert.deepEqual(
+    lines.map((l) => l.utteranceId),
+    [3, 4, 5],
+  );
 });
 
 test("历史记录：整体替换、向上翻页、断线补齐都按发言编号去重", () => {
   let lines = replaceWithHistory([item(5, "五"), item(6, "六"), item(7, "七")]);
-  assert.deepEqual(lines.map((l) => [l.utteranceId, l.final, l.segmentId]), [[5, true, null], [6, true, null], [7, true, null]]);
+  assert.deepEqual(
+    lines.map((l) => [l.utteranceId, l.final, l.segmentId]),
+    [
+      [5, true, null],
+      [6, true, null],
+      [7, true, null],
+    ],
+  );
 
   lines = prependHistory(lines, [item(3, "三"), item(4, "四"), item(5, "重复的五")]);
-  assert.deepEqual(lines.map((l) => l.stable), ["三", "四", "五", "六", "七"]);
+  assert.deepEqual(
+    lines.map((l) => l.stable),
+    ["三", "四", "五", "六", "七"],
+  );
 
   lines = appendHistory(lines, [item(7, "重复的七"), item(8, "八"), item(9, "九")]);
-  assert.deepEqual(lines.map((l) => l.utteranceId), [3, 4, 5, 6, 7, 8, 9]);
+  assert.deepEqual(
+    lines.map((l) => l.utteranceId),
+    [3, 4, 5, 6, 7, 8, 9],
+  );
 
   assert.equal(firstUtteranceId(lines), 3);
   assert.equal(lastUtteranceId(lines), 9);
@@ -214,14 +269,19 @@ test("历史记录：整体替换、向上翻页、断线补齐都按发言编�
 test("补齐不会和实时消息重复显示同一条发言", () => {
   const live = applyUtterance([], utt(8, 4, "实时收到的"));
   const merged = appendHistory(live, [item(8, "实时收到的"), item(9, "断线期间的")]);
-  assert.deepEqual(merged.map((l) => l.utteranceId), [8, 9]);
+  assert.deepEqual(
+    merged.map((l) => l.utteranceId),
+    [8, 9],
+  );
 });
 
 test("历史记录的上限：只留最近的", () => {
   const items = Array.from({ length: 6 }, (_, i) => item(i + 1, `第${i + 1}句`));
-  assert.deepEqual(replaceWithHistory(items, 4).map((l) => l.utteranceId), [3, 4, 5, 6]);
+  assert.deepEqual(
+    replaceWithHistory(items, 4).map((l) => l.utteranceId),
+    [3, 4, 5, 6],
+  );
 });
-
 
 // ---- 相邻片段并成一条 ----
 

@@ -14,6 +14,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   limit of 5 failed logins per address in 5 minutes. Every `/api` endpoint is covered; without a
   password nothing changes. `check` and `serve` warn when the server listens beyond the local
   machine without a password. `scripts/soak.py` logs in when a password is configured.
+- A pinned repository-wide Prettier formatter for client code, JSON, YAML and Markdown, with
+  shared configuration, `npm run format` / `npm run format:check`, pre-commit and CI checks.
 
 ## [0.1.1] - 2026-10-09
 

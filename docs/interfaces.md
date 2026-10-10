@@ -23,22 +23,22 @@ The source of truth is the pydantic model in
 [`config/config.example.toml`](../config/config.example.toml). Every key is described in
 [configuration.md](configuration.md).
 
-| Section | Contents |
-|---|---|
-| `session` | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory |
-| `server` | Bind address and port, TLS certificate, ICE servers, access password and login duration |
-| `realtime_llm` | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]` |
-| `asr` | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings |
-| `diarization` | Backend, library path, model path, GPU index, segmentation thresholds |
-| `tts` | Endpoint, model field, voice, language, launch settings |
-| `embedding` | Endpoint, model field, dimensions, query prefix, similarity floor, launch settings |
-| `audio` | Input gain: switch, initial gain, limit, target level, noise floor, log interval |
-| `turn` | Silence threshold, VAD volume gate, end-of-turn model, wake window, single activation |
-| `realtime` | Context budget, verbatim window after compaction, summary interval and provider, warm-up interval, direct MCP tools |
-| `screen` | Screenshot intervals and threshold, summaries and their provider |
-| `transcript` | Merging of adjacent segments into one caption |
-| `report` | Report provider and input size per request |
-| `agent` | Remote model endpoint, extra request fields, output budget, screenshot attachment, MCP servers, sandbox, concurrency and timeouts |
+| Section        | Contents                                                                                                                          |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `session`      | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory                                                |
+| `server`       | Bind address and port, TLS certificate, ICE servers, access password and login duration                                           |
+| `realtime_llm` | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`            |
+| `asr`          | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings                              |
+| `diarization`  | Backend, library path, model path, GPU index, segmentation thresholds                                                             |
+| `tts`          | Endpoint, model field, voice, language, launch settings                                                                           |
+| `embedding`    | Endpoint, model field, dimensions, query prefix, similarity floor, launch settings                                                |
+| `audio`        | Input gain: switch, initial gain, limit, target level, noise floor, log interval                                                  |
+| `turn`         | Silence threshold, VAD volume gate, end-of-turn model, wake window, single activation                                             |
+| `realtime`     | Context budget, verbatim window after compaction, summary interval and provider, warm-up interval, direct MCP tools               |
+| `screen`       | Screenshot intervals and threshold, summaries and their provider                                                                  |
+| `transcript`   | Merging of adjacent segments into one caption                                                                                     |
+| `report`       | Report provider and input size per request                                                                                        |
+| `agent`        | Remote model endpoint, extra request fields, output budget, screenshot attachment, MCP servers, sandbox, concurrency and timeouts |
 
 Rules:
 
@@ -49,15 +49,16 @@ Rules:
 - Relative paths are resolved against the repository root with `AppConfig.resolve()`.
 - Application code does not branch on the realtime LLM access mode. `RealtimeLLMConfig` exposes:
 
-  | Member | Meaning |
-  |---|---|
-  | `active` | The selected set of settings (`base_url`, `api_key_env`, `model`, `supports_vision`, `sampling`, …) |
-  | `managed` | Whether the process supervisor launches the realtime LLM (`llama_server` mode with `launch.enabled`) |
-  | `request_extra_body(background=False)` | Fields to place in `extra_body` of each request, already merged for the mode |
-  | `cache_warm` | Whether to send warm-up requests |
-  | `supports_developer_role` | Whether the server accepts the `developer` role |
+  | Member                                 | Meaning                                                                                              |
+  | -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+  | `active`                               | The selected set of settings (`base_url`, `api_key_env`, `model`, `supports_vision`, `sampling`, …)  |
+  | `managed`                              | Whether the process supervisor launches the realtime LLM (`llama_server` mode with `launch.enabled`) |
+  | `request_extra_body(background=False)` | Fields to place in `extra_body` of each request, already merged for the mode                         |
+  | `cache_warm`                           | Whether to send warm-up requests                                                                     |
+  | `supports_developer_role`              | Whether the server accepts the `developer` role                                                      |
 
   Only the process supervisor reads `mode` and `llama_server.launch` directly.
+
 - `config.check_warnings(cfg)` returns items that do not prevent startup but that the operator should
   know about — currently, data leaving the machine. `check` and `serve` print them, and the browser
   receives one `notice` per item after connecting.
@@ -69,12 +70,12 @@ Rules:
 
 The schema is defined in [`src/agentic_meeting/store/schema.sql`](../src/agentic_meeting/store/schema.sql).
 
-| Item | Location |
-|---|---|
-| Database | `<data_dir>/meetings.db` |
-| Screenshots | `<data_dir>/sessions/<session id>/frames/<number>.webp` |
-| Task working directories | `<data_dir>/sessions/<session id>/tasks/<label>/` |
-| Logs | `<data_dir>/logs/` |
+| Item                     | Location                                                |
+| ------------------------ | ------------------------------------------------------- |
+| Database                 | `<data_dir>/meetings.db`                                |
+| Screenshots              | `<data_dir>/sessions/<session id>/frames/<number>.webp` |
+| Task working directories | `<data_dir>/sessions/<session id>/tasks/<label>/`       |
+| Logs                     | `<data_dir>/logs/`                                      |
 
 ### 2.1 Connection setup
 
@@ -166,8 +167,8 @@ The session lifecycle is described in [architecture.md §3.1](architecture.md).
 - `session_connections` — one row per connection: `connected_at`, `disconnected_at` (Unix seconds)
   and `t_from`, `t_to` (session timeline). It is the source for "interrupted for N minutes" and for
   the actual duration of a meeting, the sum of `t_to − t_from`.
-- The session **state is not stored**. A non-empty `ended_at` means *ended*; otherwise a live
-  connection in memory means *live*, and its absence *interrupted*.
+- The session **state is not stored**. A non-empty `ended_at` means _ended_; otherwise a live
+  connection in memory means _live_, and its absence _interrupted_.
 - `digests` — running summaries (`pipeline/digest.py`). `text` is **cumulative**: every summary
   covers the meeting from the start, and compaction uses only the latest. `t_from` and `t_to` record
   the span newly covered, so consecutive rows are contiguous. `last_utterance_id` records how far the
@@ -177,7 +178,7 @@ The session lifecycle is described in [architecture.md §3.1](architecture.md).
   most 300 captions per round, and once more in the background after a disconnect or the end of the
   meeting (120 s limit).
 - `reports` — `id, session_id, created_at, status ('running' | 'done' | 'failed'), provider, text_md,
-  error`. A session may have several; the page shows the latest and exports use the latest `done`
+error`. A session may have several; the page shows the latest and exports use the latest `done`
   one. Reports left `running` by a previous process are marked `failed` at startup.
 - Reserved values of `speakers.idx`: `0` unknown, `-1` the assistant, `-2` typed text. Diarization
   numbers start at 1; speakers created manually in the UI start at 1000.
@@ -212,14 +213,14 @@ Every rule below exists because a simpler variant produced worse output; see
 
 **State** (one per audio stream):
 
-| Variable | Meaning |
-|---|---|
-| `pending` | Audio received but not yet enough for a step (float32, 16 kHz) |
-| `window` | The current audio window |
-| `steps` | List of `(samples added in the step, text finalized in the step)`, aligned with the audio in `window` |
-| `prefix_text` | Concatenation of the finalized text in `steps` — the finalized text for the current window |
-| `unstable` | Provisional tail left by the previous step, for display only; regenerated in the next step |
-| `busy` | Whether a request is in flight; only one is allowed at a time |
+| Variable      | Meaning                                                                                               |
+| ------------- | ----------------------------------------------------------------------------------------------------- |
+| `pending`     | Audio received but not yet enough for a step (float32, 16 kHz)                                        |
+| `window`      | The current audio window                                                                              |
+| `steps`       | List of `(samples added in the step, text finalized in the step)`, aligned with the audio in `window` |
+| `prefix_text` | Concatenation of the finalized text in `steps` — the finalized text for the current window            |
+| `unstable`    | Provisional tail left by the previous step, for display only; regenerated in the next step            |
+| `busy`        | Whether a request is in flight; only one is allowed at a time                                         |
 
 **One step** (triggered when `pending` holds at least `chunk_ms` of audio and no request is in
 flight):
@@ -257,6 +258,7 @@ flight):
 
    Rollback must be by token, not by character. A character-level cut can split a token, and the
    model then continues from half a word, dropping characters and inserting punctuation.
+
 8. **Emit.** `stable_new = full[len(prefix_text):cut]`, `unstable = full[cut:]`; append
    `(samples, stable_new)` to `steps` and emit
    `ASRDelta(stable_text=stable_new, unstable_text=unstable, audio_end_secs=<latest value from the caller>)`.
@@ -331,12 +333,12 @@ values. It is a local call that takes milliseconds.
 
 `StreamingASRService` extends Pipecat's `STTService`.
 
-| Input | Action |
-|---|---|
-| Audio frame | Count samples. While nobody is speaking, keep the frame in the pre-roll buffer (the last `preroll_ms`, cleared when speech stops, so it only holds audio since the previous segment). While speaking, call the backend's `push_audio`. Pass the frame on unchanged |
-| Speech started | Send the pre-roll buffer to the backend as one block, then clear it |
-| Speech stopped | Call the backend's `flush()` and wait for it |
-| Backend delta | Convert to transcription frames as described below |
+| Input          | Action                                                                                                                                                                                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Audio frame    | Count samples. While nobody is speaking, keep the frame in the pre-roll buffer (the last `preroll_ms`, cleared when speech stops, so it only holds audio since the previous segment). While speaking, call the backend's `push_audio`. Pass the frame on unchanged |
+| Speech started | Send the pre-roll buffer to the backend as one block, then clear it                                                                                                                                                                                                |
+| Speech stopped | Call the backend's `flush()` and wait for it                                                                                                                                                                                                                       |
+| Backend delta  | Convert to transcription frames as described below                                                                                                                                                                                                                 |
 
 The pre-roll has to be long enough to cover a short wake word followed by a pause, because VAD often
 triggers only on the request that follows.
@@ -438,17 +440,17 @@ Functions returning `int` return a status code, `0` for success. On failure
 `nemo_speech_asr_last_error()` returns a `const char*` that is **thread-local** and must be read on
 the failing thread immediately.
 
-| Function | Arguments | Returns |
-|---|---|---|
-| `nemo_speech_diar_create` | `(DiarModelConfig*, void**)` | status |
-| `nemo_speech_diar_destroy` | `(void* model)` | — |
-| `nemo_speech_diar_num_speakers` | `(void* model)` | `int32` |
-| `nemo_speech_diar_seconds_per_frame` | `(void* model)` | `double` |
-| `nemo_speech_diar_stream_open` | `(void* model, void** stream)` | status |
-| `nemo_speech_diar_stream_push_f32` | `(void* stream, float*, size_t n, int32 sample_rate)` | status |
-| `nemo_speech_diar_stream_finish` | `(void* stream)` | status |
-| `nemo_speech_diar_stream_close` | `(void* stream)` | — |
-| `nemo_speech_diar_segments` | `(void* stream, DiarSegmentationConfig*, DiarSegment* out, size_t capacity, size_t* count)` | status |
+| Function                             | Arguments                                                                                   | Returns  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------- | -------- |
+| `nemo_speech_diar_create`            | `(DiarModelConfig*, void**)`                                                                | status   |
+| `nemo_speech_diar_destroy`           | `(void* model)`                                                                             | —        |
+| `nemo_speech_diar_num_speakers`      | `(void* model)`                                                                             | `int32`  |
+| `nemo_speech_diar_seconds_per_frame` | `(void* model)`                                                                             | `double` |
+| `nemo_speech_diar_stream_open`       | `(void* model, void** stream)`                                                              | status   |
+| `nemo_speech_diar_stream_push_f32`   | `(void* stream, float*, size_t n, int32 sample_rate)`                                       | status   |
+| `nemo_speech_diar_stream_finish`     | `(void* stream)`                                                                            | status   |
+| `nemo_speech_diar_stream_close`      | `(void* stream)`                                                                            | —        |
+| `nemo_speech_diar_segments`          | `(void* stream, DiarSegmentationConfig*, DiarSegment* out, size_t capacity, size_t* count)` | status   |
 
 - Set `argtypes` and `restype` for every function; otherwise 64-bit pointers are truncated.
 - `nemo_speech_diar_segments` is called twice: first with `out=None, capacity=0` to obtain the count,
@@ -525,16 +527,16 @@ configured, every endpoint except those of §5.7 requires a login (§5.7).
 
 ### 5.1 Sessions and clock synchronization
 
-| Method and path | Request | Response |
-|---|---|---|
-| `GET /api/time` | — | `{"server_time": <Unix seconds, float>}` |
-| `GET /api/sessions?limit=20&before=<last_active_at>` | — | `{"items": [session summary]}`, newest `last_active_at` first; `before` pages backwards. `limit` is 1–500 |
-| `GET /api/sessions/{id}` | — | Session summary plus `screen` (the `[screen]` configuration), `members` and `connections`. 404 if unknown |
-| `GET /api/session` | — | The *current session*: the one with the live connection, otherwise the most recent unfinished one. 404 if there is none |
-| `PATCH /api/sessions/{id}` | `{"title": "..."}` | Updated summary. The title is trimmed and limited to 200 characters |
-| `POST /api/sessions/{id}/end` | — | `{"id", "ended_at"}`. A live session is disconnected first; the final running summary is produced in the background |
-| `POST /api/session/end` | — | Same, for the current session |
-| `DELETE /api/sessions/{id}` | — | `{"id"}`. Screenshot files and task directories are removed. 409 for a live session |
+| Method and path                                      | Request            | Response                                                                                                                |
+| ---------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/time`                                      | —                  | `{"server_time": <Unix seconds, float>}`                                                                                |
+| `GET /api/sessions?limit=20&before=<last_active_at>` | —                  | `{"items": [session summary]}`, newest `last_active_at` first; `before` pages backwards. `limit` is 1–500               |
+| `GET /api/sessions/{id}`                             | —                  | Session summary plus `screen` (the `[screen]` configuration), `members` and `connections`. 404 if unknown               |
+| `GET /api/session`                                   | —                  | The _current session_: the one with the live connection, otherwise the most recent unfinished one. 404 if there is none |
+| `PATCH /api/sessions/{id}`                           | `{"title": "..."}` | Updated summary. The title is trimmed and limited to 200 characters                                                     |
+| `POST /api/sessions/{id}/end`                        | —                  | `{"id", "ended_at"}`. A live session is disconnected first; the final running summary is produced in the background     |
+| `POST /api/session/end`                              | —                  | Same, for the current session                                                                                           |
+| `DELETE /api/sessions/{id}`                          | —                  | `{"id"}`. Screenshot files and task directories are removed. 409 for a live session                                     |
 
 **Session summary:** `{"id", "title", "started_at", "ended_at", "last_active_at",
 "state": "live" | "interrupted" | "ended", "duration_secs", "utterance_count", "speakers": [...],
@@ -551,9 +553,9 @@ measurements are taken on connection and the one with the shortest round trip is
 
 ### 5.2 WebRTC signaling
 
-| Method and path | Description |
-|---|---|
-| `POST /api/offer` | Request and response are defined by Pipecat's `SmallWebRTCRequestHandler` and passed through |
+| Method and path    | Description                                                                                                             |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/offer`  | Request and response are defined by Pipecat's `SmallWebRTCRequestHandler` and passed through                            |
 | `PATCH /api/offer` | Adds ICE candidates: `{"pc_id", "candidates": [{"candidate", "sdp_mid", "sdp_mline_index"}]}` → `{"status": "success"}` |
 
 The client may include `{"session_id": "<session to resume>"}` in `requestData`:
@@ -577,21 +579,21 @@ that fails, the context starts empty.
 
 `POST /api/frames`, `multipart/form-data`:
 
-| Field | Type | Description |
-|---|---|---|
-| `captured_at` | float as string | Capture time in Unix seconds, **already converted to server time** |
-| `image` | file | `image/webp` or `image/jpeg`, longest side at most `screen.max_side_px` |
+| Field         | Type            | Description                                                             |
+| ------------- | --------------- | ----------------------------------------------------------------------- |
+| `captured_at` | float as string | Capture time in Unix seconds, **already converted to server time**      |
+| `image`       | file            | `image/webp` or `image/jpeg`, longest side at most `screen.max_side_px` |
 
 Response: `{"id": <screenshot id>, "t": <session timeline seconds>}`.
 
-| Status | Condition |
-|---|---|
-| 400 | Not an image, not WebP/JPEG, too large in pixels, `captured_at` not a number or more than 60 s from server time |
-| 403 | `screen.enabled = false` |
-| 404 | No live meeting |
-| 413 | Larger than 4 MB |
-| 422 | Missing field |
-| 500 | The file could not be written (the database row is rolled back) |
+| Status | Condition                                                                                                       |
+| ------ | --------------------------------------------------------------------------------------------------------------- |
+| 400    | Not an image, not WebP/JPEG, too large in pixels, `captured_at` not a number or more than 60 s from server time |
+| 403    | `screen.enabled = false`                                                                                        |
+| 404    | No live meeting                                                                                                 |
+| 413    | Larger than 4 MB                                                                                                |
+| 422    | Missing field                                                                                                   |
+| 500    | The file could not be written (the database row is rolled back)                                                 |
 
 `GET /api/frames/{id}/image` returns the image with `Cache-Control: private, no-cache`.
 `GET /api/frames?session_id=` returns
@@ -603,7 +605,7 @@ Behavior (`screen/ingest.py`, `screen/caption.py`):
 - The file type is taken from the decoded image, not from the browser's claim. Files are named
   `<6-digit id>.webp` or `.jpg`. `t = max(0, captured_at − sessions.started_at)`.
 - **The server decides again whether the picture changed.** The image is reduced to a 64×36
-  grayscale thumbnail and compared with the last *changed* picture of the meeting: the thumbnail is
+  grayscale thumbnail and compared with the last _changed_ picture of the meeting: the thumbnail is
   divided into 8×6-pixel blocks and the mean absolute difference of the most-changed block, divided
   by 255, is compared with `screen.change_threshold`. The browser uses the same measure to decide
   whether to upload. A whole-image average is not used because two slides that differ only in text
@@ -626,15 +628,15 @@ Behavior (`screen/ingest.py`, `screen/caption.py`):
 
 `session_id` may be omitted in all endpoints below and then refers to the current session (§5.1).
 
-| Method and path | Description |
-|---|---|
-| `GET /api/utterances?session_id=&after_id=&limit=` | Captions with id greater than `after_id`, ascending. Used to catch up after a reconnect |
-| `GET /api/utterances?session_id=&tail=50` | The **last 50** captions, ascending |
-| `GET /api/utterances?session_id=&before_id=&limit=` | Pages towards earlier captions, ascending |
-| `GET /api/speakers?session_id=` | `{"items": [{"idx", "display_name"}]}` |
-| `PUT /api/speakers/{idx}` | Body `{"session_id"?, "display_name": "..."}` → `{"idx", "display_name"}`; broadcasts `speaker` |
-| `POST /api/utterances/speaker` | Body `{"session_id"?, "ids": [...], "speaker_idx": 2}` or `{…, "new_speaker": "..."}`. Reassigns the captions to an existing or a new speaker → `{"speaker": {idx, display_name}, "ids": [actually changed]}`; broadcasts `utterance_update` for a live session |
-| `POST /api/speakers/{idx}/merge` | Body `{"session_id"?, "into": 2}`. Moves all captions of `idx` to `into` and deletes `idx` → `{"from", "into", "display_name", "moved"}`; broadcasts `speakers_merged` for a live session |
+| Method and path                                     | Description                                                                                                                                                                                                                                                     |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/utterances?session_id=&after_id=&limit=`  | Captions with id greater than `after_id`, ascending. Used to catch up after a reconnect                                                                                                                                                                         |
+| `GET /api/utterances?session_id=&tail=50`           | The **last 50** captions, ascending                                                                                                                                                                                                                             |
+| `GET /api/utterances?session_id=&before_id=&limit=` | Pages towards earlier captions, ascending                                                                                                                                                                                                                       |
+| `GET /api/speakers?session_id=`                     | `{"items": [{"idx", "display_name"}]}`                                                                                                                                                                                                                          |
+| `PUT /api/speakers/{idx}`                           | Body `{"session_id"?, "display_name": "..."}` → `{"idx", "display_name"}`; broadcasts `speaker`                                                                                                                                                                 |
+| `POST /api/utterances/speaker`                      | Body `{"session_id"?, "ids": [...], "speaker_idx": 2}` or `{…, "new_speaker": "..."}`. Reassigns the captions to an existing or a new speaker → `{"speaker": {idx, display_name}, "ids": [actually changed]}`; broadcasts `utterance_update` for a live session |
+| `POST /api/speakers/{idx}/merge`                    | Body `{"session_id"?, "into": 2}`. Moves all captions of `idx` to `into` and deletes `idx` → `{"from", "into", "display_name", "moved"}`; broadcasts `speakers_merged` for a live session                                                                       |
 
 Caption item: `{"id", "speaker_idx", "speaker_name", "t_start", "t_end", "text", "source"}`.
 `limit` and `tail` are 1–500; `after_id`, `before_id` and `tail` are mutually exclusive (400).
@@ -659,16 +661,16 @@ assistant's name and `-2` the name "文字输入".
 
 ### 5.5 Tasks
 
-| Method and path | Description |
-|---|---|
-| `GET /api/tasks?session_id=` | `{"items": [...]}` without detailed results |
-| `GET /api/tasks/{id}` | One task with all fields and its progress events |
-| `POST /api/tasks/{id}/cancel` | Cancels the task and returns the list item. A finished task is returned unchanged |
-| `GET /api/tasks/{id}/artifacts/{name}` | Downloads an artifact file |
+| Method and path                        | Description                                                                       |
+| -------------------------------------- | --------------------------------------------------------------------------------- |
+| `GET /api/tasks?session_id=`           | `{"items": [...]}` without detailed results                                       |
+| `GET /api/tasks/{id}`                  | One task with all fields and its progress events                                  |
+| `POST /api/tasks/{id}/cancel`          | Cancels the task and returns the list item. A finished task is returned unchanged |
+| `GET /api/tasks/{id}/artifacts/{name}` | Downloads an artifact file                                                        |
 
 - `{id}` is the full task id, `<session id>.t3`.
 - List item: `{"id", "label", "goal", "status", "brief", "error", "modality", "created_at",
-  "started_at", "finished_at"}`.
+"started_at", "finished_at"}`.
 - The detail view adds `detail_md`, `sources`, `artifacts` (file names), `requested_by` (display
   name), `requested_t`, `events` (`[{at, kind, summary}]`) and `outbound` — **what the task sent out**:
   `{"goal", "t_from", "t_to", "frames": [{id, t}], "model_host"}`.
@@ -679,14 +681,14 @@ assistant's name and `-2` the name "文字输入".
 
 ### 5.6 Export and reports
 
-| Method and path | Description |
-|---|---|
-| `GET /api/export/{session_id}.md` | Markdown transcript |
-| `GET /api/export/{session_id}.json` | Structured JSON |
-| `GET /api/export/{session_id}.zip` | Archive with `transcript.md`, `session.json`, `report.md` (if any), `frames/` and `tasks/` |
-| `POST /api/sessions/{id}/report` | Starts report generation → 202 `{"report_id", "status": "running"}` |
-| `GET /api/sessions/{id}/report` | The latest report: `{"id", "status", "created_at", "provider", "text_md", "error"}`; 404 if none |
-| `GET /api/sessions/{id}/report.md` | The latest finished report as a download |
+| Method and path                     | Description                                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `GET /api/export/{session_id}.md`   | Markdown transcript                                                                              |
+| `GET /api/export/{session_id}.json` | Structured JSON                                                                                  |
+| `GET /api/export/{session_id}.zip`  | Archive with `transcript.md`, `session.json`, `report.md` (if any), `frames/` and `tasks/`       |
+| `POST /api/sessions/{id}/report`    | Starts report generation → 202 `{"report_id", "status": "running"}`                              |
+| `GET /api/sessions/{id}/report`     | The latest report: `{"id", "status", "created_at", "provider", "text_md", "error"}`; 404 if none |
+| `GET /api/sessions/{id}/report.md`  | The latest finished report as a download                                                         |
 
 **Markdown export** (`web/export.py`):
 
@@ -743,11 +745,11 @@ variable at startup, and the middleware in `web/auth.py` guards every path under
 `GET /api/auth` and `POST /api/auth/login`. The static site (`/`, `/assets/…`) stays public; it
 contains no meeting data.
 
-| Method and path | Request | Response |
-|---|---|---|
-| `GET /api/auth` | — | `{"enabled", "authenticated", "csrf_token"}`; `csrf_token` is `null` when not logged in or when the password is disabled |
-| `POST /api/auth/login` | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}` and the session cookie. 401 wrong password; 429 too many attempts, with `Retry-After` in seconds; 404 when the password is disabled |
-| `POST /api/auth/logout` | — | `{"enabled": true, "authenticated": false, "csrf_token": null}`; the cookie is cleared |
+| Method and path         | Request               | Response                                                                                                                                                                                     |
+| ----------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/auth`         | —                     | `{"enabled", "authenticated", "csrf_token"}`; `csrf_token` is `null` when not logged in or when the password is disabled                                                                     |
+| `POST /api/auth/login`  | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}` and the session cookie. 401 wrong password; 429 too many attempts, with `Retry-After` in seconds; 404 when the password is disabled |
+| `POST /api/auth/logout` | —                     | `{"enabled": true, "authenticated": false, "csrf_token": null}`; the cookie is cleared                                                                                                       |
 
 **Guarded requests.** Without a valid session cookie the response is 401 `{"error": "请先登录"}`.
 `POST`, `PUT`, `PATCH` and `DELETE` additionally need the header `X-CSRF-Token` with the token of
@@ -788,21 +790,21 @@ user logs out elsewhere; the next HTTP request is refused.
 The server pushes `RTVIServerMessageFrame(data=<object>)`; the browser receives it in
 `onServerMessage`. Every message has a `type`:
 
-| `type` | Other fields | Meaning |
-|---|---|---|
-| `caption` | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable` | Live caption of the segment being spoken. A later message with the same `segment_id` replaces the earlier one |
-| `utterance` | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source` | A caption has been finalized and stored; it replaces the live caption with that `segment_id`. If `id` is already on the page, a new segment was merged into that caption (§4.3): `text` is the merged text |
-| `utterance_update` | `id, speaker_idx, speaker_name` | Speaker correction |
-| `speaker` | `idx, display_name` | Speaker renamed |
-| `speakers_merged` | `from, into, display_name` | Speaker `from` was merged into `into` |
-| `frame` | `id, t, width, height` | New screenshot |
-| `frame_caption` | `id, caption` | Screenshot summary available |
-| `assistant_state` | `state`: `idle` / `listening` / `thinking` / `speaking` | Assistant state |
-| `task` | `id, label, goal, status, brief, error, modality, created_at` | Task created or changed; `id` is the full id and `label` the short one (`t3`) |
-| `task_event` | `task_id, at, kind, summary` | Task progress |
-| `notice` | `level`: `info` / `warn` / `error`, `text` | Something the user should know, such as a degraded service. Errors of the realtime LLM and TTS are translated into notices by `pipeline/errors.py`; of Pipecat's own RTVI `error` messages the page shows only fatal ones |
-| `session` | `id, title, started_at, resumed, base_secs, state` | Sent once after connecting: which session the connection belongs to, whether it is a resume, and the timeline origin of this connection |
-| `session_closed` | `reason`: `taken_over` / `ended` / `server_stopping` | Why the server is about to close the connection (best effort) |
+| `type`             | Other fields                                                              | Meaning                                                                                                                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caption`          | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable`        | Live caption of the segment being spoken. A later message with the same `segment_id` replaces the earlier one                                                                                                             |
+| `utterance`        | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source` | A caption has been finalized and stored; it replaces the live caption with that `segment_id`. If `id` is already on the page, a new segment was merged into that caption (§4.3): `text` is the merged text                |
+| `utterance_update` | `id, speaker_idx, speaker_name`                                           | Speaker correction                                                                                                                                                                                                        |
+| `speaker`          | `idx, display_name`                                                       | Speaker renamed                                                                                                                                                                                                           |
+| `speakers_merged`  | `from, into, display_name`                                                | Speaker `from` was merged into `into`                                                                                                                                                                                     |
+| `frame`            | `id, t, width, height`                                                    | New screenshot                                                                                                                                                                                                            |
+| `frame_caption`    | `id, caption`                                                             | Screenshot summary available                                                                                                                                                                                              |
+| `assistant_state`  | `state`: `idle` / `listening` / `thinking` / `speaking`                   | Assistant state                                                                                                                                                                                                           |
+| `task`             | `id, label, goal, status, brief, error, modality, created_at`             | Task created or changed; `id` is the full id and `label` the short one (`t3`)                                                                                                                                             |
+| `task_event`       | `task_id, at, kind, summary`                                              | Task progress                                                                                                                                                                                                             |
+| `notice`           | `level`: `info` / `warn` / `error`, `text`                                | Something the user should know, such as a degraded service. Errors of the realtime LLM and TTS are translated into notices by `pipeline/errors.py`; of Pipecat's own RTVI `error` messages the page shows only fatal ones |
+| `session`          | `id, title, started_at, resumed, base_secs, state`                        | Sent once after connecting: which session the connection belongs to, whether it is a resume, and the timeline origin of this connection                                                                                   |
+| `session_closed`   | `reason`: `taken_over` / `ended` / `server_stopping`                      | Why the server is about to close the connection (best effort)                                                                                                                                                             |
 
 `segment_id` is an increasing integer generated by the server; one speech span may produce several
 when the speaker changes.
@@ -834,10 +836,10 @@ derives `speaking` and `idle` from the SDK callbacks `onBotStartedSpeaking` and
 Sent with `client.sendClientMessage(type, data)` and handled in the `on_client_message` event of
 `RTVIProcessor`.
 
-| `type` | `data` | Meaning |
-|---|---|---|
-| `text_input` | `{"text": "..."}` | A typed question or task. It is equivalent to a request from an awake user: no wake word is needed and the answer is text only (§6.3). The trimmed text must be non-empty and at most 2,000 characters |
-| `screen_state` | `{"sharing": true/false}` | Screen sharing started or stopped; used for logging only |
+| `type`         | `data`                    | Meaning                                                                                                                                                                                                |
+| -------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `text_input`   | `{"text": "..."}`         | A typed question or task. It is equivalent to a request from an awake user: no wake word is needed and the answer is text only (§6.3). The trimmed text must be non-empty and at most 2,000 characters |
+| `screen_state` | `{"sharing": true/false}` | Screen sharing started or stopped; used for logging only                                                                                                                                               |
 
 ### 6.3 Typed input and output modality
 
@@ -860,18 +862,18 @@ Handling of `text_input` (`pipeline/text_input.py`; design in architecture.md §
 
 ## 7. Tools of the realtime LLM
 
-Tools are Pipecat *direct functions*: the signature and docstring are the tool description
+Tools are Pipecat _direct functions_: the signature and docstring are the tool description
 (pipecat-notes.md §6). Names and parameters are in English, descriptions in Chinese. Results are
 small JSON-serializable dictionaries.
 
-| Tool | Parameters | Result | Kind |
-|---|---|---|---|
-| `recall` | `query?`, `speaker?` (display name), `minutes_ago_from?`, `minutes_ago_to?`, `limit?` | `{"items": [{"time": "00:14:02", "speaker": "...", "text": "..."}]}` | synchronous |
-| `get_digest` | `scope`: `"all"` or `"recent"` | `{"digest": "...", "covers_until": "00:42:10", "since_then": [...]}` | synchronous |
-| `look_at_screen` | `frame_ids?` — comma-separated screenshot ids, at most three | Without ids: adds the latest screenshot to the context and lists earlier ones. With ids: adds those earlier screenshots | synchronous |
-| `delegate_task` | `goal`, `minutes_of_context?` (default 5), `include_screen?` | First `{"task_id": "t3", "status": "accepted"}`; at the end `{"task_id", "status", "brief"}` | asynchronous |
-| `task_status` | `task_id?` (default: the most recent) | `{"task_id", "status", "goal", "recent_steps": [...]}` | synchronous |
-| `cancel_task` | `task_id` | `{"task_id", "status"}` | synchronous |
+| Tool             | Parameters                                                                            | Result                                                                                                                  | Kind         |
+| ---------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `recall`         | `query?`, `speaker?` (display name), `minutes_ago_from?`, `minutes_ago_to?`, `limit?` | `{"items": [{"time": "00:14:02", "speaker": "...", "text": "..."}]}`                                                    | synchronous  |
+| `get_digest`     | `scope`: `"all"` or `"recent"`                                                        | `{"digest": "...", "covers_until": "00:42:10", "since_then": [...]}`                                                    | synchronous  |
+| `look_at_screen` | `frame_ids?` — comma-separated screenshot ids, at most three                          | Without ids: adds the latest screenshot to the context and lists earlier ones. With ids: adds those earlier screenshots | synchronous  |
+| `delegate_task`  | `goal`, `minutes_of_context?` (default 5), `include_screen?`                          | First `{"task_id": "t3", "status": "accepted"}`; at the end `{"task_id", "status", "brief"}`                            | asynchronous |
+| `task_status`    | `task_id?` (default: the most recent)                                                 | `{"task_id", "status", "goal", "recent_steps": [...]}`                                                                  | synchronous  |
+| `cancel_task`    | `task_id`                                                                             | `{"task_id", "status"}`                                                                                                 | synchronous  |
 
 Time parameters are "minutes ago" rather than absolute times: realtime models are poor at time
 arithmetic, and "just now" or "ten minutes ago" map directly. Times in results are `HH:MM:SS` on the
@@ -911,7 +913,7 @@ Lookup tools (`pipeline/tools.py`):
 Task tools:
 
 - `delegate_task` is declared with `@tool_options(cancel_on_interruption=False,
-  timeout_secs=<agent.task_timeout_secs + 140>)`. It reports acceptance immediately with
+timeout_secs=<agent.task_timeout_secs + 140>)`. It reports acceptance immediately with
   `result_callback(..., properties=FunctionCallResultProperties(is_final=False))` and the final
   result with a second `result_callback`.
 - `goal` is required and limited to 2,000 characters. The transcript window is the last
@@ -1014,14 +1016,14 @@ The agent's final answer must be this JSON object:
 The runner translates the agent framework's stream events into one-sentence summaries in Chinese
 that can be read aloud.
 
-| Event | `kind` | Example `summary` |
-|---|---|---|
-| Task started | `status` | 开始处理 |
-| MCP tool called | `tool_call` | 正在检索「对比学习 温度系数」 |
-| Tool returned | `tool_result` | 工具返回了结果（约 320 字） |
-| Code executed | `tool_call` | 正在运行一段代码 |
-| Code finished | `tool_result` | 代码运行完成 |
-| Task finished | `status` | 已完成 / 失败：<reason> / 已取消 |
+| Event           | `kind`        | Example `summary`                |
+| --------------- | ------------- | -------------------------------- |
+| Task started    | `status`      | 开始处理                         |
+| MCP tool called | `tool_call`   | 正在检索「对比学习 温度系数」    |
+| Tool returned   | `tool_result` | 工具返回了结果（约 320 字）      |
+| Code executed   | `tool_call`   | 正在运行一段代码                 |
+| Code finished   | `tool_result` | 代码运行完成                     |
+| Task finished   | `status`      | 已完成 / 失败：<reason> / 已取消 |
 
 Wording (`describe_tool_call`, `describe_tool_output`): arguments named `query`, `q` or `keywords`
 give "正在检索「…」"; `url` gives "正在打开「…」"; anything else "正在调用工具 xxx". Tool output is
@@ -1111,10 +1113,10 @@ General rules:
 **Extra request fields for the realtime LLM** always come from
 `cfg.realtime_llm.request_extra_body(background=...)`:
 
-| Mode | Contents |
-|---|---|
+| Mode           | Contents                                                                                                                                                                                                         |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `llama_server` | The configured `extra_body`, `top_k` if set, and `{"id_slot": <slot>, "cache_prompt": true}`. Live answers and warm-ups use `realtime_slot`; background work passes `background=True` and uses `background_slot` |
-| `openai_api` | The configured `extra_body` and `top_k` if set. No llama.cpp-specific fields |
+| `openai_api`   | The configured `extra_body` and `top_k` if set. No llama.cpp-specific fields                                                                                                                                     |
 
 **Speech synthesis endpoint** (qwentts.cpp `tts-server`):
 

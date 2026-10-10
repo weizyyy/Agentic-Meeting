@@ -170,10 +170,10 @@ user_aggregator, assistant_aggregator = pair.user(), pair.assistant()
 
 它的局限在于词边界：匹配所用的正则是 `\b` + 唤醒词 + `\b`，而 Python 的 `\b` 把汉字也视为单词字符：
 
-| 转录文本 | 自带策略 |
-|---|---|
-| `请 Jarvis 帮我查一下`（名字两侧有空格） | 命中 |
-| `请Jarvis帮我查一下`（名字紧贴汉字） | **不命中** |
+| 转录文本                                                 | 自带策略   |
+| -------------------------------------------------------- | ---------- |
+| `请 Jarvis 帮我查一下`（名字两侧有空格）                 | 命中       |
+| `请Jarvis帮我查一下`（名字紧贴汉字）                     | **不命中** |
 | `Jarvis，帮我查一下`（它先删掉逗号，名字就贴上了「帮」） | **不命中** |
 
 识别模型输出的中英混排文字约有一半是后两种形式。因此本项目使用一个很小的子类
@@ -415,7 +415,7 @@ context = LLMContext(tools=[recall, delegate_task, ...])   # 放进 tools 即自
     直接 `await params.llm.queue_frame(帧)`，再调 `result_callback`——帧会排在那次生成前面。
   - `FunctionCallResultProperties(on_context_updated=协程函数)`：结果写进上下文之后回调（在单独的任务里跑）。
 - `FunctionCallParams` 的字段：`function_name, tool_call_id, arguments, llm, pipeline_worker, context,
-  result_callback, app_resources, worker_runner`。
+result_callback, app_resources, worker_runner`。
 
 ## 7. MCP 客户端
 
@@ -434,13 +434,13 @@ tools_schema = await mcp.tools()      # 返回带处理函数的工具集合，�
 
 ## 8. 上下文操作
 
-| 需求 | 做法 |
-|---|---|
-| 追加消息但不触发生成 | 向管线推 `LLMMessagesAppendFrame(messages=[...], run_llm=False)` |
-| 追加消息并触发生成 | 同上，`run_llm=True` |
-| 整体替换上下文（压缩） | `LLMMessagesUpdateFrame(messages=[...], run_llm=False)` |
-| 让助理直接说一句话 | `TTSSpeakFrame(text="...")` |
-| 读取当前消息 | `context.get_messages()` |
+| 需求                   | 做法                                                             |
+| ---------------------- | ---------------------------------------------------------------- |
+| 追加消息但不触发生成   | 向管线推 `LLMMessagesAppendFrame(messages=[...], run_llm=False)` |
+| 追加消息并触发生成     | 同上，`run_llm=True`                                             |
+| 整体替换上下文（压缩） | `LLMMessagesUpdateFrame(messages=[...], run_llm=False)`          |
+| 让助理直接说一句话     | `TTSSpeakFrame(text="...")`                                      |
+| 读取当前消息           | `context.get_messages()`                                         |
 
 **整体替换上下文**：`LLMMessagesUpdateFrame` 由用户侧聚合器处理（`set_messages`），不往下游传；
 两个聚合器共用同一个 `LLMContext`，所以助理侧看到的也是新的。系统提示词在 `Settings.system_instruction` 里、

@@ -56,12 +56,12 @@ Three decisions shape the design:
 
 Latency targets, with all local services running and the realtime LLM served by llama.cpp:
 
-| Metric | Target |
-|---|---|
-| Caption lag | Finalized text no more than 1.5 s behind speech |
-| Time to first text | About 1 s after the speaker stops (P50 ≤ 1.0 s, P90 ≤ 1.8 s) |
-| Time to first audio | Within 0.5 s of the first text |
-| Recall tools | ≤ 100 ms by speaker, time or keyword; ≤ 400 ms with semantic search |
+| Metric              | Target                                                              |
+| ------------------- | ------------------------------------------------------------------- |
+| Caption lag         | Finalized text no more than 1.5 s behind speech                     |
+| Time to first text  | About 1 s after the speaker stops (P50 ≤ 1.0 s, P90 ≤ 1.8 s)        |
+| Time to first audio | Within 0.5 s of the first text                                      |
+| Recall tools        | ≤ 100 ms by speaker, time or keyword; ≤ 400 ms with semantic search |
 
 These targets are not promised for a generic chat completions endpoint, where prefix caching and
 network latency are outside the project's control.
@@ -70,15 +70,15 @@ network latency are outside the project's control.
 
 Ports come from the configuration; the table shows the defaults in the template.
 
-| Process | Default port | Program | Required |
-|---|---|---|---|
-| Application | 7860 | `agentic-meeting serve` | Yes |
-| Realtime LLM | 8080 | Mode 1: `llama-server` (chat and vision, two slots). Mode 2: an external chat completions endpoint; no process is started | Yes |
-| ASR | 8081 | `llama-server` with audio input | Yes |
-| TTS | 8082 | `tts-server` | No (answers are text-only without it) |
-| Embeddings | 8083 | `llama-server --embedding` | No (keyword search only without it) |
-| Diarization | — | Library loaded into the application process | No (captions carry no speaker without it) |
-| Code sandbox | — | One Docker container per task | No |
+| Process      | Default port | Program                                                                                                                   | Required                                  |
+| ------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Application  | 7860         | `agentic-meeting serve`                                                                                                   | Yes                                       |
+| Realtime LLM | 8080         | Mode 1: `llama-server` (chat and vision, two slots). Mode 2: an external chat completions endpoint; no process is started | Yes                                       |
+| ASR          | 8081         | `llama-server` with audio input                                                                                           | Yes                                       |
+| TTS          | 8082         | `tts-server`                                                                                                              | No (answers are text-only without it)     |
+| Embeddings   | 8083         | `llama-server --embedding`                                                                                                | No (keyword search only without it)       |
+| Diarization  | —            | Library loaded into the application process                                                                               | No (captions carry no speaker without it) |
+| Code sandbox | —            | One Docker container per task                                                                                             | No                                        |
 
 Inference services started by the application listen on `127.0.0.1` only. The application port is
 the only one exposed.
@@ -107,21 +107,21 @@ the session carries on.
 
 The state is derived from `ended_at` in the database and whether a live connection is attached:
 
-| State | Condition | Available in the page |
-|---|---|---|
-| Live | A connection is attached to the session | Live captions, end |
-| Interrupted | `ended_at` is empty and no connection is attached (page closed or refreshed, network lost, server restarted) | Resume, review, export, rename, delete |
-| Ended | `ended_at` is set | Resume (reopen), review, export, report, rename, delete |
+| State       | Condition                                                                                                    | Available in the page                                   |
+| ----------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| Live        | A connection is attached to the session                                                                      | Live captions, end                                      |
+| Interrupted | `ended_at` is empty and no connection is attached (page closed or refreshed, network lost, server restarted) | Resume, review, export, rename, delete                  |
+| Ended       | `ended_at` is set                                                                                            | Resume (reopen), review, export, report, rename, delete |
 
 Operations:
 
-| Operation | Trigger | Behavior |
-|---|---|---|
-| Start | "Start meeting"; the connection carries no `session_id` | Creates a session whose timeline starts now. An existing live connection is taken over first and its meeting becomes interrupted. Other unfinished meetings are left as they are |
-| Disconnect | Page closed or refreshed, network lost | Only the connection is closed. `ended_at` is not written; the session becomes interrupted |
-| End | "End meeting" | Disconnects, writes `ended_at` and produces the final running summary |
-| Resume | "Resume"; the connection carries a `session_id` | See below |
-| Rename, delete, merge speakers | Meeting list | Deletion asks for confirmation and is refused for a live meeting; it also removes screenshot files and task directories |
+| Operation                      | Trigger                                                 | Behavior                                                                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Start                          | "Start meeting"; the connection carries no `session_id` | Creates a session whose timeline starts now. An existing live connection is taken over first and its meeting becomes interrupted. Other unfinished meetings are left as they are |
+| Disconnect                     | Page closed or refreshed, network lost                  | Only the connection is closed. `ended_at` is not written; the session becomes interrupted                                                                                        |
+| End                            | "End meeting"                                           | Disconnects, writes `ended_at` and produces the final running summary                                                                                                            |
+| Resume                         | "Resume"; the connection carries a `session_id`         | See below                                                                                                                                                                        |
+| Rename, delete, merge speakers | Meeting list                                            | Deletion asks for confirmation and is refused for a live meeting; it also removes screenshot files and task directories                                                          |
 
 **There is one live connection at a time.** ASR runs a single slot, diarization is one stream and the
 realtime LLM has one context. When a new connection arrives, the server cancels the old pipeline,
@@ -162,18 +162,18 @@ live meeting by polling the captions endpoint.
 
 Processors in order, upstream to downstream:
 
-| # | Processor | Origin | Responsibility |
-|---|---|---|---|
-| 1 | Transport input with the **input gain** filter | Pipecat; the filter is ours | Reads 16 kHz mono audio from WebRTC and applies `audio_in_filter` to lift quiet input before pushing frames downstream |
-| 2 | Voice activity detection | Pipecat `VADProcessor` | Emits speech-started and speech-stopped frames |
-| 3 | `StreamingASRService` | Ours | Sends audio to the ASR backend while someone is speaking and turns incremental results into transcription frames |
-| 4 | `MeetingRecorder` | Ours | Feeds diarization, attributes text to speakers, splits it into captions, stores them, pushes caption messages and appends finalized captions to the LLM context |
-| 5 | User context aggregator | Pipecat | Wake-word and turn detection; after wake-up, adds the user's words to the context and triggers the model |
-| 5.5 | `ModalityGate` | Ours | Sets the output modality of each new request before it reaches the model: text only for typed requests, speech for spoken ones (§5.5) |
-| 6 | Realtime LLM service | Pipecat's OpenAI-compatible service | Generates text and calls tools |
-| 7 | TTS service | Pipecat, pointed at the local `tts-server` | Text to speech |
-| 8 | Transport output | Pipecat | Sends audio back to the browser |
-| 9 | Assistant context aggregator | Pipecat | Writes what the assistant said back to the context |
+| #   | Processor                                      | Origin                                     | Responsibility                                                                                                                                                  |
+| --- | ---------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Transport input with the **input gain** filter | Pipecat; the filter is ours                | Reads 16 kHz mono audio from WebRTC and applies `audio_in_filter` to lift quiet input before pushing frames downstream                                          |
+| 2   | Voice activity detection                       | Pipecat `VADProcessor`                     | Emits speech-started and speech-stopped frames                                                                                                                  |
+| 3   | `StreamingASRService`                          | Ours                                       | Sends audio to the ASR backend while someone is speaking and turns incremental results into transcription frames                                                |
+| 4   | `MeetingRecorder`                              | Ours                                       | Feeds diarization, attributes text to speakers, splits it into captions, stores them, pushes caption messages and appends finalized captions to the LLM context |
+| 5   | User context aggregator                        | Pipecat                                    | Wake-word and turn detection; after wake-up, adds the user's words to the context and triggers the model                                                        |
+| 5.5 | `ModalityGate`                                 | Ours                                       | Sets the output modality of each new request before it reaches the model: text only for typed requests, speech for spoken ones (§5.5)                           |
+| 6   | Realtime LLM service                           | Pipecat's OpenAI-compatible service        | Generates text and calls tools                                                                                                                                  |
+| 7   | TTS service                                    | Pipecat, pointed at the local `tts-server` | Text to speech                                                                                                                                                  |
+| 8   | Transport output                               | Pipecat                                    | Sends audio back to the browser                                                                                                                                 |
+| 9   | Assistant context aggregator                   | Pipecat                                    | Writes what the assistant said back to the context                                                                                                              |
 
 Why this order:
 
@@ -315,11 +315,11 @@ text box ──text_input──▶ text entry ─┬─▶ recorder: store (sour
                                      └─▶ trigger the realtime LLM (no wake word) ──▶ streamed text; TTS skipped
 ```
 
-| Trigger | Answer | Mechanism (Pipecat 1.12.0) |
-|---|---|---|
-| Wake word | Streamed text and speech | The modality gate pushes `LLMConfigureOutputFrame(skip_tts=False)` before the request reaches the model |
-| Typed input | Text only | The text entry places a `TextRequestFrame` marker ahead of the request. The gate sees it and pushes `LLMConfigureOutputFrame(skip_tts=True)`; the LLM service marks its text frames accordingly and the TTS service passes them through unsynthesized |
-| Task completion briefing | The modality of the turn that delegated the task (stored in the task record) | Same configuration frames around the briefing |
+| Trigger                  | Answer                                                                       | Mechanism (Pipecat 1.12.0)                                                                                                                                                                                                                            |
+| ------------------------ | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wake word                | Streamed text and speech                                                     | The modality gate pushes `LLMConfigureOutputFrame(skip_tts=False)` before the request reaches the model                                                                                                                                               |
+| Typed input              | Text only                                                                    | The text entry places a `TextRequestFrame` marker ahead of the request. The gate sees it and pushes `LLMConfigureOutputFrame(skip_tts=True)`; the LLM service marks its text frames accordingly and the TTS service passes them through unsynthesized |
+| Task completion briefing | The modality of the turn that delegated the task (stored in the task record) | Same configuration frames around the briefing                                                                                                                                                                                                         |
 
 Rules:
 
@@ -398,16 +398,16 @@ The pipeline, tools, context format and the append-only and compaction rules are
 modes. The differences are confined to the properties below; application code reads these properties
 and never branches on the mode itself.
 
-| Aspect | Mode 1 `llama_server` | Mode 2 `openai_api` | Property |
-|---|---|---|---|
-| Process | Can be launched by the application (`launch.enabled`) | Not managed; reachability check only | `cfg.realtime_llm.managed` |
-| Endpoint, model, key, sampling, vision | Fields of its own subsection | Same | `cfg.realtime_llm.active` |
-| Extra request fields | `extra_body` plus slot id and `cache_prompt` | `extra_body` only | `cfg.realtime_llm.request_extra_body(background=...)` |
-| Isolation of live and background work | One slot each; neither evicts the other's cache | No slots; both hit the same endpoint | Same |
-| Cache warm-up | Always | Off by default; opt-in | `cfg.realtime_llm.cache_warm` |
-| Disabling reasoning | `--reasoning off` at launch, plus template parameters if needed | Provider-specific, written in `extra_body` | — |
-| `developer` role | Converted to `user` | Treated as unsupported unless configured | `cfg.realtime_llm.supports_developer_role` |
-| Data destination | Local | Possibly remote; the user is warned | `config.check_warnings()` |
+| Aspect                                 | Mode 1 `llama_server`                                           | Mode 2 `openai_api`                        | Property                                              |
+| -------------------------------------- | --------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------- |
+| Process                                | Can be launched by the application (`launch.enabled`)           | Not managed; reachability check only       | `cfg.realtime_llm.managed`                            |
+| Endpoint, model, key, sampling, vision | Fields of its own subsection                                    | Same                                       | `cfg.realtime_llm.active`                             |
+| Extra request fields                   | `extra_body` plus slot id and `cache_prompt`                    | `extra_body` only                          | `cfg.realtime_llm.request_extra_body(background=...)` |
+| Isolation of live and background work  | One slot each; neither evicts the other's cache                 | No slots; both hit the same endpoint       | Same                                                  |
+| Cache warm-up                          | Always                                                          | Off by default; opt-in                     | `cfg.realtime_llm.cache_warm`                         |
+| Disabling reasoning                    | `--reasoning off` at launch, plus template parameters if needed | Provider-specific, written in `extra_body` | —                                                     |
+| `developer` role                       | Converted to `user`                                             | Treated as unsupported unless configured   | `cfg.realtime_llm.supports_developer_role`            |
+| Data destination                       | Local                                                           | Possibly remote; the user is warned        | `config.check_warnings()`                             |
 
 Cancelling background requests on wake-up applies to both modes: in mode 1 to free the GPU, in mode 2
 to avoid competing for the endpoint's concurrency.
@@ -427,25 +427,25 @@ Formats of the lines in the context (the system prompt explains these convention
 
 Expected contributions in mode 1:
 
-| Stage | Expected | Depends on |
-|---|---|---|
-| Deciding the speaker has finished | 0.2–0.4 s | VAD silence threshold; the turn model takes around ten milliseconds on CPU |
-| Final transcription arrives | 0.1–0.3 s | The last ASR step |
-| First token | 0.1–0.2 s | Reasoning disabled and prefix cached |
-| First sentence and first audio packet | 0.3–0.5 s | Generation speed and TTS first-packet latency |
+| Stage                                 | Expected  | Depends on                                                                 |
+| ------------------------------------- | --------- | -------------------------------------------------------------------------- |
+| Deciding the speaker has finished     | 0.2–0.4 s | VAD silence threshold; the turn model takes around ten milliseconds on CPU |
+| Final transcription arrives           | 0.1–0.3 s | The last ASR step                                                          |
+| First token                           | 0.1–0.2 s | Reasoning disabled and prefix cached                                       |
+| First sentence and first audio packet | 0.3–0.5 s | Generation speed and TTS first-packet latency                              |
 
 Measured values, including a full-meeting run through a chat completions endpoint, are in
 [benchmarks.md](benchmarks.md).
 
 ### 7.2 GPU memory
 
-| Component | Measured | Notes |
-|---|---|---|
-| ASR (Q8, context 8192) | about 3.8 GB | More than the file size suggests, mostly working memory of the audio encoder |
-| Diarization | about 0.2 GB | |
-| TTS (0.6B, Q8) | about 2.4 GB | |
-| Embeddings | 0 | With `--device none` |
-| Realtime LLM | Model-dependent | Estimate: weights + vision projector + context cache (about 32 KB per token; 1 GB for a 32K context). None when a remote endpoint is used |
+| Component              | Measured        | Notes                                                                                                                                     |
+| ---------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| ASR (Q8, context 8192) | about 3.8 GB    | More than the file size suggests, mostly working memory of the audio encoder                                                              |
+| Diarization            | about 0.2 GB    |                                                                                                                                           |
+| TTS (0.6B, Q8)         | about 2.4 GB    |                                                                                                                                           |
+| Embeddings             | 0               | With `--device none`                                                                                                                      |
+| Realtime LLM           | Model-dependent | Estimate: weights + vision projector + context cache (about 32 KB per token; 1 GB for a 32K context). None when a remote endpoint is used |
 
 With two GPUs, put the realtime LLM and TTS on the larger one and ASR and diarization on the smaller
 one, so that continuous recognition does not compete with the realtime LLM. On a 22 GB + 6 GB pair
@@ -497,17 +497,17 @@ Agentic-Meeting/
 **Transcription has the highest priority.** A failure in answering, tasks, screenshots or storage
 must never stop recognition and captions.
 
-| Failure | Effect | Handling |
-|---|---|---|
-| TTS unavailable | No speech | Text answers continue; the page shows a notice with the reason (`pipeline/errors.py`, one notice per kind every 30 s) |
-| Embedding service unavailable | No semantic search | Recall falls back to keywords; backfill retries with backoff and catches up later |
-| Screen summary fails (model error, no vision, disabled) | No summary for that screenshot | The screenshot stays on the timeline, marked `failed` or `skipped`; `look_at_screen` can still show the image |
-| Screenshot cannot be written or is rejected | Missing on the timeline | The page reports it once and retries on the next tick |
-| Diarization fails to load | No speakers | Captions are attributed to "unknown"; the page shows a notice |
-| ASR request fails | Captions stop | Exponential backoff; a notice after repeated failures; audio timing continues |
-| Input gain filter fails | Invisible to the user | The frame is passed through unchanged and the error is logged |
-| Microphone too quiet (gain at its limit) | Fragmentary captions | Input level is logged; the page suggests raising the input volume |
-| Realtime LLM unavailable | No answers | Transcription continues; the page shows a notice with the reason (unreachable, key rejected, rate limited, timeout) |
-| Remote agent model or MCP unavailable | Task fails | The task is marked failed with the reason and the assistant says so |
-| Docker missing | No code execution | The agent still searches and reads images, and reports that it could not run code |
-| Browser disconnects | Capture stops | The client reconnects; the session is kept and the timeline continues |
+| Failure                                                 | Effect                         | Handling                                                                                                              |
+| ------------------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| TTS unavailable                                         | No speech                      | Text answers continue; the page shows a notice with the reason (`pipeline/errors.py`, one notice per kind every 30 s) |
+| Embedding service unavailable                           | No semantic search             | Recall falls back to keywords; backfill retries with backoff and catches up later                                     |
+| Screen summary fails (model error, no vision, disabled) | No summary for that screenshot | The screenshot stays on the timeline, marked `failed` or `skipped`; `look_at_screen` can still show the image         |
+| Screenshot cannot be written or is rejected             | Missing on the timeline        | The page reports it once and retries on the next tick                                                                 |
+| Diarization fails to load                               | No speakers                    | Captions are attributed to "unknown"; the page shows a notice                                                         |
+| ASR request fails                                       | Captions stop                  | Exponential backoff; a notice after repeated failures; audio timing continues                                         |
+| Input gain filter fails                                 | Invisible to the user          | The frame is passed through unchanged and the error is logged                                                         |
+| Microphone too quiet (gain at its limit)                | Fragmentary captions           | Input level is logged; the page suggests raising the input volume                                                     |
+| Realtime LLM unavailable                                | No answers                     | Transcription continues; the page shows a notice with the reason (unreachable, key rejected, rate limited, timeout)   |
+| Remote agent model or MCP unavailable                   | Task fails                     | The task is marked failed with the reason and the assistant says so                                                   |
+| Docker missing                                          | No code execution              | The agent still searches and reads images, and reports that it could not run code                                     |
+| Browser disconnects                                     | Capture stops                  | The client reconnects; the session is kept and the timeline continues                                                 |

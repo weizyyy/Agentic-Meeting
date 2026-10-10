@@ -15,15 +15,15 @@
 
 ## 准备工作
 
-| 项目 | 说明 |
-|---|---|
-| 操作系统 | 带 NVIDIA 显卡的 Windows 11 或 Linux，或 Apple 芯片的 macOS |
-| 显存 | 本地语音模型需要单卡 12 GB 或以上，各档配置见 [runtimes.md §4](runtimes.md#4-模型文件) |
+| 项目                             | 说明                                                                                                                   |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 操作系统                         | 带 NVIDIA 显卡的 Windows 11 或 Linux，或 Apple 芯片的 macOS                                                            |
+| 显存                             | 本地语音模型需要单卡 12 GB 或以上，各档配置见 [runtimes.md §4](runtimes.md#4-模型文件)                                 |
 | [uv](https://docs.astral.sh/uv/) | 安装 Python 和锁定版本的依赖。支持 Python 3.12、3.13 和 3.14；默认使用 3.12，可用 `uv sync --python 3.14` 指定其他版本 |
-| Node.js 22.18+ | 构建网页客户端 |
-| Git | 推理运行时以子模块形式管理 |
-| C++ 工具链、CMake | 仅在构建语音合成运行时时需要，见 [runtimes.md §3.3](runtimes.md#33-qwenttscpp) |
-| Docker | 可选，供后台 agent 运行代码 |
+| Node.js 22.18+                   | 构建网页客户端                                                                                                         |
+| Git                              | 推理运行时以子模块形式管理                                                                                             |
+| C++ 工具链、CMake                | 仅在构建语音合成运行时时需要，见 [runtimes.md §3.3](runtimes.md#33-qwenttscpp)                                         |
+| Docker                           | 可选，供后台 agent 运行代码                                                                                            |
 
 ## 安装
 
@@ -54,13 +54,13 @@ python scripts/runtimes.py status
 
 模型权重需要自行下载并放到 `models/` 目录下，本仓库中的任何脚本都不会下载权重。
 
-| 用途 | 需要的文件 |
-|---|---|
-| 流式识别 | 模型 GGUF 及其音频投影（`mmproj`）GGUF |
-| 说话人区分 | NeMo-Speech.cpp 格式的说话人区分 GGUF |
-| 语音合成 | qwentts.cpp 格式的 talker GGUF 与 codec GGUF |
-| 嵌入 | 嵌入模型 GGUF |
-| 实时模型 | 对话模型 GGUF（识图时还需 `mmproj`）—— 仅在用 llama.cpp 部署时需要 |
+| 用途       | 需要的文件                                                         |
+| ---------- | ------------------------------------------------------------------ |
+| 流式识别   | 模型 GGUF 及其音频投影（`mmproj`）GGUF                             |
+| 说话人区分 | NeMo-Speech.cpp 格式的说话人区分 GGUF                              |
+| 语音合成   | qwentts.cpp 格式的 talker GGUF 与 codec GGUF                       |
+| 嵌入       | 嵌入模型 GGUF                                                      |
+| 实时模型   | 对话模型 GGUF（识图时还需 `mmproj`）—— 仅在用 llama.cpp 部署时需要 |
 
 测试所用的模型以及各运行时要求的格式见 [runtimes.md §4](runtimes.md#4-模型文件)。
 
@@ -86,6 +86,7 @@ cp .env.example .env
    ```
 
    实时模型应关闭思考（reasoning）。先思考再回答的模型，首字延迟会成倍增加。
+
 4. **后台 agent**（可选）—— 在 `[agent]` 中填写接口地址、模型名和 MCP 服务；不需要时设置 `enabled = false`。
 
 密钥不写入 `config.toml`。配置文件中只保存环境变量的**名字**（`api_key_env`、`headers_env`），

@@ -18,13 +18,21 @@ export type KeyAction = "send" | "newline" | "none";
  * 输入框里按键的含义：回车发送，Shift+回车换行。
  * 中文输入法选字时按的回车是确认候选词，不能当成发送（`isComposing`）。
  */
-export function keyAction(event: { key: string; shiftKey: boolean; isComposing: boolean }): KeyAction {
+export function keyAction(event: {
+  key: string;
+  shiftKey: boolean;
+  isComposing: boolean;
+}): KeyAction {
   if (event.key !== "Enter" || event.isComposing) return "none";
   return event.shiftKey ? "newline" : "send";
 }
 
 /** 字数接近上限时给个提示：返回「还能输入多少字」，离上限还远时返回 null。 */
-export function remainingChars(raw: string, max: number = MAX_TEXT_CHARS, warnWithin = 200): number | null {
+export function remainingChars(
+  raw: string,
+  max: number = MAX_TEXT_CHARS,
+  warnWithin = 200,
+): number | null {
   const left = max - [...raw].length;
   return left <= warnWithin ? left : null;
 }

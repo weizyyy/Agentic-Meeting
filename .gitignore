@@ -26,6 +26,7 @@ dist/
 build/
 
 # ---- 浏览器客户端 ----
+/node_modules/
 /client/node_modules/
 /client/dist/
 /client/.vite/

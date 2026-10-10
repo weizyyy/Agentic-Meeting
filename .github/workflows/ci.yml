@@ -15,6 +15,24 @@ permissions:
   contents: read
 
 jobs:
+  formatting:
+    name: Prettier
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install formatter
+        run: npm ci
+
+      - name: Check formatting
+        run: npm run format:check
+
   python:
     name: Python ${{ matrix.python }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -78,7 +96,7 @@ jobs:
   all-checks:
     name: All checks
     if: always()
-    needs: [python, client]
+    needs: [formatting, python, client]
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every job succeeded

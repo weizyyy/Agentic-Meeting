@@ -112,7 +112,9 @@ export function App({ onLogout }: Props = {}) {
                 onClick={() => setTab("report")}
               >
                 报告
-                {state.report?.status === "running" && <span className="tab-dot" aria-label="生成中" />}
+                {state.report?.status === "running" && (
+                  <span className="tab-dot" aria-label="生成中" />
+                )}
               </button>
             </div>
             {tab === "captions" ? (

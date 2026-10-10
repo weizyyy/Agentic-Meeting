@@ -15,15 +15,15 @@ This guide takes you from a fresh clone to a running meeting.
 
 ## Prerequisites
 
-| Requirement | Notes |
-|---|---|
-| Operating system | Windows 11 or Linux with an NVIDIA GPU, or macOS on Apple silicon |
-| GPU memory | 12 GB or more on one card for the local speech models; see the hardware tiers in [runtimes.md §4](runtimes.md#4-model-files) |
+| Requirement                      | Notes                                                                                                                                               |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Operating system                 | Windows 11 or Linux with an NVIDIA GPU, or macOS on Apple silicon                                                                                   |
+| GPU memory                       | 12 GB or more on one card for the local speech models; see the hardware tiers in [runtimes.md §4](runtimes.md#4-model-files)                        |
 | [uv](https://docs.astral.sh/uv/) | Installs Python and the locked dependencies. Python 3.12, 3.13 and 3.14 are supported; uv uses 3.12 unless told otherwise (`uv sync --python 3.14`) |
-| Node.js 22.18+ | Builds the web client |
-| Git | The inference runtimes are tracked as submodules |
-| C++ toolchain, CMake | Only for building the speech synthesis runtime; see [runtimes.md §3.3](runtimes.md#33-qwenttscpp) |
-| Docker | Optional. Lets the background agent run code |
+| Node.js 22.18+                   | Builds the web client                                                                                                                               |
+| Git                              | The inference runtimes are tracked as submodules                                                                                                    |
+| C++ toolchain, CMake             | Only for building the speech synthesis runtime; see [runtimes.md §3.3](runtimes.md#33-qwenttscpp)                                                   |
+| Docker                           | Optional. Lets the background agent run code                                                                                                        |
 
 ## Install
 
@@ -57,13 +57,13 @@ with `--backend cpu` or set `tts.enabled = false` and come back to it later. Det
 Download the weights yourself and place them under `models/`. Nothing in this repository downloads
 weights.
 
-| Purpose | Needed files |
-|---|---|
-| Streaming ASR | Model GGUF and its audio projector (`mmproj`) GGUF |
-| Speaker diarization | Diarization GGUF in NeMo-Speech.cpp format |
-| Speech synthesis | Talker GGUF and codec GGUF in qwentts.cpp format |
-| Embeddings | Embedding GGUF |
-| Realtime LLM | Chat model GGUF (and `mmproj` for vision) — only when serving it with llama.cpp |
+| Purpose             | Needed files                                                                    |
+| ------------------- | ------------------------------------------------------------------------------- |
+| Streaming ASR       | Model GGUF and its audio projector (`mmproj`) GGUF                              |
+| Speaker diarization | Diarization GGUF in NeMo-Speech.cpp format                                      |
+| Speech synthesis    | Talker GGUF and codec GGUF in qwentts.cpp format                                |
+| Embeddings          | Embedding GGUF                                                                  |
+| Realtime LLM        | Chat model GGUF (and `mmproj` for vision) — only when serving it with llama.cpp |
 
 [runtimes.md §4](runtimes.md#4-model-files) lists the models used in testing and the format each
 runtime expects.
@@ -91,10 +91,11 @@ Edit `config/config.toml`. For a first run you need:
 
    Disable reasoning ("thinking") for this model. A model that reasons before answering multiplies
    the time to first token.
+
 4. **The background agent** (optional) — endpoint, model name and MCP servers under `[agent]`, or
    `enabled = false` to turn it off.
 
-Secrets never go into `config.toml`. The file stores the *names* of environment variables
+Secrets never go into `config.toml`. The file stores the _names_ of environment variables
 (`api_key_env`, `headers_env`); put the values in `.env`.
 
 Then validate:

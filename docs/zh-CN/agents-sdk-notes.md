@@ -66,11 +66,11 @@ answer = result.final_output          # 未设置 output_type 时为字符串
 
 `result.stream_events()` 产出三类事件，由 `event.type` 区分：
 
-| `type` | 含义 | 用途 |
-|---|---|---|
-| `raw_response_event` | 模型的原始流式片段 | 不使用 |
-| `agent_updated_stream_event` | 当前 agent 发生变化（开始时也有一次） | 不使用 |
-| `run_item_stream_event` | 一个完整的条目，见 `event.name` | 转换为进度事件 |
+| `type`                       | 含义                                  | 用途           |
+| ---------------------------- | ------------------------------------- | -------------- |
+| `raw_response_event`         | 模型的原始流式片段                    | 不使用         |
+| `agent_updated_stream_event` | 当前 agent 发生变化（开始时也有一次） | 不使用         |
+| `run_item_stream_event`      | 一个完整的条目，见 `event.name`       | 转换为进度事件 |
 
 用到的两种 `run_item_stream_event`：
 

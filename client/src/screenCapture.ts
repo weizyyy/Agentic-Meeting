@@ -194,7 +194,10 @@ export function applyFrameCaption(
 }
 
 /** 断线重连后把服务端的列表并进来：以服务端为准，本地多出来的（还没同步到的）保留。 */
-export function mergeFrames(frames: readonly FrameItem[], items: readonly FrameItem[]): FrameItem[] {
+export function mergeFrames(
+  frames: readonly FrameItem[],
+  items: readonly FrameItem[],
+): FrameItem[] {
   const ids = new Set(items.map((f) => f.id));
   return sortFrames([...frames.filter((f) => !ids.has(f.id)), ...items]);
 }

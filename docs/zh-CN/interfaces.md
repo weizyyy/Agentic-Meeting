@@ -21,22 +21,22 @@
 pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.example.toml)。
 各配置项的说明见 [configuration.md](configuration.md)。
 
-| 配置段 | 内容 |
-|---|---|
-| `session` | 助理名字（即唤醒词，必须是英文单词）、别名（`wake_aliases`：识别把名字写成的其他拼写，或听成的至少两个汉字；只用来唤醒，不作为识别热词）、识别热词、成员名单、数据目录 |
-| `server` | 监听地址与端口、HTTPS 证书、ICE 服务器、访问口令与登录有效期 |
-| `realtime_llm` | 接入方式 `mode`，以及两种方式各自的一整套设置：`[realtime_llm.llama_server]`（地址、模型名字段、是否识图、思考开关、采样参数、槽位分工、启动参数）和 `[realtime_llm.openai_api]`（地址、密钥变量名、模型名、是否识图、是否认识 developer 角色、是否预热、附加请求字段、采样参数） |
-| `asr` | 识别后端、提示词格式档案、步长与窗口、每步不定稿的 token 数、句首回补时长（`preroll_ms`，默认 1500 毫秒）、启动参数 |
-| `diarization` | 后端、动态库路径、权重路径、显卡序号、分段阈值 |
-| `tts` | 地址、模型名字段、音色、语言、启动参数 |
-| `embedding` | 地址、模型名字段、向量维度、查询前缀（`query_prefix`，召回时加在查询前面的任务指令，默认空）、相关度门槛（`min_similarity`，余弦相似度，默认 0.4，0 = 不设）、启动参数 |
-| `audio` | 入口收音增强：自动增益开关、起始增益、增益上限、目标电平、静音线、电平日志间隔（`audio/gain.py`，architecture.md §4） |
-| `turn` | 静音阈值、语音检测的音量门限（`vad_min_volume`，默认 0.6 ≈ −50 LUFS，0 = 关闭）、轮次结束模型开关、唤醒窗口（`wake_timeout_secs`，默认 30 秒，必须大于 0；`single_activation` 下助理一答完就回到待唤醒状态，它是「从叫名字到答完」的上限，也是助理说话时能用声音打断的时间）、是否每轮都要叫名字 |
-| `realtime` | 上下文预算、压缩保留时长、纪要间隔、纪要由谁写（`digest_provider`：`realtime_llm` 或 `agent_llm`，默认前者）、预热间隔、允许直连的 MCP 工具 |
-| `screen` | 截图间隔与阈值、是否生成摘要、摘要由谁生成 |
-| `transcript` | 发言怎么分条：同一个人两段之间停顿不超过 `merge_gap_secs`（默认 2 秒，0 = 不并）就并成一条；一条已有 `merge_soft_chars`（40）个字并且停在句末时另起一条；一条最多 `merge_max_chars`（200）个字。整段可以不写 |
-| `report` | 会后报告由谁写（`provider`：`realtime_llm` 或 `agent_llm`，默认前者）、一次请求最多放多少字的转录（`max_input_chars`，默认 8000，超过就分段提要点再合并）。整段可以不写 |
-| `agent` | 远端模型地址与密钥变量名、每个请求都并入的字段（`extra_body`，一般用来指定思考的强度，如 `{ reasoning_effort = "medium" }`；后台任务和直接生成都带）、直接生成（会后报告、滚动纪要、画面摘要）时的输出上限（`generation_max_tokens`，默认 16384；思考也算在里面）、要不要把截图原图也交给它（`attach_frames`，默认否；`max_attached_frames`，默认 40，规则见 architecture.md §5.3）、MCP 服务器列表、沙箱设置、并发与超时 |
+| 配置段         | 内容                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session`      | 助理名字（即唤醒词，必须是英文单词）、别名（`wake_aliases`：识别把名字写成的其他拼写，或听成的至少两个汉字；只用来唤醒，不作为识别热词）、识别热词、成员名单、数据目录                                                                                                                                                                                                                                                    |
+| `server`       | 监听地址与端口、HTTPS 证书、ICE 服务器、访问口令与登录有效期                                                                                                                                                                                                                                                                                                                                                              |
+| `realtime_llm` | 接入方式 `mode`，以及两种方式各自的一整套设置：`[realtime_llm.llama_server]`（地址、模型名字段、是否识图、思考开关、采样参数、槽位分工、启动参数）和 `[realtime_llm.openai_api]`（地址、密钥变量名、模型名、是否识图、是否认识 developer 角色、是否预热、附加请求字段、采样参数）                                                                                                                                         |
+| `asr`          | 识别后端、提示词格式档案、步长与窗口、每步不定稿的 token 数、句首回补时长（`preroll_ms`，默认 1500 毫秒）、启动参数                                                                                                                                                                                                                                                                                                       |
+| `diarization`  | 后端、动态库路径、权重路径、显卡序号、分段阈值                                                                                                                                                                                                                                                                                                                                                                            |
+| `tts`          | 地址、模型名字段、音色、语言、启动参数                                                                                                                                                                                                                                                                                                                                                                                    |
+| `embedding`    | 地址、模型名字段、向量维度、查询前缀（`query_prefix`，召回时加在查询前面的任务指令，默认空）、相关度门槛（`min_similarity`，余弦相似度，默认 0.4，0 = 不设）、启动参数                                                                                                                                                                                                                                                    |
+| `audio`        | 入口收音增强：自动增益开关、起始增益、增益上限、目标电平、静音线、电平日志间隔（`audio/gain.py`，architecture.md §4）                                                                                                                                                                                                                                                                                                     |
+| `turn`         | 静音阈值、语音检测的音量门限（`vad_min_volume`，默认 0.6 ≈ −50 LUFS，0 = 关闭）、轮次结束模型开关、唤醒窗口（`wake_timeout_secs`，默认 30 秒，必须大于 0；`single_activation` 下助理一答完就回到待唤醒状态，它是「从叫名字到答完」的上限，也是助理说话时能用声音打断的时间）、是否每轮都要叫名字                                                                                                                          |
+| `realtime`     | 上下文预算、压缩保留时长、纪要间隔、纪要由谁写（`digest_provider`：`realtime_llm` 或 `agent_llm`，默认前者）、预热间隔、允许直连的 MCP 工具                                                                                                                                                                                                                                                                               |
+| `screen`       | 截图间隔与阈值、是否生成摘要、摘要由谁生成                                                                                                                                                                                                                                                                                                                                                                                |
+| `transcript`   | 发言怎么分条：同一个人两段之间停顿不超过 `merge_gap_secs`（默认 2 秒，0 = 不并）就并成一条；一条已有 `merge_soft_chars`（40）个字并且停在句末时另起一条；一条最多 `merge_max_chars`（200）个字。整段可以不写                                                                                                                                                                                                              |
+| `report`       | 会后报告由谁写（`provider`：`realtime_llm` 或 `agent_llm`，默认前者）、一次请求最多放多少字的转录（`max_input_chars`，默认 8000，超过就分段提要点再合并）。整段可以不写                                                                                                                                                                                                                                                   |
+| `agent`        | 远端模型地址与密钥变量名、每个请求都并入的字段（`extra_body`，一般用来指定思考的强度，如 `{ reasoning_effort = "medium" }`；后台任务和直接生成都带）、直接生成（会后报告、滚动纪要、画面摘要）时的输出上限（`generation_max_tokens`，默认 16384；思考也算在里面）、要不要把截图原图也交给它（`attach_frames`，默认否；`max_attached_frames`，默认 40，规则见 architecture.md §5.3）、MCP 服务器列表、沙箱设置、并发与超时 |
 
 规则：
 
@@ -46,15 +46,16 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
 - 相对路径一律用 `AppConfig.resolve()` 解析（相对仓库根目录）。
 - 业务代码不按实时模型的接入方式分支。`RealtimeLLMConfig` 提供以下成员：
 
-  | 成员 | 含义 |
-  |---|---|
-  | `active` | 当前选中的那一套设置（`base_url`、`api_key_env`、`model`、`supports_vision`、`sampling`…） |
-  | `managed` | 是否由进程管理器启动实时模型服务（只有 `llama_server` 方式且 `launch.enabled` 时为真） |
-  | `request_extra_body(background=False)` | 每次请求要放进 `extra_body` 的字段，已按接入方式合并好 |
-  | `cache_warm` | 是否做缓存预热 |
-  | `supports_developer_role` | 服务端是否认识 `developer` 角色 |
+  | 成员                                   | 含义                                                                                       |
+  | -------------------------------------- | ------------------------------------------------------------------------------------------ |
+  | `active`                               | 当前选中的那一套设置（`base_url`、`api_key_env`、`model`、`supports_vision`、`sampling`…） |
+  | `managed`                              | 是否由进程管理器启动实时模型服务（只有 `llama_server` 方式且 `launch.enabled` 时为真）     |
+  | `request_extra_body(background=False)` | 每次请求要放进 `extra_body` 的字段，已按接入方式合并好                                     |
+  | `cache_warm`                           | 是否做缓存预热                                                                             |
+  | `supports_developer_role`              | 服务端是否认识 `developer` 角色                                                            |
 
   只有进程管理器（要不要生成启动命令）需要直接看 `mode` 和 `llama_server.launch`。
+
 - `config.check_warnings(cfg)` 返回不妨碍启动、但运维者应当知情的事项（目前是数据外发）。
   `check` 与 `serve` 都会打印这些事项，浏览器连接后各收到一条 `notice` 消息。
 - **模型相关的字符串不进代码**。识别模型的对话模板、前缀写法、输出标记放在
@@ -181,14 +182,14 @@ rows = conn.execute(
 
 **状态**（每路音频流一份）：
 
-| 变量 | 含义 |
-|---|---|
-| `pending` | 已收到、还没凑够一步的音频（float32，16 kHz） |
-| `window` | 当前音频窗口 |
-| `steps` | 列表，元素为 `(本步新增采样数, 本步新定稿文字)`，与 `window` 里的音频一一对应 |
-| `prefix_text` | `steps` 里所有定稿文字的拼接，即当前窗口对应的已定稿文字 |
-| `unstable` | 上一步留下的未定稿尾巴（只用于显示，下一步会重新生成） |
-| `busy` | 是否有请求在途（同一时刻只允许一个请求） |
+| 变量          | 含义                                                                          |
+| ------------- | ----------------------------------------------------------------------------- |
+| `pending`     | 已收到、还没凑够一步的音频（float32，16 kHz）                                 |
+| `window`      | 当前音频窗口                                                                  |
+| `steps`       | 列表，元素为 `(本步新增采样数, 本步新定稿文字)`，与 `window` 里的音频一一对应 |
+| `prefix_text` | `steps` 里所有定稿文字的拼接，即当前窗口对应的已定稿文字                      |
+| `unstable`    | 上一步留下的未定稿尾巴（只用于显示，下一步会重新生成）                        |
+| `busy`        | 是否有请求在途（同一时刻只允许一个请求）                                      |
 
 **一步的流程**（当 `pending` 攒够 `chunk_ms`，且没有请求在途时触发）：
 
@@ -220,6 +221,7 @@ rows = conn.execute(
 
    **必须按 token 回退，不能按字符。** 按字符会把一个 token 切成两半（例如把「现在」切成「现」），
    模型接着半个词续写时会丢字、乱加标点。
+
 8. **产出**。`stable_new = full[len(prefix_text):定稿位置]`，`unstable = full[定稿位置:]`；
    `steps.append((本步采样数, stable_new))`；发出
    `ASRDelta(stable_text=stable_new, unstable_text=unstable, audio_end_secs=调用方传入的最新值)`。
@@ -289,12 +291,12 @@ rows = conn.execute(
 
 `StreamingASRService` 继承 Pipecat 的 `STTService`，职责：
 
-| 输入 | 动作 |
-|---|---|
-| 音频帧 | 累加采样计数；没在说话时写入预留缓冲（保留最近 `preroll_ms`，停止说话时清空，所以只含上一段之后的音频），说话中调用后端 `push_audio`；原样放行。回补要够长：「名字，（停一下）要求」里的名字很短，语音检测常到后半句才触发，回补不到名字就唤不醒 |
-| 开始说话事件 | 进入「说话中」；先把预留缓冲里的音频**作为一整块**送给后端（`audio_end_secs` = 此刻累计采样数 / 16000），随后清空缓冲 |
-| 停止说话事件 | 调用后端 `flush()`（等它返回，收尾的增量已进队列），然后退出「说话中」 |
-| 后端增量 | 转成转录帧向下游推送（规则见下） |
+| 输入         | 动作                                                                                                                                                                                                                                             |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 音频帧       | 累加采样计数；没在说话时写入预留缓冲（保留最近 `preroll_ms`，停止说话时清空，所以只含上一段之后的音频），说话中调用后端 `push_audio`；原样放行。回补要够长：「名字，（停一下）要求」里的名字很短，语音检测常到后半句才触发，回补不到名字就唤不醒 |
+| 开始说话事件 | 进入「说话中」；先把预留缓冲里的音频**作为一整块**送给后端（`audio_end_secs` = 此刻累计采样数 / 16000），随后清空缓冲                                                                                                                            |
+| 停止说话事件 | 调用后端 `flush()`（等它返回，收尾的增量已进队列），然后退出「说话中」                                                                                                                                                                           |
+| 后端增量     | 转成转录帧向下游推送（规则见下）                                                                                                                                                                                                                 |
 
 转录帧的规则（括号中的原因对应 Pipecat 1.12.0 的行为）：
 
@@ -382,17 +384,17 @@ class DiarSegment(C.Structure):
 函数（返回 `int` 的都是状态码，`0` 表示成功；失败时调 `nemo_speech_asr_last_error()` 取错误文字，
 它返回 `const char*`，且是**线程局部**的，必须在出错的同一线程里立刻读）：
 
-| 函数 | 参数 | 返回 |
-|---|---|---|
-| `nemo_speech_diar_create` | `(DiarModelConfig*, void**)` | 状态码 |
-| `nemo_speech_diar_destroy` | `(void* model)` | 无 |
-| `nemo_speech_diar_num_speakers` | `(void* model)` | `int32` |
-| `nemo_speech_diar_seconds_per_frame` | `(void* model)` | `double` |
-| `nemo_speech_diar_stream_open` | `(void* model, void** stream)` | 状态码 |
-| `nemo_speech_diar_stream_push_f32` | `(void* stream, float*, size_t n, int32 sample_rate)` | 状态码 |
-| `nemo_speech_diar_stream_finish` | `(void* stream)` | 状态码 |
-| `nemo_speech_diar_stream_close` | `(void* stream)` | 无 |
-| `nemo_speech_diar_segments` | `(void* stream, DiarSegmentationConfig*, DiarSegment* out, size_t capacity, size_t* count)` | 状态码 |
+| 函数                                 | 参数                                                                                        | 返回     |
+| ------------------------------------ | ------------------------------------------------------------------------------------------- | -------- |
+| `nemo_speech_diar_create`            | `(DiarModelConfig*, void**)`                                                                | 状态码   |
+| `nemo_speech_diar_destroy`           | `(void* model)`                                                                             | 无       |
+| `nemo_speech_diar_num_speakers`      | `(void* model)`                                                                             | `int32`  |
+| `nemo_speech_diar_seconds_per_frame` | `(void* model)`                                                                             | `double` |
+| `nemo_speech_diar_stream_open`       | `(void* model, void** stream)`                                                              | 状态码   |
+| `nemo_speech_diar_stream_push_f32`   | `(void* stream, float*, size_t n, int32 sample_rate)`                                       | 状态码   |
+| `nemo_speech_diar_stream_finish`     | `(void* stream)`                                                                            | 状态码   |
+| `nemo_speech_diar_stream_close`      | `(void* stream)`                                                                            | 无       |
+| `nemo_speech_diar_segments`          | `(void* stream, DiarSegmentationConfig*, DiarSegment* out, size_t capacity, size_t* count)` | 状态码   |
 
 每个函数都需要设置 `argtypes` 和 `restype`，否则 64 位指针会被截断。
 
@@ -460,16 +462,16 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 ### 5.1 会话与对时
 
-| 方法与路径 | 请求 | 响应 |
-|---|---|---|
-| `GET /api/time` | — | `{"server_time": <Unix 秒，浮点>}` |
-| `GET /api/sessions?limit=20&before=<last_active_at>` | — | `{"items": [会话摘要]}`，按 `last_active_at` 倒序；`before` 用来翻页 |
-| `GET /api/sessions/{id}` | — | 会话摘要 + `"screen": {配置的 screen 段}` + `"connections": [{connected_at, disconnected_at, t_from, t_to}]`；不存在返回 404 |
-| `GET /api/session` | — | 「当前会话」：活动连接所在的会话；没有就取最近一个未结束的；都没有返回 404。格式同上 |
-| `PATCH /api/sessions/{id}` | `{"title": "..."}` | 更新后的会话摘要 |
-| `POST /api/sessions/{id}/end` | — | `{"id", "ended_at"}`。会话正在进行时同时断开它的连接，并在后台生成最后一份滚动纪要（响应不等它） |
-| `POST /api/session/end` | — | 同上，作用于当前会话 |
-| `DELETE /api/sessions/{id}` | — | `{"id"}`。连同截图文件和任务目录一起删；会话正在进行返回 409 |
+| 方法与路径                                           | 请求               | 响应                                                                                                                         |
+| ---------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/time`                                      | —                  | `{"server_time": <Unix 秒，浮点>}`                                                                                           |
+| `GET /api/sessions?limit=20&before=<last_active_at>` | —                  | `{"items": [会话摘要]}`，按 `last_active_at` 倒序；`before` 用来翻页                                                         |
+| `GET /api/sessions/{id}`                             | —                  | 会话摘要 + `"screen": {配置的 screen 段}` + `"connections": [{connected_at, disconnected_at, t_from, t_to}]`；不存在返回 404 |
+| `GET /api/session`                                   | —                  | 「当前会话」：活动连接所在的会话；没有就取最近一个未结束的；都没有返回 404。格式同上                                         |
+| `PATCH /api/sessions/{id}`                           | `{"title": "..."}` | 更新后的会话摘要                                                                                                             |
+| `POST /api/sessions/{id}/end`                        | —                  | `{"id", "ended_at"}`。会话正在进行时同时断开它的连接，并在后台生成最后一份滚动纪要（响应不等它）                             |
+| `POST /api/session/end`                              | —                  | 同上，作用于当前会话                                                                                                         |
+| `DELETE /api/sessions/{id}`                          | —                  | `{"id"}`。连同截图文件和任务目录一起删；会话正在进行返回 409                                                                 |
 
 **会话摘要**：`{"id", "title", "started_at", "ended_at", "last_active_at", "state": "live" | "interrupted" | "ended",
 "duration_secs", "utterance_count", "speakers": ["王老师", …], "preview": [{"speaker", "text"}（最后两条发言）]}`。
@@ -482,10 +484,10 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 ### 5.2 WebRTC 信令
 
-| 方法与路径 | 说明 |
-|---|---|
-| `POST /api/offer` | 请求体与响应由 Pipecat 的 `SmallWebRTCRequestHandler` 定义，原样转交 |
-| `PATCH /api/offer` | 追加 ICE 候选，同上 |
+| 方法与路径         | 说明                                                                 |
+| ------------------ | -------------------------------------------------------------------- |
+| `POST /api/offer`  | 请求体与响应由 Pipecat 的 `SmallWebRTCRequestHandler` 定义，原样转交 |
+| `PATCH /api/offer` | 追加 ICE 候选，同上                                                  |
 
 写法与 Pipecat 自带的运行器一致（见 pipecat-notes.md §2）。客户端在连接参数的 `requestData`
 里可带 `{"session_id": "<要继续的会话>"}`：
@@ -512,10 +514,10 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 `POST /api/frames`，`multipart/form-data`：
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `captured_at` | 浮点字符串 | 采集时刻，**已换算成服务端时钟**的 Unix 秒 |
-| `image` | 文件 | `image/webp` 或 `image/jpeg`，长边不超过 `screen.max_side_px` |
+| 字段          | 类型       | 说明                                                          |
+| ------------- | ---------- | ------------------------------------------------------------- |
+| `captured_at` | 浮点字符串 | 采集时刻，**已换算成服务端时钟**的 Unix 秒                    |
+| `image`       | 文件       | `image/webp` 或 `image/jpeg`，长边不超过 `screen.max_side_px` |
 
 响应 `{"id": <截图编号>, "t": <会话时间轴秒>}`。校验：当前有进行中的会议；文件类型合法；
 大小 ≤ 4 MB；`captured_at` 与服务端当前时间相差不超过 60 秒（否则 400）。
@@ -546,15 +548,15 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 下面所有接口的 `session_id` 都可省略，省略时指「当前会话」（§5.1）。
 
-| 方法与路径 | 说明 |
-|---|---|
-| `GET /api/utterances?session_id=&after_id=&limit=` | id 大于 `after_id` 的发言，按 `id` 升序。重连后补齐字幕用 |
-| `GET /api/utterances?session_id=&tail=50` | **最近 50 条**（仍按 `id` 升序返回）。页面一打开就显示「最近对话」用；与 `after_id` 互斥 |
-| `GET /api/utterances?session_id=&before_id=&limit=` | 向更早的方向翻页，按 `id` 升序返回 |
-| `GET /api/speakers?session_id=` | `[{"idx", "display_name"}]` |
-| `PUT /api/speakers/{idx}` | 请求体 `{"session_id"?, "display_name": "王老师"}`；改名后向浏览器广播 `speaker` 消息 |
-| `POST /api/utterances/speaker` | 请求体 `{"session_id"?, "ids": [发言编号…], "speaker_idx": 2}` 或 `{…, "new_speaker": "张老师"}`：把选中的发言改成另一个说话人（已有的，或新建一个）；响应 `{"speaker": {idx, display_name}, "ids": [真正改了的]}`；会议正在进行时逐条广播 `utterance_update` |
-| `POST /api/speakers/{idx}/merge` | 请求体 `{"session_id"?, "into": 2}`：把 `idx` 的全部发言并入 `into`，删除 `idx`；响应 `{"from", "into", "display_name", "moved"}`；会议正在进行时广播 `speakers_merged` |
+| 方法与路径                                          | 说明                                                                                                                                                                                                                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/utterances?session_id=&after_id=&limit=`  | id 大于 `after_id` 的发言，按 `id` 升序。重连后补齐字幕用                                                                                                                                                                                                     |
+| `GET /api/utterances?session_id=&tail=50`           | **最近 50 条**（仍按 `id` 升序返回）。页面一打开就显示「最近对话」用；与 `after_id` 互斥                                                                                                                                                                      |
+| `GET /api/utterances?session_id=&before_id=&limit=` | 向更早的方向翻页，按 `id` 升序返回                                                                                                                                                                                                                            |
+| `GET /api/speakers?session_id=`                     | `[{"idx", "display_name"}]`                                                                                                                                                                                                                                   |
+| `PUT /api/speakers/{idx}`                           | 请求体 `{"session_id"?, "display_name": "王老师"}`；改名后向浏览器广播 `speaker` 消息                                                                                                                                                                         |
+| `POST /api/utterances/speaker`                      | 请求体 `{"session_id"?, "ids": [发言编号…], "speaker_idx": 2}` 或 `{…, "new_speaker": "张老师"}`：把选中的发言改成另一个说话人（已有的，或新建一个）；响应 `{"speaker": {idx, display_name}, "ids": [真正改了的]}`；会议正在进行时逐条广播 `utterance_update` |
+| `POST /api/speakers/{idx}/merge`                    | 请求体 `{"session_id"?, "into": 2}`：把 `idx` 的全部发言并入 `into`，删除 `idx`；响应 `{"from", "into", "display_name", "moved"}`；会议正在进行时广播 `speakers_merged`                                                                                       |
 
 发言项：`{"id", "speaker_idx", "speaker_name", "t_start", "t_end", "text", "source"}`；`/api/utterances` 与 `/api/speakers` 的响应都是 `{"items": [...]}`。`limit` 与 `tail` 都是 1–500；`after_id`、`before_id`、`tail` 同时给出返回 400。说话人名字去首尾空白、最长 50 字；`PUT /api/speakers/{idx}` 返回 `{"idx", "display_name"}`，说话人不存在返回 404 `这场会议里没有这个说话人`；改的是正在进行的会议时，同时更新记录器里的名字（之后的字幕和上下文行用新名字）并推 `speaker` 消息。
 
@@ -577,12 +579,12 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 ### 5.5 任务
 
-| 方法与路径 | 说明 |
-|---|---|
-| `GET /api/tasks?session_id=` | 任务列表（不含详细结果） |
-| `GET /api/tasks/{id}` | 单个任务：全部字段 + 进度事件列表 |
-| `POST /api/tasks/{id}/cancel` | 取消 |
-| `GET /api/tasks/{id}/artifacts/{name}` | 下载产物文件 |
+| 方法与路径                             | 说明                              |
+| -------------------------------------- | --------------------------------- |
+| `GET /api/tasks?session_id=`           | 任务列表（不含详细结果）          |
+| `GET /api/tasks/{id}`                  | 单个任务：全部字段 + 进度事件列表 |
+| `POST /api/tasks/{id}/cancel`          | 取消                              |
+| `GET /api/tasks/{id}/artifacts/{name}` | 下载产物文件                      |
 
 补充说明（`web/tasks_api.py`）：
 
@@ -603,14 +605,14 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 ### 5.6 导出与报告
 
-| 方法与路径 | 说明 |
-|---|---|
-| `GET /api/export/{session_id}.md` | Markdown 转录：标题与时间 → 纪要 → 按时间排列的发言（相邻同一说话人的合并成段）→ 截图引用 → 任务结果 |
-| `GET /api/export/{session_id}.json` | 结构化 JSON：会话、说话人、发言、截图、纪要、任务（含事件）、各次连接、最近一份报告 |
-| `GET /api/export/{session_id}.zip` | 完整包：`transcript.md`、`session.json`、`report.md`（若有）、`frames/`、`tasks/` 下的产物 |
-| `POST /api/sessions/{id}/report` | 触发生成会后报告（异步）；响应 202 `{"report_id", "status": "running"}`；该会话已有一份在生成时返回 409 |
-| `GET /api/sessions/{id}/report` | 最近一份：`{"id", "status": "running" \| "done" \| "failed", "created_at", "provider", "text_md", "error"}`；还没有返回 404 |
-| `GET /api/sessions/{id}/report.md` | 最近一份报告的文本下载 |
+| 方法与路径                          | 说明                                                                                                                        |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/export/{session_id}.md`   | Markdown 转录：标题与时间 → 纪要 → 按时间排列的发言（相邻同一说话人的合并成段）→ 截图引用 → 任务结果                        |
+| `GET /api/export/{session_id}.json` | 结构化 JSON：会话、说话人、发言、截图、纪要、任务（含事件）、各次连接、最近一份报告                                         |
+| `GET /api/export/{session_id}.zip`  | 完整包：`transcript.md`、`session.json`、`report.md`（若有）、`frames/`、`tasks/` 下的产物                                  |
+| `POST /api/sessions/{id}/report`    | 触发生成会后报告（异步）；响应 202 `{"report_id", "status": "running"}`；该会话已有一份在生成时返回 409                     |
+| `GET /api/sessions/{id}/report`     | 最近一份：`{"id", "status": "running" \| "done" \| "failed", "created_at", "provider", "text_md", "error"}`；还没有返回 404 |
+| `GET /api/sessions/{id}/report.md`  | 最近一份报告的文本下载                                                                                                      |
 
 **Markdown 导出的实现（`web/export.py`）**：
 
@@ -664,11 +666,11 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 拦住 `/api/` 下除 `GET /api/auth` 和 `POST /api/auth/login` 以外的全部路径。静态页面（`/`、`/assets/…`）
 不拦截，里面没有会议数据。
 
-| 方法与路径 | 请求 | 响应 |
-|---|---|---|
-| `GET /api/auth` | — | `{"enabled", "authenticated", "csrf_token"}`；未登录或未启用口令时 `csrf_token` 为 `null` |
-| `POST /api/auth/login` | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}`，并下发会话 Cookie。口令不对 401；尝试过多 429，`Retry-After` 给出秒数；未启用口令 404 |
-| `POST /api/auth/logout` | — | `{"enabled": true, "authenticated": false, "csrf_token": null}`，并清除 Cookie |
+| 方法与路径              | 请求                  | 响应                                                                                                                                            |
+| ----------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/auth`         | —                     | `{"enabled", "authenticated", "csrf_token"}`；未登录或未启用口令时 `csrf_token` 为 `null`                                                       |
+| `POST /api/auth/login`  | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}`，并下发会话 Cookie。口令不对 401；尝试过多 429，`Retry-After` 给出秒数；未启用口令 404 |
+| `POST /api/auth/logout` | —                     | `{"enabled": true, "authenticated": false, "csrf_token": null}`，并清除 Cookie                                                                  |
 
 **受保护的请求。** 没有有效的会话 Cookie 时返回 401 `{"error": "请先登录"}`。`POST`、`PUT`、`PATCH`、
 `DELETE` 还要求请求头 `X-CSRF-Token` 等于当前会话的令牌，否则 403。`POST`/`PATCH /api/offer` 也不例外：
@@ -701,21 +703,21 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 服务端向管线推 `RTVIServerMessageFrame(data=<下面的对象>)`；浏览器在 `onServerMessage` 回调里收到。
 每条消息都有 `type` 字段：
 
-| `type` | 其余字段 | 含义 |
-|---|---|---|
-| `caption` | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable` | 当前正在说的这一段的实时字幕；同一 `segment_id` 的后一条覆盖前一条 |
-| `utterance` | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source` | 一条发言已定稿落库；界面用它替换对应 `segment_id` 的实时字幕。`id` 是界面上已有的发言时，表示新片段并进了那一条（§4.3 第 7 条）：`text` 是并好的全文，`segment_id` 那行实时字幕收掉 |
-| `utterance_update` | `id, speaker_idx, speaker_name` | 说话人更正 |
-| `speaker` | `idx, display_name` | 说话人改名 |
-| `speakers_merged` | `from, into, display_name` | 说话人 `from` 并入了 `into`（`display_name` 是 `into` 的显示名）：页面把已加载的发言改到 `into` 名下，并从说话人列表里去掉 `from` |
-| `frame` | `id, t, width, height` | 新截图 |
-| `frame_caption` | `id, caption` | 截图摘要已生成 |
-| `assistant_state` | `state`：`idle` / `listening` / `thinking` / `speaking` | 助理状态 |
-| `task` | `id, label, goal, status, brief, error, modality, created_at` | 任务创建或状态变化（`id` 是完整编号，`label` 是会议内的短编号 `t3`） |
-| `task_event` | `task_id, at, kind, summary` | 任务进度 |
-| `notice` | `level`：`info` / `warn` / `error`，`text` | 需要让用户知道的提示（如某服务不可用）。实时模型、语音合成的请求出错时，服务端把管线里的错误换成一句中文发出来（`pipeline/errors.py`）；Pipecat 自带的 RTVI `error` 消息页面只显示致命的 |
-| `session` | `id, title, started_at, resumed, base_secs, state` | 连接建立后发一次：这路连接挂在哪个会话上；`resumed` 为真表示是继续，不是新建；`base_secs` 是本次连接的时间轴起点 |
-| `session_closed` | `reason`：`taken_over` / `ended` / `server_stopping` | 连接即将被服务端关闭的原因（尽力而为地发出），页面据此提示而不是静默变成未连接 |
+| `type`             | 其余字段                                                                  | 含义                                                                                                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caption`          | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable`        | 当前正在说的这一段的实时字幕；同一 `segment_id` 的后一条覆盖前一条                                                                                                                       |
+| `utterance`        | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source` | 一条发言已定稿落库；界面用它替换对应 `segment_id` 的实时字幕。`id` 是界面上已有的发言时，表示新片段并进了那一条（§4.3 第 7 条）：`text` 是并好的全文，`segment_id` 那行实时字幕收掉      |
+| `utterance_update` | `id, speaker_idx, speaker_name`                                           | 说话人更正                                                                                                                                                                               |
+| `speaker`          | `idx, display_name`                                                       | 说话人改名                                                                                                                                                                               |
+| `speakers_merged`  | `from, into, display_name`                                                | 说话人 `from` 并入了 `into`（`display_name` 是 `into` 的显示名）：页面把已加载的发言改到 `into` 名下，并从说话人列表里去掉 `from`                                                        |
+| `frame`            | `id, t, width, height`                                                    | 新截图                                                                                                                                                                                   |
+| `frame_caption`    | `id, caption`                                                             | 截图摘要已生成                                                                                                                                                                           |
+| `assistant_state`  | `state`：`idle` / `listening` / `thinking` / `speaking`                   | 助理状态                                                                                                                                                                                 |
+| `task`             | `id, label, goal, status, brief, error, modality, created_at`             | 任务创建或状态变化（`id` 是完整编号，`label` 是会议内的短编号 `t3`）                                                                                                                     |
+| `task_event`       | `task_id, at, kind, summary`                                              | 任务进度                                                                                                                                                                                 |
+| `notice`           | `level`：`info` / `warn` / `error`，`text`                                | 需要让用户知道的提示（如某服务不可用）。实时模型、语音合成的请求出错时，服务端把管线里的错误换成一句中文发出来（`pipeline/errors.py`）；Pipecat 自带的 RTVI `error` 消息页面只显示致命的 |
+| `session`          | `id, title, started_at, resumed, base_secs, state`                        | 连接建立后发一次：这路连接挂在哪个会话上；`resumed` 为真表示是继续，不是新建；`base_secs` 是本次连接的时间轴起点                                                                         |
+| `session_closed`   | `reason`：`taken_over` / `ended` / `server_stopping`                      | 连接即将被服务端关闭的原因（尽力而为地发出），页面据此提示而不是静默变成未连接                                                                                                           |
 
 `segment_id` 是服务端生成的递增整数，一次「开始说话 → 停止说话」内可能因换人而产生多个。
 
@@ -746,10 +748,10 @@ SDK 的 `onBotStartedSpeaking` / `onBotStoppedSpeaking` 回调自行显示。
 
 用 `client.sendClientMessage(type, data)`；服务端在 `RTVIProcessor` 的 `on_client_message` 事件里处理。
 
-| `type` | `data` | 含义 |
-|---|---|---|
-| `text_input` | `{"text": "..."}` | 打字提问或委托任务。等同于一次已唤醒的用户请求，不需要唤醒词，只以文字回答（见 §6.3）。文本去掉首尾空白后不能为空、不超过 2000 字，否则丢弃并回一条 `notice` |
-| `screen_state` | `{"sharing": true/false}` | 屏幕共享的开始/暂停，仅用于界面状态与日志 |
+| `type`         | `data`                    | 含义                                                                                                                                                         |
+| -------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `text_input`   | `{"text": "..."}`         | 打字提问或委托任务。等同于一次已唤醒的用户请求，不需要唤醒词，只以文字回答（见 §6.3）。文本去掉首尾空白后不能为空、不超过 2000 字，否则丢弃并回一条 `notice` |
+| `screen_state` | `{"sharing": true/false}` | 屏幕共享的开始/暂停，仅用于界面状态与日志                                                                                                                    |
 
 ### 6.3 文字输入与应答模态
 
@@ -775,14 +777,14 @@ SDK 的 `onBotStartedSpeaking` / `onBotStoppedSpeaking` 回调自行显示。
 用 Pipecat 的「直接函数」方式定义（函数签名和文档字符串即工具描述，见 pipecat-notes.md §6）。
 工具的名字、参数名用英文，描述用中文。返回值都是可序列化为 JSON 的字典，字段尽量少。
 
-| 工具 | 参数 | 返回 | 类别 |
-|---|---|---|---|
-| `recall` | `query?`（关键词或一句话）、`speaker?`（显示名）、`minutes_ago_from?`、`minutes_ago_to?`、`limit?` | `{"items": [{"time": "00:14:02", "speaker": "王老师", "text": "..."}]}` | 同步 |
-| `get_digest` | `scope`：`"all"` / `"recent"` | `{"digest": "...", "covers_until": "00:42:10", "since_then": [最近未纳入纪要的发言]}` | 同步 |
-| `look_at_screen` | `frame_ids?`（逗号分开的截图编号，最多 3 个） | 不带参数：把最新截图加入上下文，并列出更早的截图供挑选；带编号：把那几张之前的截图加入上下文 | 同步 |
-| `delegate_task` | `goal`（完整、独立可读的任务描述）、`minutes_of_context?`（带上最近几分钟的转录，默认 5）、`include_screen?` | 先回报 `{"task_id": "t3", "status": "accepted"}`；结束时回报 `{"task_id", "status", "brief"}` | 异步 |
-| `task_status` | `task_id?`（不填 = 最近一个） | `{"task_id", "status", "goal", "recent_steps": [...]}` | 同步 |
-| `cancel_task` | `task_id` | `{"task_id", "status"}` | 同步 |
+| 工具             | 参数                                                                                                         | 返回                                                                                          | 类别 |
+| ---------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- | ---- |
+| `recall`         | `query?`（关键词或一句话）、`speaker?`（显示名）、`minutes_ago_from?`、`minutes_ago_to?`、`limit?`           | `{"items": [{"time": "00:14:02", "speaker": "王老师", "text": "..."}]}`                       | 同步 |
+| `get_digest`     | `scope`：`"all"` / `"recent"`                                                                                | `{"digest": "...", "covers_until": "00:42:10", "since_then": [最近未纳入纪要的发言]}`         | 同步 |
+| `look_at_screen` | `frame_ids?`（逗号分开的截图编号，最多 3 个）                                                                | 不带参数：把最新截图加入上下文，并列出更早的截图供挑选；带编号：把那几张之前的截图加入上下文  | 同步 |
+| `delegate_task`  | `goal`（完整、独立可读的任务描述）、`minutes_of_context?`（带上最近几分钟的转录，默认 5）、`include_screen?` | 先回报 `{"task_id": "t3", "status": "accepted"}`；结束时回报 `{"task_id", "status", "brief"}` | 异步 |
+| `task_status`    | `task_id?`（不填 = 最近一个）                                                                                | `{"task_id", "status", "goal", "recent_steps": [...]}`                                        | 同步 |
+| `cancel_task`    | `task_id`                                                                                                    | `{"task_id", "status"}`                                                                       | 同步 |
 
 时间参数用「距现在多少分钟」而不是绝对时间：实时模型不擅长算时间，而「刚才」「十分钟前」
 可以直接映射。返回里的时间是会话时间轴的 `时:分:秒`。
@@ -908,14 +910,14 @@ agent 的最终回答必须是如下 JSON 对象（由 agent 的系统提示词�
 
 运行器把 agent 框架的流式事件转换成一句中文的 `summary`，可以直接朗读：
 
-| 事件 | `kind` | `summary` 示例 |
-|---|---|---|
-| 任务开始 | `status` | 开始处理 |
-| 调用 MCP 工具 | `tool_call` | 正在检索「对比学习 温度系数」 |
-| 工具返回 | `tool_result` | 工具返回了结果（约 320 字） |
-| 执行代码 | `tool_call` | 正在运行一段代码 |
-| 代码结束 | `tool_result` | 代码运行完成 |
-| 任务结束 | `status` | 已完成 / 失败：<原因> / 已取消 |
+| 事件          | `kind`        | `summary` 示例                 |
+| ------------- | ------------- | ------------------------------ |
+| 任务开始      | `status`      | 开始处理                       |
+| 调用 MCP 工具 | `tool_call`   | 正在检索「对比学习 温度系数」  |
+| 工具返回      | `tool_result` | 工具返回了结果（约 320 字）    |
+| 执行代码      | `tool_call`   | 正在运行一段代码               |
+| 代码结束      | `tool_result` | 代码运行完成                   |
+| 任务结束      | `status`      | 已完成 / 失败：<原因> / 已取消 |
 
 措辞规则（`describe_tool_call` / `describe_tool_output`）：工具参数里有 `query` / `q` / `keywords` 之类的字段时是
 「正在检索「…」」，有 `url` 时是「正在打开「…」」，否则「正在调用工具 xxx」；工具返回只说个大概——
@@ -1001,10 +1003,10 @@ tts-server --model <model_path> --codec <codec_path> --alias <tts.model>
 **应用向实时模型发请求时附带的字段**（放在 OpenAI SDK 的 `extra_body` 里）：一律取自
 `cfg.realtime_llm.request_extra_body(background=...)`：
 
-| 接入方式 | 内容 |
-|---|---|
+| 接入方式       | 内容                                                                                                                                                                                            |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `llama_server` | 配置中的 `extra_body` + `top_k`（若配置了）+ `{"id_slot": <槽位>, "cache_prompt": true}`；实时应答与预热用 `realtime_slot`，后台任务（画面摘要、纪要）传 `background=True` 用 `background_slot` |
-| `openai_api` | 配置中的 `extra_body` + `top_k`（若配置了）。不带任何 llama.cpp 专有字段 |
+| `openai_api`   | 配置中的 `extra_body` + `top_k`（若配置了）。不带任何 llama.cpp 专有字段                                                                                                                        |
 
 **语音合成接口**（qwentts.cpp `tts-server`）：
 

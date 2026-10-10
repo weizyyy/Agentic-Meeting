@@ -90,7 +90,11 @@ export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
               </h3>
               <span className="spacer" />
               {!isFinished(open.status) && (
-                <button type="button" className="link link-danger" onClick={() => onCancel(open.id)}>
+                <button
+                  type="button"
+                  className="link link-danger"
+                  onClick={() => onCancel(open.id)}
+                >
                   取消任务
                 </button>
               )}

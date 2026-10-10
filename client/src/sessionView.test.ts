@@ -53,7 +53,10 @@ test("预览取最后一句，太长截断", () => {
     previewLine({ preview: [{ speaker: "甲", text: "一二三四五六七八九十" }] }, 5),
     "甲：一二三四五…",
   );
-  assert.equal(previewLine({ preview: [{ speaker: "甲", text: "一二三四五" }] }, 5), "甲：一二三四五");
+  assert.equal(
+    previewLine({ preview: [{ speaker: "甲", text: "一二三四五" }] }, 5),
+    "甲：一二三四五",
+  );
 });
 
 test("进行中的会议不能删", () => {
@@ -81,7 +84,10 @@ test("改名候选：成员名单里还没被别人用的名字", () => {
     { idx: 1, display_name: "王老师" },
     { idx: 2, display_name: "说话人 2" },
   ];
-  assert.deepEqual(nameSuggestions(["王老师", "李同学", "张同学"], speakers, 2), ["李同学", "张同学"]);
+  assert.deepEqual(nameSuggestions(["王老师", "李同学", "张同学"], speakers, 2), [
+    "李同学",
+    "张同学",
+  ]);
   // 正在改名的这个人自己现在叫什么，不算「被别人用了」
   assert.deepEqual(nameSuggestions(["王老师", "李同学"], speakers, 1), ["王老师", "李同学"]);
   assert.deepEqual(nameSuggestions([], speakers, 1), []);

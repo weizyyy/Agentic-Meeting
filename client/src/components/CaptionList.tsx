@@ -91,7 +91,9 @@ export function CaptionList({
     const from = lastPicked.current;
     lastPicked.current = id;
     onSelect(
-      range && from !== null ? selectRange(lines, selected, from, id) : toggleSelection(selected, id),
+      range && from !== null
+        ? selectRange(lines, selected, from, id)
+        : toggleSelection(selected, id),
     );
   };
 
