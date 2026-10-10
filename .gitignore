@@ -42,3 +42,7 @@ build/
 .DS_Store
 Thumbs.db
 *.log
+
+# ---- 浏览器测试产物 ----
+/client/test-results/
+/client/playwright-report/

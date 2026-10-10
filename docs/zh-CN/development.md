@@ -100,10 +100,92 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
   ```
 
 新测试请写成用户认得出的场景：他们在会议页面或命令行上做了什么，之后通过接口、数据通道或文件看到了什么。
-不要给单个函数或类写测试：那只会把代码现在的形状固定下来，并不能证明系统能用。网页客户端目前没有自己的测试：
-`npm run build` 会做类型检查，它收发的每一种消息在服务端一侧由 `tests/e2e/` 覆盖。
+不要给单个函数或类写测试：那只会把代码现在的形状固定下来，并不能证明系统能用。`npm run build` 对网页客户端做类型检查，
+它收发的每一种消息在服务端一侧由 `tests/e2e/` 覆盖，下面的浏览器测试则在真实浏览器里操作构建好的页面。
 
-其他端到端的验证使用 [runtimes.md §6](runtimes.md) 中介绍的脚本：`scripts/soak.py` 把一段录音送入运行中的服务，
+### 浏览器端到端测试
+
+浏览器测试使用客户端 lockfile 中的 Playwright 1.64.0、Python 3.12–3.14 和 Node.js 24（CI 版本）。
+在仓库根目录安装锁定依赖、构建真实客户端并安装三个浏览器引擎：
+
+```bash
+uv sync --frozen --extra agent
+npm ci
+npm ci --prefix client
+npm run build --prefix client
+cd client
+npx playwright install --with-deps chromium firefox webkit
+cd ..
+```
+
+浏览器安装会下载浏览器二进制文件，在 Linux 上安装系统包可能需要管理员权限；不会下载模型权重。
+修改客户端代码后先重新构建，再运行测试，因为测试服务器提供的是 `client/dist/`。
+
+```bash
+# 三个引擎：Chromium、Firefox 和 WebKit
+npm run test:e2e --prefix client
+# 单个引擎
+npm run test:e2e --prefix client -- --project=chromium
+# 单个引擎中的一个用例
+npm run test:e2e --prefix client -- --project=chromium --grep '真实页面、WebRTC、RTVI 与合成媒体探针'
+```
+
+无界面的 Linux 还需要音频输出后端，否则 Firefox 原生 `AudioContext.resume()` 可能一直等待，
+尚未开始 WebRTC 协商。CI 启动 PulseAudio 的 CPU null sink，丢弃输出，不需要物理声卡。
+在无界面的 Ubuntu 上，先准备这个后端再运行浏览器测试：
+
+```bash
+sudo apt-get install -y pulseaudio pulseaudio-utils
+pulseaudio --start --exit-idle-time=-1
+pactl load-module module-null-sink sink_name=e2e
+pactl set-default-sink e2e
+```
+
+当前锁定的 Linux WebKit 会挂起文档外的静音 MediaStream video，包括测试中的原生屏幕帧消费端。
+CI 使用 WebKit 的测试环境变量允许播放。本地 Linux 准备好 PulseAudio 后运行：
+
+```bash
+WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS=1 npm run test:e2e --prefix client
+```
+
+锁定的浏览器包含 [WebKit 319380 上游修复](https://github.com/WebKit/WebKit/commit/f2797a15c336841f348b94902c3dd556a0cd5540)
+后移除此临时措施。原生媒体轨道、视频解码、截图上传及断言均保持不变。
+
+这是测试环境准备，不替换 AudioContext 或 SDK。CI runner 在 job 结束后销毁。
+本地运行结束后，用 `pactl load-module` 打印的 ID 卸载模块（`pactl unload-module <id>`）；
+只有 PulseAudio 专为这次测试启动时才停止它。
+
+三个引擎运行相同的核心用例，单 worker，不重试。每个用例启动独立的 `tests.browser.server` Python 子进程，
+监听动态分配的回环端口。夹具等待服务器启动完成后输出的结构化 `E2E_READY` 消息。
+服务器拥有一个系统临时目录（`agentic-meeting-e2e-*`），内含独立 SQLite 数据库、虚构会议种子、截图与任务产物。
+收尾时停止子进程、关闭 Store 并删除该目录，不读取或写入 `config/config.toml`、`.env` 或 `data/`。
+强制终止进程可能留下临时文件；确认测试进程已退出后，只删除系统临时目录中属于该用例的
+`agentic-meeting-e2e-*` 目录。
+
+测试覆盖生产 `create_app`、Store、HTTP 业务接口，以及真实 SmallWebRTC 传输、Pipecat 管线和 RTVI 数据通道。
+推理由受控测试 bot 替代，不启动 ASR、LLM、TTS、向量嵌入或屏幕描述模型。
+Chromium 与 WebKit 使用 CPU WebAudio 麦克风轨道，Firefox 使用浏览器原生的假媒体设备。
+三个引擎都使用 `canvas.captureStream()` 屏幕轨道替代真实桌面采集。
+浏览器对测试服务器之外的请求会被阻断并使测试失败。
+这些检查不验证真实麦克风或屏幕授权、物理设备、模型效果、外部服务、GPU 行为或互联网 ICE 连通性。
+CI 在 Ubuntu CPU 上运行三个引擎；其他系统的平台相关浏览器启动或 ICE 故障需要定位，不能通过跳过引擎绕过。
+
+失败时的 trace、截图与每个用例的 `server.log` 保存在 `client/test-results/`，HTML 报告位于
+`client/playwright-report/`。调试命令：
+
+```bash
+cd client
+npx playwright show-report playwright-report
+# 将示例替换为失败用例的实际 trace 路径
+npx playwright show-trace 'test-results/<failed-test>/trace.zip'
+```
+
+这两个产物目录已被 Git 忽略，调试完成后可以删除。CI 只在失败或取消时上传这两个目录，保留三天。
+E2E job 接入必需的 `All checks`，其失败、取消或跳过都会传播为检查失败。
+
+### 使用真实模型的检查
+
+端到端的验证使用 [runtimes.md §6](runtimes.md) 中介绍的脚本：`scripts/soak.py` 把一段录音送入运行中的服务，
 `scripts/eval_realtime_model.py` 检查当前实时模型的工具选择与延迟。修改
 `config/prompts/realtime_system.md` 或更换模型之后，请运行后者。
 
