@@ -217,6 +217,60 @@ async def test_changing_the_password_logs_everyone_out(cfg, tmp_path, monkeypatc
         assert (await client.get("/api/time")).status_code == 401
 
 
+class CountingBody:
+    """分块产生的请求体，记下应用实际读走了多少块（不带 Content-Length，走分块传输）。"""
+
+    def __init__(self, chunk: bytes, count: int):
+        self.chunk, self.count, self.pulled = chunk, count, 0
+
+    async def __aiter__(self):
+        for _ in range(self.count):
+            self.pulled += 1
+            yield self.chunk
+
+
+async def test_oversized_login_bodies_are_refused_without_reading_them(cfg, tmp_path):
+    app = create_app(cfg, static_dir=tmp_path / "nope")
+    declared = CountingBody(b"x" * 1024, 1024)  # 1 MiB
+    streamed = CountingBody(b" " * 1024, 1024)
+    async with client_for(app) as client:
+        by_length = await client.post(
+            "/api/auth/login",
+            content=declared,
+            headers={"content-type": "application/json", "content-length": str(1024 * 1024)},
+        )
+        by_stream = await client.post(
+            "/api/auth/login", content=streamed, headers={"content-type": "application/json"}
+        )
+    for response in (by_length, by_stream):
+        assert response.status_code == 413 and response.json() == {"error": auth.TOO_LARGE}
+    # 声明超限的一块都不读；分块传来的读到超限为止
+    assert declared.pulled <= 1
+    assert streamed.pulled <= auth.MAX_LOGIN_BODY_BYTES // 1024 + 2
+
+
+async def test_login_body_up_to_the_limit_is_accepted(cfg, tmp_path):
+    body = f'{{"password": "{PASSWORD}"}}'.encode()
+    body += b" " * (auth.MAX_LOGIN_BODY_BYTES - len(body))
+    app = create_app(cfg, static_dir=tmp_path / "nope")
+    async with client_for(app) as client:
+        response = await client.post(
+            "/api/auth/login", content=body, headers={"content-type": "application/json"}
+        )
+    assert response.status_code == 200 and response.json()["authenticated"] is True
+
+
+async def test_oversized_and_malformed_bodies_do_not_count_as_failures(cfg, tmp_path):
+    app = create_app(cfg, static_dir=tmp_path / "nope")
+    big = b" " * (auth.MAX_LOGIN_BODY_BYTES + 1)
+    async with client_for(app) as client:
+        for _ in range(auth.MAX_FAILURES):
+            assert (await client.post("/api/auth/login", content=big)).status_code == 413
+            assert (await client.post("/api/auth/login", content=b"{")).status_code == 400
+        allowed = await login(client)
+    assert allowed.status_code == 200
+
+
 async def test_repeated_failures_are_rate_limited(cfg, tmp_path):
     app = create_app(cfg, static_dir=tmp_path / "nope")
     async with client_for(app) as client:

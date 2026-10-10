@@ -14,6 +14,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import time
@@ -47,6 +48,10 @@ FAILURE_WINDOW_SECS = 300.0
 # 记着的地址数上限：超出时丢掉最久没失败过的，内存不会被大量来源地址撑大
 MAX_TRACKED_ADDRESSES = 10_000
 
+# 登录请求体上限：{"password": "..."} 远用不了这么多。登录接口不需要登录，不设上限的话
+# 一个超大的请求体就会被整个读进内存（interfaces.md §5.7）
+MAX_LOGIN_BODY_BYTES = 16 * 1024
+
 # 不需要登录的接口
 PUBLIC_PATHS = frozenset({("GET", "/api/auth"), ("HEAD", "/api/auth"), ("POST", "/api/auth/login")})
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -56,6 +61,7 @@ BAD_CSRF = "请求缺少有效的安全令牌，请刷新页面后重试"
 WRONG_PASSWORD = "口令不对"
 TOO_MANY = "尝试次数过多，请稍后再试"
 NOT_ENABLED = "没有启用访问口令"
+TOO_LARGE = "请求体太大"
 
 
 def _b64(data: bytes) -> str:
@@ -228,6 +234,21 @@ def _client_address(request: Request) -> str:
     return request.client.host if request.client is not None else "unknown"
 
 
+async def _read_body_limited(request: Request, limit: int) -> bytes | None:
+    """分块读请求体，超过 ``limit`` 字节就停下返回 None，不把超大的请求体读进内存。"""
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        return None
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def _status(*, enabled: bool, csrf_token: str | None) -> dict[str, Any]:
     authenticated = csrf_token is not None or not enabled
     return {"enabled": enabled, "authenticated": authenticated, "csrf_token": csrf_token}
@@ -253,8 +274,11 @@ def register(app: FastAPI, guard: AuthGuard | None) -> None:
             return JSONResponse(
                 {"error": TOO_MANY}, status_code=429, headers={"Retry-After": str(int(wait) + 1)}
             )
+        raw = await _read_body_limited(request, MAX_LOGIN_BODY_BYTES)
+        if raw is None:
+            return JSONResponse({"error": TOO_LARGE}, status_code=413)
         try:
-            body = await request.json()
+            body = json.loads(raw)
         except ValueError:
             body = None
         password = body.get("password") if isinstance(body, dict) else None
