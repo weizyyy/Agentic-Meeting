@@ -70,6 +70,14 @@ async def ice_candidate(request: SmallWebRTCPatchRequest):
 # On shutdown: await handler.close()
 ```
 
+- **Do not run the bot as a request background task.** The skeleton above, copied from Pipecat's
+  runner, ties the whole meeting to the `POST /api/offer` request. On SIGINT, uvicorn first
+  waits for every request task to finish ("Waiting for background tasks to complete") and only then
+  runs the lifespan shutdown, which is what disconnects the meeting, so a single `Ctrl+C` during a
+  meeting never returns. `web/app.py` starts the bot with `asyncio.create_task`, keeps the tasks in
+  `app.state.bots`, and after disconnecting waits for them in the lifespan shutdown (cancelling any
+  that do not end within a few seconds).
+
 - `request.request_data` is the object the browser passes as `requestData`. The client SDK sends
   the camel-case key, while the `SmallWebRTCRequest` field is `request_data`: letting FastAPI parse
   the body as in the skeleton above silently drops it. Read the raw JSON and use
