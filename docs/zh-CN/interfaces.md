@@ -679,11 +679,11 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 拦住 `/api/` 下除 `GET /api/auth` 和 `POST /api/auth/login` 以外的全部路径。静态页面（`/`、`/assets/…`）
 不拦截，里面没有会议数据。
 
-| 方法与路径              | 请求                  | 响应                                                                                                                                            |
-| ----------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/auth`         | —                     | `{"enabled", "authenticated", "csrf_token"}`；未登录或未启用口令时 `csrf_token` 为 `null`                                                       |
-| `POST /api/auth/login`  | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}`，并下发会话 Cookie。口令不对 401；尝试过多 429，`Retry-After` 给出秒数；未启用口令 404 |
-| `POST /api/auth/logout` | —                     | `{"enabled": true, "authenticated": false, "csrf_token": null}`，并清除 Cookie                                                                  |
+| 方法与路径              | 请求                  | 响应                                                                                                                                                                   |
+| ----------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/auth`         | —                     | `{"enabled", "authenticated", "csrf_token"}`；未登录或未启用口令时 `csrf_token` 为 `null`                                                                              |
+| `POST /api/auth/login`  | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}`，并下发会话 Cookie。口令不对 401；尝试过多 429，`Retry-After` 给出秒数；请求体超过 16 KiB 413；未启用口令 404 |
+| `POST /api/auth/logout` | —                     | `{"enabled": true, "authenticated": false, "csrf_token": null}`，并清除 Cookie                                                                                         |
 
 **受保护的请求。** 没有有效的会话 Cookie 时返回 401 `{"error": "请先登录"}`。`POST`、`PUT`、`PATCH`、
 `DELETE` 还要求请求头 `X-CSRF-Token` 等于当前会话的令牌，否则 403。`POST`/`PATCH /api/offer` 也不例外：
@@ -701,7 +701,10 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 
 **登录尝试。** 每次尝试都用同样的 scrypt 参数拉伸（在工作线程里做，同时最多 4 个），再按恒定时间比较。同一客户端地址在任意 5 分钟内最多失败 5 次；超过后返回 429，
 直到最早的那次失败移出时间窗口。登录成功会清零该地址的计数。在反向代理之后，只有 uvicorn 信任该代理时
-（`--forwarded-allow-ips`，默认 `127.0.0.1`）才从 `X-Forwarded-For` 取客户端地址。
+（环境变量 `FORWARDED_ALLOW_IPS`，默认 `127.0.0.1,::1`）才从 `X-Forwarded-For` 取客户端地址。
+
+**登录请求的大小。** 登录接口不需要会话就能访问，所以请求体分块读取，一超过 16 KiB 就返回 413 `{"error": "请求体太大"}`；
+`Content-Length` 声明超限的，一个字节都不读就拒绝。超限或格式不对（400）的请求体不计入失败次数。限速检查在前。
 
 **启动检查。** 填写了口令变量名但变量未设置、或口令短于 8 个字符时，`check_ready` 会列为缺项。
 `server.host` 不是回环地址又没有配置口令时，`server_warnings(cfg)` 返回一条提醒；配置了 TURN 服务器而没有口令时

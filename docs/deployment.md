@@ -87,9 +87,9 @@ on an address the proxy can reach, so restrict port 7860 to the proxy in the fir
 Caddy obtains and renews a certificate automatically when the name resolves to the machine and ports
 80 and 443 are reachable from the internet. It sets `X-Forwarded-For` and `X-Forwarded-Proto` itself,
 and streams responses without a length (ZIP exports) as they come. It does not limit request bodies
-by default: keep `request_body`, because the login endpoint is public and reads the whole body
-into memory (one unauthenticated 300 MB request raised the application's memory by about 560 MB in
-a test).
+by default: keep `request_body`, so that oversized requests are refused before they reach the
+application. The application refuses login requests over 16 KiB itself, but without a password every
+endpoint is open.
 
 ```caddy
 # /etc/caddy/Caddyfile
@@ -169,13 +169,13 @@ the first address it does not trust, so a client cannot spoof its address by sen
 
 ### 3.4 What the proxy has to pass
 
-| Requirement                               | Why                                                                                                                  |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `X-Forwarded-Proto: https`                | The session cookie is marked `Secure` only when the request is seen as HTTPS                                         |
-| `X-Forwarded-For` with the client         | The login rate limit (5 failures in 5 minutes) is counted per client address                                         |
-| Request bodies of 4 MB, but not much more | `POST /api/frames` uploads screenshots of up to 4 MB; `POST /api/auth/login` needs no login and reads the whole body |
-| Unbuffered, long responses                | `GET /api/export/{id}.zip` is streamed while it is packed; large meetings with many screenshots take a while         |
-| Requests that take several seconds        | `POST /api/offer` answers after the server has gathered its ICE candidates, including TURN allocation if configured  |
+| Requirement                               | Why                                                                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `X-Forwarded-Proto: https`                | The session cookie is marked `Secure` only when the request is seen as HTTPS                                        |
+| `X-Forwarded-For` with the client         | The login rate limit (5 failures in 5 minutes) is counted per client address                                        |
+| Request bodies of 4 MB, but not much more | `POST /api/frames` uploads screenshots of up to 4 MB; nothing else needs more                                       |
+| Unbuffered, long responses                | `GET /api/export/{id}.zip` is streamed while it is packed; large meetings with many screenshots take a while        |
+| Requests that take several seconds        | `POST /api/offer` answers after the server has gathered its ICE candidates, including TURN allocation if configured |
 
 The application uses no WebSockets; no `Upgrade` headers are needed.
 

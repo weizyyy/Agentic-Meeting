@@ -16,7 +16,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Optional access password for the web application (`server.password_env`,
   `server.auth_session_days`): a login page, a signed HTTP-only session cookie that lasts 7 days by
   default, logout, CSRF protection for state-changing requests including WebRTC signaling, and a
-  limit of 5 failed logins per address in 5 minutes. Every `/api` endpoint is covered; without a
+  limit of 5 failed logins per address in 5 minutes. Login requests larger than 16 KiB are refused
+  without being read into memory. Every `/api` endpoint is covered; without a
   password nothing changes. `check` and `serve` warn when the server listens beyond the local
   machine without a password. `scripts/soak.py` logs in when a password is configured.
 - TURN servers with credentials in `server.ice_servers`: an entry can be a table with `urls`,

@@ -763,11 +763,11 @@ variable at startup, and the middleware in `web/auth.py` guards every path under
 `GET /api/auth` and `POST /api/auth/login`. The static site (`/`, `/assets/…`) stays public; it
 contains no meeting data.
 
-| Method and path         | Request               | Response                                                                                                                                                                                     |
-| ----------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/auth`         | —                     | `{"enabled", "authenticated", "csrf_token"}`; `csrf_token` is `null` when not logged in or when the password is disabled                                                                     |
-| `POST /api/auth/login`  | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}` and the session cookie. 401 wrong password; 429 too many attempts, with `Retry-After` in seconds; 404 when the password is disabled |
-| `POST /api/auth/logout` | —                     | `{"enabled": true, "authenticated": false, "csrf_token": null}`; the cookie is cleared                                                                                                       |
+| Method and path         | Request               | Response                                                                                                                                                                                                                  |
+| ----------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/auth`         | —                     | `{"enabled", "authenticated", "csrf_token"}`; `csrf_token` is `null` when not logged in or when the password is disabled                                                                                                  |
+| `POST /api/auth/login`  | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}` and the session cookie. 401 wrong password; 429 too many attempts, with `Retry-After` in seconds; 413 body larger than 16 KiB; 404 when the password is disabled |
+| `POST /api/auth/logout` | —                     | `{"enabled": true, "authenticated": false, "csrf_token": null}`; the cookie is cleared                                                                                                                                    |
 
 **Guarded requests.** Without a valid session cookie the response is 401 `{"error": "请先登录"}`.
 `POST`, `PUT`, `PATCH` and `DELETE` additionally need the header `X-CSRF-Token` with the token of
@@ -791,8 +791,13 @@ the session nonce under the same key; it is not stored anywhere.
 at most 4 at a time) and compared in constant time. At most 5 failed attempts per client
 address are allowed in any 5-minute window; further attempts receive 429 until the oldest failure
 leaves the window. A successful login clears the count for that address. Behind a reverse proxy the
-client address comes from `X-Forwarded-For` only when uvicorn trusts the proxy
-(`--forwarded-allow-ips`, by default `127.0.0.1`).
+client address comes from `X-Forwarded-For` only when uvicorn trusts the proxy (the environment
+variable `FORWARDED_ALLOW_IPS`, by default `127.0.0.1,::1`).
+
+**Login request size.** The login endpoint is reachable without a session, so its body is read in
+chunks and refused with 413 `{"error": "请求体太大"}` as soon as it exceeds 16 KiB; a larger
+`Content-Length` is refused before any of the body is read. An oversized or malformed body (400) does
+not count as a failed attempt. The rate limit is checked first.
 
 **Startup checks.** `check_ready` reports a password variable that is named but unset or shorter
 than 8 characters. `server_warnings(cfg)` returns a warning when `server.host` is not a loopback
