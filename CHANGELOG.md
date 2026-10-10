@@ -15,6 +15,13 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - When the browser's autoplay policy blocks the assistant's voice, the page says so and offers a
   button that turns it on, instead of staying silent ([#47]).
 
+### Fixed
+
+- Names from `session.members` now show as buttons next to the rename input and the new-speaker
+  input, so they can be picked with one click. They used to be offered only as browser
+  autocomplete, which hid them while the input still held the current name, and they never loaded
+  at all in the first meeting when the page was opened before any meeting existed.
+
 [#47]: https://github.com/weizyyy/Agentic-Meeting/pull/47
 
 ## [0.2.0] - 2026-10-10

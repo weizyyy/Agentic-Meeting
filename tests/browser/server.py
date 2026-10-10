@@ -36,6 +36,7 @@ def configuration(root: Path) -> AppConfig:
     """只读模板；不读取用户配置、环境文件或启动模型。"""
     data = tomllib.loads(EXAMPLE_CONFIG_PATH.read_text(encoding="utf-8"))
     data["session"]["data_dir"] = str(root)
+    data["session"]["members"] = ["林晓", "周远"]
     cfg = AppConfig.model_validate(data)
     cfg.agent.enabled = cfg.embedding.enabled = cfg.tts.enabled = False
     cfg.screen.caption = False
