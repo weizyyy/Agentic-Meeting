@@ -257,11 +257,12 @@ async def test_lifespan_uses_actual_caption_worker_and_counts_without_agent(
             body = assert_metrics(await client.get("/metrics"))
             assert body["status"] == "ok" and body["live_connections"] == 0
             assert body["queues"]["screen_caption"] == {"enabled": False, "depth": 0}
+            # agent 关闭也恢复旧未完成行；gauges 仍来自全库真实历史状态。
             assert body["task_counts"] == {
-                "queued": 1,
-                "running": 1,
+                "queued": 0,
+                "running": 0,
                 "succeeded": 2,
-                "failed": 1,
+                "failed": 3,
                 "cancelled": 1,
             }
             assert body["services"]["agent"]["status"] == "disabled"

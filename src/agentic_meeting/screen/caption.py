@@ -201,7 +201,12 @@ class CaptionWorker:
             self._followers.setdefault(source_id, []).append(frame)
             return True
         source = await self._store.get_frame(source_id)
-        if source is None or source.caption_status != "done" or not source.caption:
+        if (
+            source is None
+            or source.session_id != frame.session_id
+            or source.caption_status != "done"
+            or not source.caption
+        ):
             return False
         try:
             if await self._save(frame, "done", source.caption):

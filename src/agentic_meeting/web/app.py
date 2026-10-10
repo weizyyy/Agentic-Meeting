@@ -29,7 +29,7 @@ from pipecat.transports.smallwebrtc.request_handler import (
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agentic_meeting.agent.runner import build_runner
-from agentic_meeting.agent.tasks import Runner, TaskManager
+from agentic_meeting.agent.tasks import RESTART_REASON, Runner, TaskManager
 from agentic_meeting.config import REPO_ROOT, AppConfig, secret
 from agentic_meeting.pipeline.background import BackgroundModel, InferenceLLM
 from agentic_meeting.pipeline.bot import AppResources, run_bot
@@ -234,6 +234,8 @@ def create_app(
                 timeout_secs=cfg.agent.task_timeout_secs,
             )
             await tasks.recover()
+        else:
+            await the_store.fail_unfinished_tasks(RESTART_REASON)
 
         def cleaned(plan: CleanupPlan) -> None:
             if plan.manual or plan.screenshots:

@@ -678,10 +678,11 @@ class MeetingRecorder(FrameProcessor):
         """
         for _ in range(self._recheck_attempts):
             await asyncio.sleep(self._recheck_interval)
-            segments = await self._segments(utterance.t_start - 1.0)
+            token = utterance.write_token
             current = UtteranceFinal(
                 0, utterance.speaker_idx, utterance.t_start, utterance.t_end, utterance.text
             )
+            segments = await self._segments(current.t_start - 1.0)
             new_idx = self._assembler.recheck(current, segments)
             if new_idx is None or utterance.id is None or self._store is None:
                 continue
@@ -690,7 +691,7 @@ class MeetingRecorder(FrameProcessor):
                     utterance.id,
                     new_idx,
                     session_id=utterance.session_id,
-                    write_token=utterance.write_token,
+                    write_token=token,
                 )
             except Exception:
                 logger.exception("更正发言的说话人失败")

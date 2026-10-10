@@ -444,6 +444,8 @@ async def test_digest_uses_global_cursor_after_transcript_cleanup(resources, tmp
     new = Utterance(session.id, 1, 2, 3, "虚构新发言")
     await store.add_utterance(new, now=NOW)
     assert new.id > utterance.id
+    await store.end_session(session.id, now=NOW)
+    cleaner.policy = RetentionConfig(reports_days=1)
     entered, release = asyncio.Event(), asyncio.Event()
 
     class Model:
@@ -462,6 +464,8 @@ async def test_digest_uses_global_cursor_after_transcript_cleanup(resources, tmp
     )
     task = asyncio.create_task(digest.run_once(session.id))
     await entered.wait()
+    assert (await store.get_session(session.id)).ended_at is not None
+    assert await cleaner.run_once() == 0
     with pytest.raises(SessionBusy):
         await cleaner.delete_session(session.id)
     release.set()
@@ -564,6 +568,7 @@ async def test_task_terminal_notify_and_cancelled_admission_remain_protected(res
     tasks = TaskManager(store=store, runner=run, notify=notify, max_concurrent=1, timeout_secs=5)
     admission = asyncio.create_task(tasks.submit(session_id=session.id, goal="虚构任务"))
     await submitted.wait()
+    await store.end_session(session.id)
     admission.cancel()
     with pytest.raises(SessionBusy):
         await cleaner.delete_session(session.id)
@@ -689,3 +694,282 @@ async def test_cleanup_sql_failure_is_pending_then_zero_policy_retry(resources, 
     await store._db.commit()
     assert await cleaner.run_once() == 1
     assert await store.get_session(session.id) is None
+
+
+async def test_legacy_schema_migrates_tokens_and_finished_times_without_replacing_rows(tmp_path):
+    import re
+    import sqlite3
+
+    from agentic_meeting.store.db import SCHEMA_PATH
+
+    schema = "\n".join(
+        line
+        for line in SCHEMA_PATH.read_text().splitlines()
+        if not any(
+            key in line
+            for key in (
+                "write_token TEXT",
+                "    keep INTEGER",
+                "deletion_pending INTEGER",
+                "    finished_at REAL",
+            )
+        )
+    )
+    schema = re.sub(r",(\s*--[^\n]*)?\n\);", r"\1\n);", schema)
+    database = tmp_path / "legacy.db"
+    sid = "d" * 32
+    with sqlite3.connect(database) as db:
+        db.executescript(schema)
+        db.execute(
+            "INSERT INTO sessions (id, title, started_at, last_active_at) VALUES (?, '虚构旧库', 1, 1)",
+            (sid,),
+        )
+        db.execute(
+            "INSERT INTO utterances (id, session_id, t_start, t_end, text) VALUES (10, ?, 0, 1, '虚构旧发言')",
+            (sid,),
+        )
+        db.execute(
+            "INSERT INTO frames (id, session_id, t, path, width, height) VALUES (20, ?, 1, 'fake.webp', 1, 1)",
+            (sid,),
+        )
+        db.execute(
+            "INSERT INTO reports (id, session_id, created_at, status, text_md) VALUES (30, ?, 1, 'done', '虚构旧报告')",
+            (sid,),
+        )
+    store = await Store.open(database, 3)
+    try:
+        session = await store.get_session(sid)
+        assert session.title == "虚构旧库" and not session.keep and not session.deletion_pending
+        utterance = (await store.list_utterances(sid))[0].utterance
+        frame = await store.get_frame(20)
+        report = await store.get_report(30)
+        tokens = (utterance.write_token, frame.write_token, report.write_token)
+        assert all(len(token) == 32 for token in tokens) and report.finished_at == 1
+        await store.close()
+        store = await Store.open(database, 3)
+        assert (await store.get_report(30)).write_token == tokens[2]
+        assert (await store.get_frame(20)).write_token == tokens[1]
+        fresh = Utterance(sid, 1, 2, 3, "虚构新发言")
+        await store.add_utterance(fresh)
+        assert fresh.id == 11
+        assert (await store.add_frame(sid, t=2, width=1, height=1, suffix=".webp")).id == 21
+    finally:
+        await store.close()
+
+
+async def test_startup_recovers_disabled_agent_tasks_before_retention(
+    resources, make_cfg, tmp_path
+):
+    from agentic_meeting.web.app import create_app
+
+    store, _, _ = resources
+    session = await store.create_session(now=1)
+    queued = await store.create_task(session.id, goal="虚构崩溃前任务", now=1)
+    cfg = make_cfg()
+    cfg.agent.enabled = False
+    cfg.retention.transcript_days = 1
+    app = create_app(cfg, store=store, static_dir=tmp_path / "no-static")
+    async with app.router.lifespan_context(app):
+        assert app.state.resources.tasks is None
+        assert (await store.get_task(queued.id)).status == "failed"
+        await app.state.resources.retention.delete_session(session.id)
+        assert await store.get_session(session.id) is None
+
+
+async def test_shutdown_drains_old_owner_and_finish_hook_after_slot_cleared(resources):
+    _, manager, _ = resources
+    live = await manager.begin()
+    live.owner = asyncio.current_task()
+    manager._live = None
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def hook(_sid):
+        entered.set()
+        await release.wait()
+
+    manager.on_finished.append(hook)
+    finish = asyncio.create_task(manager.finish(live))
+    await entered.wait()
+    draining = asyncio.create_task(manager.drain())
+    await asyncio.sleep(0)
+    assert not draining.done()
+    release.set()
+    await finish
+    await draining
+    assert not manager._unfinished
+
+
+async def test_recorder_recheck_retains_token_before_async_diarization(resources, monkeypatch):
+    from agentic_meeting.pipeline.recorder import MeetingRecorder
+
+    store, _, _ = resources
+    session = await store.create_session()
+    utterance = Utterance(session.id, 1, 0, 1, "虚构原话")
+    await store.add_utterance(utterance)
+    recorder = MeetingRecorder(
+        store=store, session_id=session.id, recheck_interval_secs=0, recheck_attempts=1
+    )
+    entered, release = asyncio.Event(), asyncio.Event()
+    messages = []
+
+    async def segments(_since):
+        entered.set()
+        await release.wait()
+        return []
+
+    async def send(data):
+        messages.append(data)
+
+    monkeypatch.setattr(recorder, "_segments", segments)
+    monkeypatch.setattr(recorder, "_send", send)
+    monkeypatch.setattr(recorder._assembler, "recheck", lambda current, segments: 2)
+    correction = asyncio.create_task(recorder._recheck(utterance))
+    await entered.wait()
+    assert await store.extend_utterance(
+        utterance.id,
+        text="虚构扩展话",
+        t_end=2,
+        session_id=session.id,
+        write_token=utterance.write_token,
+        next_token="new-version",
+    )
+    utterance.write_token = "new-version"  # 实际merge也更新同一对象；旧recheck仍须保留旧版本。
+    release.set()
+    await correction
+    assert (await store.list_utterances(session.id))[0].utterance.speaker_idx == 1
+    assert not messages
+
+
+async def test_reports_and_task_artifacts_expire_from_completion_not_old_session(
+    resources, tmp_path
+):
+    store, _, cleaner = resources
+    session = await store.create_session(now=1)
+    report = await store.create_report(session.id, now=1)
+    await store.finish_report(report, "虚构新报告", now=NOW)
+    task = await store.create_task(session.id, goal="虚构新完成任务", now=1)
+    await store.update_task(task.id, status="succeeded", finished_at=NOW, artifacts=["fresh.txt"])
+    path = tmp_path / "sessions" / session.id / "tasks" / task.label
+    path.mkdir(parents=True)
+    (path / "fresh.txt").write_text("fake")
+    cleaner.policy = RetentionConfig(reports_days=1, task_artifacts_days=1)
+    assert await cleaner.run_once() == 0
+    assert await store.get_report(report)
+    assert (path / "fresh.txt").is_file()
+
+
+async def test_ended_session_report_inflight_blocks_manual_and_automatic_cleanup(resources):
+    from agentic_meeting.pipeline.report import ReportWorker
+
+    store, _, cleaner = resources
+    session = await store.create_session(now=1)
+    await store.add_utterance(Utterance(session.id, 1, 0, 1, "虚构发言"), now=1)
+    await store.end_session(session.id, now=2)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class Model:
+        async def run(self, messages, *, max_tokens):
+            entered.set()
+            await release.wait()
+            return "虚构报告"
+
+    report = ReportWorker(
+        store=store,
+        model=Model(),
+        provider="fake",
+        render_report=lambda **kw: "虚构提示",
+        render_section=lambda **kw: "虚构分段",
+        max_input_chars=1000,
+        now=lambda: NOW,
+    )
+    rid = await report.start(session.id)
+    await entered.wait()
+    cleaner.policy = RetentionConfig(transcript_days=1)
+    assert await cleaner.run_once() == 0
+    with pytest.raises(SessionBusy):
+        await cleaner.delete_session(session.id)
+    release.set()
+    await report.wait(session.id)
+    assert (await store.get_report(rid)).status == "done"
+    await report.stop()
+    await cleaner.delete_session(session.id)
+    assert await store.get_report(rid) is None
+
+
+async def test_rmtree_executes_in_worker_thread_and_event_loop_remains_responsive(
+    resources, tmp_path, monkeypatch
+):
+    from agentic_meeting.store import retention
+
+    store, _, cleaner = resources
+    session, *_ = await content(store, tmp_path)
+    entered, release = threading.Event(), threading.Event()
+    loop_thread = threading.get_ident()
+    original = retention.shutil.rmtree
+
+    def paused(path, *args, **kwargs):
+        assert threading.get_ident() != loop_thread
+        entered.set()
+        assert release.wait(5)
+        original(path, *args, **kwargs)
+
+    monkeypatch.setattr(retention.shutil, "rmtree", paused)
+    deletion = asyncio.create_task(cleaner.delete_session(session.id))
+    assert await asyncio.to_thread(entered.wait, 5)
+    await asyncio.wait_for(asyncio.sleep(0.01), 1)
+    assert not deletion.done()
+    release.set()
+    await deletion
+    assert await store.get_session(session.id) is None
+
+
+async def test_task_artifact_write_thread_drains_after_cancel_before_deletion(
+    resources, tmp_path, monkeypatch
+):
+    import io
+
+    from agentic_meeting.agent import sandbox
+    from agentic_meeting.agent.tasks import TaskManager, task_dir
+    from agentic_meeting.types import TaskResult
+
+    store, _, cleaner = resources
+    session = await store.create_session()
+    entered, release = threading.Event(), threading.Event()
+    original = sandbox._write_file
+
+    class Box:
+        async def read(self, path):
+            return io.BytesIO(b"fake-artifact")
+
+    def paused(path, data):
+        entered.set()
+        assert release.wait(5)
+        original(path, data)
+
+    async def run(task, on_event):
+        names = await sandbox.SdkSandbox(Box()).fetch(["result.txt"], task_dir(tmp_path, task))
+        return TaskResult("虚构完成", "", artifacts=names)
+
+    async def notify(*args):
+        pass
+
+    monkeypatch.setattr(sandbox, "_write_file", paused)
+    tasks = TaskManager(store=store, runner=run, notify=notify, max_concurrent=1, timeout_secs=5)
+    record = await tasks.submit(session_id=session.id, goal="虚构任务")
+    assert await asyncio.to_thread(entered.wait, 5)
+    await store.end_session(session.id)
+    cancellation = asyncio.create_task(tasks.cancel(record.id))
+    await asyncio.sleep(0)
+    cancellation.cancel()
+    await asyncio.sleep(0)
+    with pytest.raises(SessionBusy):
+        await cleaner.delete_session(session.id)
+    assert not cancellation.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await cancellation
+    assert (await store.get_task(record.id)).status == "cancelled"
+    await tasks.close()
+    await cleaner.delete_session(session.id)
+    assert not (tmp_path / "sessions" / session.id).exists()
+    assert not store._work
