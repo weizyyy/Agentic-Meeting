@@ -134,6 +134,10 @@ jobs:
           pactl list short sinks
 
       - name: Test all browser engines
+        env:
+          GST_DEBUG: "2,webkitmediastreamsrc:6,webkitmediaplayer:5,webkitvideoframe:6,appsrc:5"
+          GST_DEBUG_NO_COLOR: "1"
+          DEBUG: "pw:browser"
         run: npm run test:e2e --prefix client
 
       - name: Upload failure diagnostics
