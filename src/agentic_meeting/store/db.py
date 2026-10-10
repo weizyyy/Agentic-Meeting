@@ -1144,6 +1144,13 @@ class Store:
         )
         return [self._task(r) for r in rows]
 
+    async def task_counts(self) -> dict[str, int]:
+        """全库保留任务的五种状态计数；查询错误和取消由调用方处理。"""
+        counts = dict.fromkeys(("queued", "running", "succeeded", "failed", "cancelled"), 0)
+        for row in await self._all("SELECT status, COUNT(*) AS count FROM tasks GROUP BY status"):
+            counts[row["status"]] = row["count"]
+        return counts
+
     async def update_task(self, task_id: str, **fields: Any) -> TaskRecord | None:
         """改任务的若干列。``sources`` / ``artifacts`` 给列表，``announced`` 给布尔值。"""
         columns = {

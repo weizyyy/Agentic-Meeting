@@ -68,6 +68,42 @@ async def test_availability_check_closed_connection_fails(tmp_path):
         await closed.check_available()
 
 
+async def test_task_counts_selects_only_grouped_status_counts_without_writes(store):
+    zeros = dict.fromkeys(("queued", "running", "succeeded", "failed", "cancelled"), 0)
+    assert await store.task_counts() == zeros
+    session = await store.create_session("虚构会议")
+    await store.create_task(session.id, goal="虚构任务")
+    queries = []
+    changes = store._db.total_changes
+    await store._db.set_trace_callback(queries.append)
+    assert await store.task_counts() == {**zeros, "queued": 1}
+    await store._db.set_trace_callback(None)
+    assert queries == ["SELECT status, COUNT(*) AS count FROM tasks GROUP BY status"]
+    assert store._db.total_changes == changes
+
+
+async def test_task_counts_propagates_query_failure_and_cancellation(store, monkeypatch):
+    def fail(sql, *args):
+        raise sqlite3.OperationalError("虚构查询故障")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store._db, "execute", fail)
+        with pytest.raises(sqlite3.OperationalError):
+            await store.task_counts()
+    entered, blocked = asyncio.Event(), asyncio.Event()
+
+    async def slow(sql):
+        entered.set()
+        await blocked.wait()
+
+    monkeypatch.setattr(store, "_all", slow)
+    task = asyncio.create_task(store.task_counts())
+    await entered.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
 async def test_availability_check_preserves_query_failure_and_cancellation(store, monkeypatch):
     def fail(sql, *args):
         assert sql == "SELECT 1"
