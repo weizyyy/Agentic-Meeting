@@ -11,7 +11,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The web page states the supported browsers (Chrome and Edge 111, Firefox 114, Safari 16.4) and
   explains why a browser cannot hold a meeting: too old to run the page, not opened over HTTPS, or
   missing WebRTC, microphone capture or Web Audio. Starting and resuming are blocked in such a
-  browser, and past meetings stay readable ([#13]).
+  browser, and past meetings stay readable ([#47]).
+
+[#47]: https://github.com/weizyyy/Agentic-Meeting/pull/47
 
 ## [0.2.0] - 2026-10-10
 
