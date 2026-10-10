@@ -484,10 +484,11 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 ### 5.2 WebRTC 信令
 
-| 方法与路径         | 说明                                                                 |
-| ------------------ | -------------------------------------------------------------------- |
-| `POST /api/offer`  | 请求体与响应由 Pipecat 的 `SmallWebRTCRequestHandler` 定义，原样转交 |
-| `PATCH /api/offer` | 追加 ICE 候选，同上                                                  |
+| 方法与路径         | 说明                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------- |
+| `POST /api/offer`  | 请求体与响应由 Pipecat 的 `SmallWebRTCRequestHandler` 定义，原样转交                              |
+| `PATCH /api/offer` | 追加 ICE 候选，同上                                                                               |
+| `GET /api/ice`     | `{"ice_servers": [{"urls": [...], "username"?, "credential"?}]}`：浏览器建立连接时用的 ICE 服务器 |
 
 写法与 Pipecat 自带的运行器一致（见 pipecat-notes.md §2）。客户端在连接参数的 `requestData`
 里可带 `{"session_id": "<要继续的会话>"}`：
@@ -509,6 +510,12 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 作为后台任务运行到连接断开。`PATCH /api/offer` 追加 ICE 候选，请求体 `{"pc_id", "candidates": [{"candidate",
 "sdp_mid", "sdp_mline_index"}]}`，响应 `{"status": "success"}`。`GET /` 在 `client/dist` 不存在时返回一段
 「请先构建客户端」的提示页（503），不是 500。错误一律是 `{"error": "<中文说明>"}`（包括 404、422）。
+
+**ICE 服务器。** `server.ice_servers` 在连接的两端都用：服务端交给 `SmallWebRTCRequestHandler`；浏览器每次自己发起连接之前
+取一次 `GET /api/ice`，把结果交给 WebRTC SDK（`SmallWebRTCTransport.iceServers`）。每一项的形状与浏览器的 `RTCIceServer`
+相同，只有配置了 `username`、`credential` 的项才带这两个字段。凭据在应用启动时从 `credential_env` 指定的环境变量读出。
+能访问 `/api` 的人都能读到它，所以用 TURN 时应当设访问口令（§5.7），并让 TURN 服务器只中继到本机。请求失败时浏览器不带
+ICE 服务器连接，同一局域网内照样能连上。列表为空（默认）= 只用本机候选地址。
 
 ### 5.3 截图
 
@@ -691,8 +698,8 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 （`--forwarded-allow-ips`，默认 `127.0.0.1`）才从 `X-Forwarded-For` 取客户端地址。
 
 **启动检查。** 填写了口令变量名但变量未设置、或口令短于 8 个字符时，`check_ready` 会列为缺项。
-`server.host` 不是回环地址又没有配置口令时，`server_warnings(cfg)` 返回一条提醒，由 `check` 和 `serve`
-打印；这条提醒不发给浏览器。
+`server.host` 不是回环地址又没有配置口令时，`server_warnings(cfg)` 返回一条提醒；配置了 TURN 服务器而没有口令时
+（凭据可以经 `GET /api/ice` 读到）再返回一条。它们由 `check` 和 `serve` 打印，不发给浏览器。
 
 已经建立的 WebRTC 连接不会因为 Cookie 到期或在别处退出登录而中断；之后的 HTTP 请求会被拒绝。
 

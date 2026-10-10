@@ -32,9 +32,23 @@
 | `host`                | `"0.0.0.0"` | 监听地址                                                                                |
 | `port`                | `7860`      | HTTP(S) 端口                                                                            |
 | `tls_cert`、`tls_key` | `""`        | 证书与私钥文件。其他设备访问时必需，见[入门指南](getting-started.md#从其他设备访问)     |
-| `ice_servers`         | `[]`        | STUN/TURN 地址。同一局域网内留空                                                        |
+| `ice_servers`         | `[]`        | STUN/TURN 服务器，服务端和浏览器都用。同一局域网内留空；见下文                          |
 | `password_env`        | `""`        | 存放访问口令的环境变量名。留空表示不需要登录。见[访问口令](getting-started.md#访问口令) |
 | `auth_session_days`   | `7`         | 登录一次的有效天数（大于 0，最多 365）。到期即需重新登录，即使页面一直开着              |
+
+`ice_servers` 的每一项可以是一个地址字符串（`"stun:host:3478"`），也可以是一张表：`urls`（字符串或列表）、`username`
+和 `credential_env`（存放 TURN 密码的环境变量名）。地址以 `stun:`、`stuns:`、`turn:` 或 `turns:` 开头；TURN 必须填
+`username` 和 `credential_env`，浏览器不接受没有凭据的 TURN 服务器：
+
+```toml
+ice_servers = [
+  "stun:turn.example.org:3478",
+  { urls = ["turn:turn.example.org:3478", "turns:turn.example.org:5349"], username = "meeting", credential_env = "AGENTIC_MEETING_TURN_PASSWORD" },
+]
+```
+
+浏览器经 `GET /api/ice` 拿到同一份列表，包括 TURN 密码，所以能打开页面的人都能读到它。配置 TURN 时请同时设置访问口令；
+没有设置时 `check` 和 `serve` 会给出提醒。
 
 口令本身写在 `.env` 里，不写进 `config.toml`，至少 8 个字符。修改口令后所有设备都要重新登录。
 `host` 不是回环地址又没有设置口令时，`agentic-meeting check` 和 `serve` 会给出提醒。

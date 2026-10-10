@@ -105,6 +105,16 @@ test("网络不通：ApiError，状态码 0", async () => {
   await assert.rejects(api.listSessions(), { message: "无法连接到服务端", status: 0 });
 });
 
+test("ICE 服务器：取 ice_servers，凭据原样保留", async () => {
+  const servers = [
+    { urls: ["stun:stun.example.org:3478"] },
+    { urls: ["turn:turn.example.org:3478"], username: "u", credential: "c" },
+  ];
+  const { fn, calls } = fakeFetch(() => ok({ ice_servers: servers }));
+  assert.deepEqual(await createApi(fn).iceServers(), servers);
+  assert.equal(calls[0].url, "/api/ice");
+});
+
 test("对时：取 server_time", async () => {
   const { fn, calls } = fakeFetch(() => ok({ server_time: 1790000000.25 }));
   assert.equal(await createApi(fn).serverTime(), 1790000000.25);

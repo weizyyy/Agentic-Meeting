@@ -557,6 +557,7 @@ measurements are taken on connection and the one with the shortest round trip is
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | `POST /api/offer`  | Request and response are defined by Pipecat's `SmallWebRTCRequestHandler` and passed through                            |
 | `PATCH /api/offer` | Adds ICE candidates: `{"pc_id", "candidates": [{"candidate", "sdp_mid", "sdp_mline_index"}]}` → `{"status": "success"}` |
+| `GET /api/ice`     | `{"ice_servers": [{"urls": [...], "username"?, "credential"?}]}`: the ICE servers the browser uses for its connection   |
 
 The client may include `{"session_id": "<session to resume>"}` in `requestData`:
 
@@ -572,6 +573,16 @@ closes. On the server, `SessionManager.attach` takes over the old connection, re
 session, computes `base_secs = max(now − started_at, furthest point reached on the timeline)` and
 records the connection. The LLM context is rebuilt from the database (`build_context_messages`); if
 that fails, the context starts empty.
+
+**ICE servers.** `server.ice_servers` is used on both ends of the connection: the server passes it
+to `SmallWebRTCRequestHandler`, and the browser fetches `GET /api/ice` before every connection it
+starts and gives the result to the WebRTC SDK (`SmallWebRTCTransport.iceServers`). Each entry has
+the shape of the browser's `RTCIceServer`; `username` and `credential` are present only for entries
+that configure them. The credential is read from the variable named by `credential_env` when the
+application starts. Anyone allowed to call `/api` can read it, so with a TURN server the access
+password (§5.7) should be set and the TURN server should relay only to this machine. When the
+request fails, the browser connects without ICE servers, which still works on a single LAN. An
+empty list (the default) means host candidates only.
 
 `GET /` returns a 503 page with build instructions when `client/dist` does not exist.
 
@@ -778,7 +789,9 @@ client address comes from `X-Forwarded-For` only when uvicorn trusts the proxy
 
 **Startup checks.** `check_ready` reports a password variable that is named but unset or shorter
 than 8 characters. `server_warnings(cfg)` returns a warning when `server.host` is not a loopback
-address and no password is configured; `check` and `serve` print it. It is not sent to the browser.
+address and no password is configured, and another when a TURN server is configured without a
+password (its credential is then readable through `GET /api/ice`); `check` and `serve` print them.
+They are not sent to the browser.
 
 A WebRTC connection that is already established is not interrupted when its cookie expires or the
 user logs out elsewhere; the next HTTP request is refused.

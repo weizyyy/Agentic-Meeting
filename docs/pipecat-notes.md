@@ -74,8 +74,10 @@ async def ice_candidate(request: SmallWebRTCPatchRequest):
   the camel-case key, while the `SmallWebRTCRequest` field is `request_data`: letting FastAPI parse
   the body as in the skeleton above silently drops it. Read the raw JSON and use
   `SmallWebRTCRequest.from_dict(payload)`, which accepts both spellings, as `web/app.py` does.
-- `IceServer` is aiortc's `RTCIceServer`. `SmallWebRTCRequestHandler(ice_servers=None)` offers host
-  candidates only, which is enough on a single LAN.
+- `IceServer` is aiortc's `RTCIceServer(urls, username, credential, credentialType)`.
+  `SmallWebRTCRequestHandler(ice_servers=None)` offers host candidates only, which is enough on a
+  single LAN. The handler's ICE servers apply to the server's peer connection only; the browser
+  needs its own (§12).
 - Starting programmatically: `uvicorn.Server(uvicorn.Config(app, ...)).serve()` runs inside an
   existing event loop and handles SIGINT itself, so `serve --with-services` stops the inference
   services in a `finally` block. `fastapi` and `uvicorn` come with `pipecat-ai[runner]`.
@@ -603,6 +605,11 @@ await client.disconnect();
   known, so an SDK-initiated reconnect (a new PeerConnection five seconds after ICE disconnects, up
   to three times) resumes the same meeting. When the SDK gives up, the page's own reconnection with
   backoff of 1, 2, 4, 8, 8 s takes over.
+- **ICE servers are set on the transport.** `new SmallWebRTCTransport()` uses no ICE servers, and
+  nothing from the server's `SmallWebRTCRequestHandler` reaches it. The transport has an
+  `iceServers` setter (`RTCIceServer[]`) that is read each time it creates an `RTCPeerConnection`,
+  SDK reconnects included. The page sets it from `GET /api/ice` before each `connect()`
+  (`useMeetingClient.ts`).
 - `tsconfig` uses `verbatimModuleSyntax` and `allowImportingTsExtensions`: relative imports carry
   the `.ts` extension so that pure-logic modules can be run directly by Node's test runner
   (`npm test`). `*.test.ts` files are excluded from `tsc` and the bundle.

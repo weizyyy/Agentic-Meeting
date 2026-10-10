@@ -37,7 +37,13 @@ port = 7860
 # 用 mkcert 生成证书后填在这里；只在本机用 http://localhost 访问可留空。
 tls_cert = ""
 tls_key = ""
-ice_servers = []   # 同一局域网内留空
+# WebRTC 的 STUN/TURN 服务器，服务端和浏览器都用。同一局域网内留空；浏览器和服务端隔着 NAT 或在不同网段时，
+# 配一台 TURN 服务器。TURN 的密码写在 .env 里，这里只写变量名，例如：
+# ice_servers = [
+#   "stun:turn.example.org:3478",
+#   { urls = ["turn:turn.example.org:3478", "turns:turn.example.org:5349"], username = "meeting", credential_env = "AGENTIC_MEETING_TURN_PASSWORD" },
+# ]
+ice_servers = []
 # 访问口令：填存放口令的环境变量名（口令本身写在 .env 里，至少 8 个字符），例如 "AGENTIC_MEETING_PASSWORD"。
 # 留空 = 不需要登录，只适合本机或可信的局域网。
 password_env = ""

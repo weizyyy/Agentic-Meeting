@@ -81,6 +81,7 @@ async def test_api_requires_login_but_the_static_site_does_not(cfg, dist):
         status = await client.get("/api/auth")
         guarded = [
             await client.get("/api/time"),
+            await client.get("/api/ice"),
             await client.get("/api/sessions"),
             await client.get("/api/frames/1/image"),
             await client.get("/api/export/abc.zip"),
