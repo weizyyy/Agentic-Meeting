@@ -311,10 +311,12 @@ def test_session_cookie_expires_and_rejects_tampering():
     nonce = guard.verify(cookie)
     assert nonce is not None and guard.csrf_ok(nonce, csrf)
     expires, nonce_text, signature = cookie.split(".")
+    # 必须改变签名；随机签名可能本来就以固定替换值结尾。
+    tampered_signature = ("B" if signature[0] == "A" else "A") + signature[1:]
     for bad in (
         f"{int(expires) + 3600}.{nonce_text}.{signature}",  # 改了到期时刻
         f"{expires}.other.{signature}",
-        f"{expires}.{nonce_text}.{signature[:-2]}AA",
+        f"{expires}.{nonce_text}.{tampered_signature}",
         f"{expires}.{nonce_text}",
         f"²{expires}.{nonce_text}.{signature}",
         "",
