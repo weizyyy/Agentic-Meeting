@@ -1,5 +1,5 @@
 /** 仅替代设备采集：原生轨道仍经过 SDK、RTCPeerConnection 和截图上传。 */
-export function installMedia() {
+export function installMedia({ nativeAudio = false } = {}) {
   const tracks: MediaStreamTrack[] = [];
   const contexts: AudioContext[] = [];
   let color = "#345678";
@@ -7,11 +7,17 @@ export function installMedia() {
     tracks,
     contexts,
     changeScreen: () => {
-      color = "#bc3456";
+      color = "#f1d234";
     },
   };
   Object.assign(window, { e2eMedia: media });
-  navigator.mediaDevices.getUserMedia = async () => {
+  const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = async (constraints) => {
+    if (nativeAudio) {
+      const stream = await getUserMedia(constraints);
+      tracks.push(...stream.getTracks());
+      return stream;
+    }
     const context = new AudioContext();
     contexts.push(context);
     const oscillator = context.createOscillator();
@@ -32,7 +38,7 @@ export function installMedia() {
     };
     return destination.stream;
   };
-  navigator.mediaDevices.enumerateDevices = async () => [];
+  if (!nativeAudio) navigator.mediaDevices.enumerateDevices = async () => [];
   navigator.mediaDevices.getDisplayMedia = async () => {
     const canvas = document.createElement("canvas");
     canvas.width = 640;

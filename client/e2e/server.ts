@@ -32,3 +32,41 @@ export function waitForServer(
     child.once("exit", onExit);
   });
 }
+
+/** 退出事件也覆盖启动失败；强杀或无法退出都显式报告，不留无限等待。 */
+export async function stopServer(
+  child: ChildProcessWithoutNullStreams,
+  closed: Promise<void>,
+  grace = 15_000,
+): Promise<void> {
+  let forced = false;
+  let killError: Error | undefined;
+  const onError = (error: Error) => {
+    killError = error;
+  };
+  child.on("error", onError);
+  let killTimer: ReturnType<typeof setTimeout>;
+  let deadline: ReturnType<typeof setTimeout>;
+  try {
+    child.kill("SIGTERM");
+    await Promise.race([
+      closed,
+      new Promise<never>((_, reject) => {
+        killTimer = setTimeout(() => {
+          forced = true;
+          child.kill("SIGKILL");
+        }, grace);
+        deadline = setTimeout(
+          () => reject(killError ?? new Error("测试服务器无法退出")),
+          grace + 1000,
+        );
+      }),
+    ]);
+    if (forced) throw new Error("测试服务器未正常关闭，已强杀");
+    if (killError) throw killError;
+  } finally {
+    clearTimeout(killTimer!);
+    clearTimeout(deadline!);
+    child.off("error", onError);
+  }
+}

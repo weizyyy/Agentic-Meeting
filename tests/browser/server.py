@@ -102,6 +102,7 @@ class ControlledBot:
 
     def __init__(self) -> None:
         self.ready = 0
+        self.segment = 0
         self.probe: AudioProbe | None = None
 
     async def __call__(self, connection: Any, request: Any, resources: AppResources) -> None:
@@ -109,6 +110,7 @@ class ControlledBot:
         assert manager is not None
         wanted = request.get("session_id") if isinstance(request, dict) else None
         live = await manager.attach(wanted) if wanted else await manager.begin()
+        self.segment = live.connection_id * 1000 + 1
         try:
             transport = SmallWebRTCTransport(
                 webrtc_connection=connection,
@@ -165,7 +167,7 @@ def application(cfg: AppConfig, store: Store, seeds: dict[str, Any]) -> FastAPI:
             raise HTTPException(409, "没有活动测试连接")
         text = str(body.get("text", "受控实时字幕"))
         t = max(live.base_secs, bot.probe.elapsed_secs)
-        segment = live.connection_id * 1000 + 1
+        segment = bot.segment
         message = {
             "segment_id": segment,
             "speaker_idx": 1,
@@ -177,6 +179,7 @@ def application(cfg: AppConfig, store: Store, seeds: dict[str, Any]) -> FastAPI:
                 {"type": "caption", **message, "stable": text, "unstable": ""}
             )
             return {"segment_id": segment}
+        bot.segment += 1
         utterance = Utterance(live.session.id, 1, t, t + 0.1, text)
         await store.add_utterance(utterance)
         await resources.sessions.push(
