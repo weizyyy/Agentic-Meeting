@@ -43,6 +43,10 @@ export function installMedia({ nativeAudio = false } = {}) {
     const canvas = document.createElement("canvas");
     canvas.width = 640;
     canvas.height = 360;
+    // 源画布参与浏览器绘制，避免捕获依赖离屏画布的提交时机。
+    canvas.setAttribute("aria-hidden", "true");
+    canvas.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;pointer-events:none";
+    document.body.append(canvas);
     const context = canvas.getContext("2d")!;
     const paint = () => {
       context.fillStyle = color;
@@ -57,6 +61,7 @@ export function installMedia({ nativeAudio = false } = {}) {
       track.stop = () => {
         clearInterval(timer);
         stop();
+        canvas.remove();
       };
     }
     return stream;
