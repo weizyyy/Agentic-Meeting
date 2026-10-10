@@ -36,7 +36,7 @@ test("真实页面、WebRTC、RTVI 与合成媒体探针", async ({ page, reques
       () => (playback = "resolved"),
       (error) => (playback = String(error)),
     );
-    const sample = async () => {
+    try {
       const deadline = Date.now() + 3000;
       while (video.readyState < 2 && Date.now() < deadline)
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -45,27 +45,20 @@ test("真实页面、WebRTC、RTVI 与合成媒体探针", async ({ page, reques
       const context = canvas.getContext("2d")!;
       if (video.readyState >= 2) context.drawImage(video, 0, 0, 1, 1);
       return {
+        tracks,
         width: video.videoWidth,
         height: video.videoHeight,
         readyState: video.readyState,
         playback,
         pixel: Array.from(context.getImageData(0, 0, 1, 1).data),
       };
-    };
-    try {
-      const detached = await sample();
-      document.body.append(video);
-      const attached = await sample();
-      return { tracks, detached, attached };
     } finally {
       stream.getTracks().forEach((track) => track.stop());
       video.srcObject = null;
-      video.remove();
     }
   });
-  console.log("合成屏幕原生视频消费：", JSON.stringify(screen));
   expect(screen.tracks).toEqual([{ state: "live", kind: "video" }]);
-  expect(screen.detached).toMatchObject({
+  expect(screen).toMatchObject({
     width: 640,
     height: 360,
     pixel: [52, 86, 120, 255],

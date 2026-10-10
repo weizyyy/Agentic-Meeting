@@ -161,6 +161,18 @@ pactl load-module module-null-sink sink_name=e2e
 pactl set-default-sink e2e
 ```
 
+For Linux browser acceptance, CI uses headed browsers in Xvfb's CPU virtual display:
+
+```bash
+xvfb-run -a npm run test:e2e --prefix client -- --headed
+```
+
+Playwright's Linux WebKit launcher uses WPE in headless mode and GTK in headed mode. The pinned
+headless build did not deliver a first frame from the synthetic canvas stream, even when its
+consumer video was attached to the page. Xvfb exercises the native headed path without a physical
+display; the same three projects and real first-frame, upload and persistence assertions run.
+`playwright install --with-deps` installs Xvfb on supported Linux distributions.
+
 This is test environment setup, not an AudioContext or SDK replacement. The CI runner is discarded
 after the job. On a local machine, unload the module using the ID printed by `pactl load-module`
 (`pactl unload-module <id>`); stop PulseAudio only if it was started solely for this test run.

@@ -145,6 +145,17 @@ pactl load-module module-null-sink sink_name=e2e
 pactl set-default-sink e2e
 ```
 
+Linux 浏览器验收在 Xvfb 的 CPU 虚拟显示中运行 headed 浏览器：
+
+```bash
+xvfb-run -a npm run test:e2e --prefix client -- --headed
+```
+
+Playwright 的 Linux WebKit 启动器在 headless 模式使用 WPE，headed 模式使用 GTK。
+当前锁定的 headless 构建没有从合成 canvas 流送出首帧，即使将消费它的 video 插入页面也一样。
+Xvfb 不需要物理显示器，可以验证原生 headed 路径；三个项目、真实首帧、上传与持久化断言均保持不变。
+`playwright install --with-deps` 会在支持的 Linux 发行版上安装 Xvfb。
+
 这是测试环境准备，不替换 AudioContext 或 SDK。CI runner 在 job 结束后销毁。
 本地运行结束后，用 `pactl load-module` 打印的 ID 卸载模块（`pactl unload-module <id>`）；
 只有 PulseAudio 专为这次测试启动时才停止它。
