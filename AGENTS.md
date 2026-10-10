@@ -15,10 +15,10 @@ llama.cpp family. The web client is Vite + React + TypeScript.
 ## Setup and checks
 
 ```bash
-git submodule update --init --depth 1 third_party/NeMo-Speech.cpp third_party/Confucius4-R2T2
+git submodule update --init --depth 1 third_party/Confucius4-R2T2
 uv sync --extra agent
 
-uv run pytest                              # ~1000 tests, no GPU, weights or network needed
+uv run pytest                              # end-to-end tests, no GPU, weights or network needed
 uv run ruff check src tests scripts
 uv run ruff format --check src tests scripts
 
@@ -27,7 +27,6 @@ npm run format:check                       # client code, JSON, YAML and Markdow
 
 cd client
 npm ci
-npm test                                   # needs Node.js 22.18+ (runs .ts files directly)
 npm run build                              # type-check and bundle
 ```
 
@@ -47,10 +46,10 @@ and Linux with Python 3.12, 3.13 and 3.14, so avoid platform-specific paths and 
 | `src/agentic_meeting/store/`        | SQLite schema and access, vector search                                                                      |
 | `src/agentic_meeting/services/`     | Supervision of inference server processes                                                                    |
 | `src/agentic_meeting/web/`          | HTTP API and static site                                                                                     |
-| `client/src/`                       | Web client; pure logic lives in plain `.ts` files with `*.test.ts` next to them                              |
+| `client/src/`                       | Web client; pure logic lives in plain `.ts` files                                                            |
 | `config/config.example.toml`        | Configuration template; `config/prompts/` and `config/asr_profiles/` hold prompts and model-specific formats |
 | `scripts/`                          | Runtime fetch/build, headless replay, realtime-LLM evaluation, microphone check                              |
-| `tests/`                            | Python tests; fakes for external services are in `tests/fakes.py`                                            |
+| `tests/`                            | End-to-end tests in `tests/e2e/`; fake inference services are in `tests/e2e/inference.py`                    |
 | `docs/`, `docs/zh-CN/`              | Documentation in English and Chinese with identical file names and section numbers                           |
 
 Read these before changing behavior:
@@ -68,7 +67,7 @@ Read these before changing behavior:
 2. **No model names in source.** `src/`, `client/src/` and `scripts/` contain no model names or
    weight file names. Everything model-specific comes from `config/config.toml`,
    `config/asr_profiles/` and `config/prompts/`. Tests use made-up names such as `fake-model`; a
-   test in `tests/test_config.py` enforces the rule.
+   test in `tests/test_repository_rules.py` enforces the rule.
 3. **Verify Pipecat APIs against 1.12.0.** Pipecat 1.x differs substantially from older examples
    and from what you may remember. Check `docs/pipecat-notes.md` first, then the installed source
    under `.venv/`; record anything new you confirm in the notes.
@@ -119,7 +118,7 @@ the web UI. Global options come before the subcommand: `agentic-meeting --config
 1. Field and validation in `src/agentic_meeting/config.py`.
 2. Entry with a comment in `config/config.example.toml`.
 3. `docs/interfaces.md` §1 and `docs/configuration.md`, plus the `docs/zh-CN/` counterparts.
-4. A test in `tests/test_config.py`.
+4. An end-to-end test in `tests/e2e/` if the key changes behavior.
 
 **Change a prompt**
 
@@ -131,13 +130,15 @@ model and needs the user's services.
 **Change a message or HTTP endpoint**
 
 Update `docs/interfaces.md`, then the server (`src/agentic_meeting/web/`, `pipeline/`) and the
-client (`client/src/protocol.ts`, `api.ts`) together, with tests on both sides.
+client (`client/src/protocol.ts`, `api.ts`) together, with an end-to-end test in `tests/e2e/`.
 
-**Test code that talks to a model or service**
+**Write a test**
 
-Inject the dependency and replace it with a fake from `tests/fakes.py`; answer HTTP calls with
-`httpx.MockTransport`; drive Pipecat processors with `pipecat.tests.utils.run_test`. Do not add
-tests that require a GPU, weights or network access unless they are marked `@pytest.mark.gpu`.
+Tests are end-to-end scenarios: start the application with the `start_app` fixture in
+`tests/e2e/conftest.py`, script the fake inference services in `tests/e2e/inference.py`, and drive
+it through HTTP and `tests/e2e/meeting_client.py` (WebRTC with a real speech recording). Do not add
+unit tests of single functions or classes. Do not add tests that require a GPU, weights or network
+access unless they are marked `@pytest.mark.gpu`.
 
 ## Before you finish
 

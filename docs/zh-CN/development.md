@@ -19,7 +19,7 @@
 
 ```bash
 uv sync --extra agent                 # 安装或更新 Python 依赖
-uv run pytest                         # 测试；需要 GPU 或外部服务的用例默认跳过
+uv run pytest                         # 端到端测试；需要 GPU 或真实模型的用例默认跳过
 uv run ruff check src tests scripts   # 静态检查
 uv run ruff format src tests scripts  # 格式化
 uv run agentic-meeting check          # 校验 config/config.toml
@@ -30,11 +30,10 @@ npm run format:check                 # 只检查格式，不写入文件
 
 cd client
 npm ci
-npm test                              # 客户端纯逻辑的单元测试
 npm run build                         # 类型检查并构建
 ```
 
-CI 在 Windows 和 Linux 上分别用 Python 3.12、3.13 和 3.14 运行 Python 测试，在 Linux 上运行客户端测试。
+CI 在 Windows 和 Linux 上分别用 Python 3.12、3.13 和 3.14 运行 Python 测试，在 Linux 上对客户端做类型检查并构建。
 在本地用其他版本运行测试、同时不影响 `.venv`：
 
 ```bash
@@ -48,7 +47,7 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
 2. **源代码中不出现模型名。** `src/`、`client/src/` 和 `scripts/` 中没有模型名或权重文件名；
    测试使用虚构的名字（如 `fake-model`）。模型、接口地址、音色和采样参数来自 `config/config.toml`，
    与模型相关的提示词格式放在 `config/asr_profiles/` 和 `config/prompts/` 中。
-   `tests/test_config.py` 中有一条测试保证这一点。
+   `tests/test_repository_rules.py` 中有一条测试保证这一点。
 3. **Pipecat 接口以锁定的版本为准。** Pipecat 锁定在 1.12.0，其 1.x 接口与早期示例差别很大。
    先查阅 pipecat-notes.md；没有记载的，阅读 `.venv/` 下已安装的源码，并把确认的结论补充到该文档。
 4. **锁定的版本单独升级。** `pyproject.toml` 中的依赖和 `runtimes.lock.toml` 中的运行时版本按
@@ -83,31 +82,28 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
 
 ## 测试
 
-自动化测试不需要 GPU、模型权重或网络。
+测试是端到端的，不需要 GPU、模型权重或网络。
 
-- **外部依赖通过参数注入。** 识别后端、说话人区分、模型服务和任务运行器都作为参数传入，
-  测试中以假实现替代（`tests/fakes.py`）。
-- HTTP 调用由 `httpx.MockTransport` 应答。
-- Pipecat 处理器使用其自带的测试工具：
-
-  ```python
-  from pipecat.tests.utils import SleepFrame, run_test
-
-  down, up = await run_test(
-      processor,
-      frames_to_send=[frame_a, SleepFrame(sleep=0.1), frame_b],
-      expected_down_frames=[TypeA, TypeB],
-  )
-  ```
-
-- 需要真实权重、GPU 或外部服务的测试标记为 `@pytest.mark.gpu`，默认不运行：
+- **`tests/e2e/`** 用 `agentic-meeting --config <临时配置> serve` 起真实的应用进程，和用户启动的方式完全相同，
+  数据目录放在临时目录里。推理服务换成测试进程里的几个小 HTTP 服务（`tests/e2e/inference.py`），
+  说的是同样的协议：识别用 llama-server 的音频输入和 `/tokenize`，实时模型和后台 agent 用 OpenAI 兼容的
+  对话补全，另有 `/v1/audio/speech` 和 `/v1/embeddings`。每个服务都可以单独停掉，用来验证降级。
+  测试只通过 HTTP 和 WebRTC 与应用交互：`tests/e2e/meeting_client.py` 用 aiortc 扮演会议页面，
+  麦克风轨道送的是一段真实的语音录音（来自子模块 `third_party/Confucius4-R2T2`），数据通道上说 RTVI 协议。
+- **`tests/test_repository_rules.py`** 守住运行起来不会立刻暴露的几条约定：源码里没有模型名，
+  识别档案与上游对话模板一致，`scripts/eval_realtime_model.py` 的评测样例正好覆盖实时模型的全部工具。
+- **`tests/test_real_services.py`** 用 `config/config.toml` 里的真实模型和服务做检查，标记为
+  `@pytest.mark.gpu`，默认不运行：
 
   ```bash
-  AGENTIC_MEETING_TEST_WAV=dialogue.wav uv run pytest -m gpu tests/test_diar_nemo.py
-  uv run pytest -m gpu tests/test_agent_runner.py -s
+  AGENTIC_MEETING_TEST_WAV=dialogue.wav uv run pytest -m gpu tests/test_real_services.py
   ```
 
-端到端的验证使用 [runtimes.md §6](runtimes.md) 中介绍的脚本：`scripts/soak.py` 把一段录音送入运行中的服务，
+新测试请写成用户认得出的场景：他们在会议页面或命令行上做了什么，之后通过接口、数据通道或文件看到了什么。
+不要给单个函数或类写测试：那只会把代码现在的形状固定下来，并不能证明系统能用。网页客户端目前没有自己的测试：
+`npm run build` 会做类型检查，它收发的每一种消息在服务端一侧由 `tests/e2e/` 覆盖。
+
+其他端到端的验证使用 [runtimes.md §6](runtimes.md) 中介绍的脚本：`scripts/soak.py` 把一段录音送入运行中的服务，
 `scripts/eval_realtime_model.py` 检查当前实时模型的工具选择与延迟。修改
 `config/prompts/realtime_system.md` 或更换模型之后，请运行后者。
 

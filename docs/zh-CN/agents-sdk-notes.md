@@ -3,8 +3,8 @@
 [English](../agents-sdk-notes.md) · **简体中文**
 
 本文说明后台 agent（`src/agentic_meeting/agent/`）对 OpenAI Agents SDK **0.23.1** 的用法。文中描述的行为均已对照
-已安装的源码核实，并由 `tests/test_agent_runner.py` 覆盖（用 `httpx.MockTransport` 模拟远端模型）。
-另有两条标记为 `gpu` 的测试，使用真实的远端模型、MCP 服务和 Docker 沙箱。
+已安装的源码核实。`tests/e2e/test_assistant.py` 用模拟的 OpenAI 兼容接口端到端地跑委托任务；
+`tests/test_real_services.py` 里另有两条标记为 `gpu` 的测试，使用真实的远端模型、MCP 服务和沙箱。
 
 安装：`uv sync --extra agent`（`openai-agents[docker]`）。未安装时应用仍可启动，委托的任务会失败并说明原因
 （SDK 的对象都在函数内部导入）。
@@ -142,5 +142,5 @@ await client.delete(session)    # 删除容器；aclose() 不会删除
 - 沙箱无法启动（未安装或未运行 Docker、未配置镜像、启动失败）不会导致任务失败：运行器退回普通的 `Agent`，
   记录一条进度提示，并告知 agent 本次无法运行代码（architecture.md §9）。
 
-标记为 `gpu` 的测试（`uv run pytest -m gpu tests/test_agent_runner.py -s`）验证容器能够启动、
+标记为 `gpu` 的测试（`uv run pytest -m gpu tests/test_real_services.py -s`）验证容器能够启动、
 `exec_command` 能够运行 Python、产物能够取回，以及任务结束后容器被删除。

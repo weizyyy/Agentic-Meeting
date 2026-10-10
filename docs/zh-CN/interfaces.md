@@ -66,7 +66,7 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
   `check` 与 `serve` 都会打印这些事项，浏览器连接后各收到一条 `notice` 消息。
 - **模型相关的字符串不进代码**。识别模型的对话模板、前缀写法、输出标记放在
   `config/asr_profiles/*.toml`（由 `load_asr_profile()` 读取）；各类提示词放在 `config/prompts/*.md`。
-  `tests/test_config.py` 里有一条测试会扫描 `src/`，发现模型名即失败。
+  `tests/test_repository_rules.py` 里有一条测试会扫描 `src/`，发现模型名即失败。
 
 ### 1.1 保留期限与录制提示
 

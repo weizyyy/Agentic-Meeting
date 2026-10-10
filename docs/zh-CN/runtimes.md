@@ -236,8 +236,7 @@ uv run python scripts/mic_check.py --wav 我的录音.wav                 # 麦�
 需要真实硬件的自动化测试标了 `gpu`，默认跳过：
 
 ```bash
-AGENTIC_MEETING_TEST_WAV=多人对话.wav uv run pytest -m gpu tests/test_diar_nemo.py   # 说话人区分的真实模型
-uv run pytest -m gpu tests/test_agent_runner.py -s                                  # 真实的远端模型、MCP、Docker 沙箱
+AGENTIC_MEETING_TEST_WAV=多人对话.wav uv run pytest -m gpu tests/test_real_services.py -s   # 说话人区分、远端模型、MCP、沙箱
 ```
 
 用 llama.cpp 部署实时模型时，也可以先手工确认模型能起来：

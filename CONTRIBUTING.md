@@ -27,14 +27,14 @@ npm ci
 cd client && npm ci && cd ..
 ```
 
-The automated tests need no GPU, model weights or network access:
+The automated tests are end-to-end and need no GPU, model weights or network access:
 
 ```bash
 uv run pytest
 uv run ruff check src tests scripts
 uv run ruff format --check src tests scripts
 npm run format:check
-cd client && npm test && npm run build
+cd client && npm run build
 ```
 
 To run the lint and format checks automatically before each commit, install the

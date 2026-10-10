@@ -24,14 +24,14 @@ npm ci
 cd client && npm ci && cd ..
 ```
 
-自动化测试不需要 GPU、模型权重或网络：
+自动化测试是端到端的，不需要 GPU、模型权重或网络：
 
 ```bash
 uv run pytest
 uv run ruff check src tests scripts
 uv run ruff format --check src tests scripts
 npm run format:check
-cd client && npm test && npm run build
+cd client && npm run build
 ```
 
 如需在每次提交前自动运行静态检查和格式化，可执行一次 `uvx pre-commit install`

@@ -253,8 +253,7 @@ caption lag, memory and GPU memory. A sample run is documented in [benchmarks.md
 Tests that need real hardware are marked `gpu` and skipped by default:
 
 ```bash
-AGENTIC_MEETING_TEST_WAV=dialogue.wav uv run pytest -m gpu tests/test_diar_nemo.py   # diarization with a real model
-uv run pytest -m gpu tests/test_agent_runner.py -s                                   # remote model, MCP and the Docker sandbox
+AGENTIC_MEETING_TEST_WAV=dialogue.wav uv run pytest -m gpu tests/test_real_services.py -s   # diarization, remote model, MCP and sandbox
 ```
 
 When serving the realtime LLM with llama.cpp, it can be checked by hand first:

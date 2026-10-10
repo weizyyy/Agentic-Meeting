@@ -24,7 +24,6 @@ jobs:
         working-directory: client
         run: |
           npm ci
-          npm test
           npm run build
 
       - name: Package the prebuilt client

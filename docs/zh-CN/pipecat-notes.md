@@ -193,7 +193,7 @@ user_aggregator, assistant_aggregator = pair.user(), pair.assistant()
 - 一个英文单词不会被拆进两条转录帧（策略在各条转录之间加空格，拆开就匹配不上了）。
 - 不推送只有空白的转录帧。
 
-**唤醒窗口与打断**（已用真实的聚合器和唤醒策略在 `tests/test_bot.py` 中验证）：
+**唤醒窗口与打断**（已用真实的聚合器和唤醒策略验证）：
 
 - 没叫名字的发言：不触发 `UserStartedSpeakingFrame`、不打断、不给模型（上下文里也没有这句话）。
 - 叫了名字：依次出现 `UserStartedSpeakingFrame`、`InterruptionFrame`；说完（停顿 + 转录收尾）后
@@ -335,7 +335,7 @@ tts = LocalTTSService(
 - `run_inference(context, max_tokens=...)` 覆盖输出上限时，写的是 **`max_completion_tokens`**（它在参数里
   永远存在，值为 SDK 的未设置标记）而不是 `max_tokens`。个别第三方接口可能不认这个字段；
   不认时改成在构造 `Settings` 时设 `max_tokens`。
-- `run_inference` 的行为（`tests/test_caption_wiring.py` 中有请求体的回归测试）：
+- `run_inference` 的行为：
   - 传了 `max_tokens=N` 时请求体里是 `max_completion_tokens: N`；`Settings.max_tokens` 没设时请求体里**没有** `max_tokens` 字段。
     两个都设会同时发出去，所以后台实例（`build_realtime_llm(..., background=True)`）不带配置里的 `max_tokens`。
     仓库里的 llama.cpp 源码把 `max_completion_tokens` 登记为 `max_tokens` 的别名（`tools/server/server-schema.cpp`）；
@@ -345,7 +345,7 @@ tts = LocalTTSService(
   - `LLMContext(messages)` 直接接收消息列表，带图片的消息用下一条的辅助函数生成。
 - 往上下文里放图片：`LLMContext.create_image_url_message(url="data:image/webp;base64,...", text="...")`。
 - 语音合成默认按句子聚合文本再合成（`TTSService` 的 `text_aggregation_mode`，默认 `SENTENCE`）。
-  中文断句无需自定义聚合器（`tests/test_local_services.py` 中有回归测试）：默认的
+  中文断句无需自定义聚合器：默认的
   `SimpleTextAggregator` 在 `。！？；` 处断句，逗号和冒号不断；中英混排里的 `Dr.`、`v2.0`、`3.5` 不会被切开；
   一个字符一个字符喂和一次喂几个字符，结果相同。一句话要等到下一个字符到达（或回复结束）才会放行——
   所以首句越短首音越快，首句过长是靠提示词（短句）而不是代码来解决。
@@ -398,8 +398,6 @@ context = LLMContext(tools=[recall, delegate_task, ...])   # 放进 tools 即自
   `tool_call_id` 出现在上下文里。
 - 用 `functools.wraps` 包一层的直接函数照样能提取工具定义（`inspect.signature` 会顺着 `__wrapped__` 找到原签名）；
   `Literal[...]` 之类的类型没有验证过，参数只用 `str` / `int` / `float`。
-- 测试里 `run_test` 自己建 `PipelineWorker`，没法传 `app_resources`；管线起来之后设
-  `llm.pipeline_worker._app_resources` 即可（`tests/test_tools.py`）。
 - **`skip_tts` 与工具。**`LLMConfigureOutputFrame` 是记在模型服务身上的持久状态，不是「只管下一次生成」。
   一次请求带工具调用时会生成两次（调用、拿到结果后的回答），中间夹着的任何配置帧都会影响第二次。
   所以模态在请求进入模型**之前**设定，不在请求之后「恢复」。工具结果触发的再次生成是助理侧聚合器向**上游**推的
@@ -456,8 +454,7 @@ tools_schema = await mcp.tools()      # 返回带处理函数的工具集合，�
 **正式请求的参数怎么来的（`services/openai/base_llm.py` 的 `get_chat_completions`）**：
 `adapter.get_llm_invocation_params(context, system_instruction=…, convert_developer_to_user=…)` 给出消息、工具、
 `tool_choice`，再由 `build_chat_completion_params` 并上采样参数和 `Settings.extra`。预热请求走同一条路
-（`RealtimeLLMService.request_params`），所以两者的消息与工具逐字一致——`tests/test_context.py` 里有一条测试
-把两次请求的请求体拿来比。
+（`RealtimeLLMService.request_params`），所以两者的消息与工具逐字一致。
 
 消息是 OpenAI 格式的字典：`{"role": "user" | "assistant" | "system", "content": "..."}`。
 追加类的帧由用户侧聚合器处理，所以推送位置必须在它的**上游**（会议记录器正好在上游）。
@@ -512,7 +509,7 @@ class MeetingRecorder(FrameProcessor):
   （`transports/base_output.py`）；位于传输输出上游的处理器（比如会议记录器）收到的是**上游**那份——
   `process_frame` 中需要处理 `direction == FrameDirection.UPSTREAM`。
 - `LLMMessagesAppendFrame` 被用户侧聚合器消费（`add_messages` 进共享的 `LLMContext`），**不会**再被转发到助理侧聚合器，
-  所以追加一次只在上下文里出现一次（`tests/test_meeting_recorder.py` 用真实聚合器验证过）。
+  所以追加一次只在上下文里出现一次（用真实聚合器验证过）。
 - 助理这一轮说的话：`on_assistant_turn_started(aggregator)` 和 `on_assistant_turn_stopped(aggregator, message)`，
   `message.content` 是这一轮的完整文本（被打断且还没有任何 token 时可能为空）、`message.interrupted` 是否被打断。
 
@@ -522,7 +519,7 @@ class MeetingRecorder(FrameProcessor):
 按环节拆开的耗时（停顿判定、转录、大模型、语音合成），直接写日志即可（`pipeline/bot.py` 里已接）。
 
 `PipelineWorker.cancel()` 立即取消管线（客户端断开时用），`stop_when_done()` 排队一个 `EndFrame` 等已排队的
-帧处理完。`run_test` 的第一个参数可以是一整条 `Pipeline`，端到端演练就是这样做的。
+帧处理完。
 
 ## 11. 多 worker（未使用）
 
@@ -593,7 +590,6 @@ await client.disconnect();
   里的设置也传不过来。传输层有一个 `iceServers` 的 setter（`RTCIceServer[]`），每次新建 `RTCPeerConnection` 时读取，
   SDK 自己重连时也一样。页面在每次 `connect()` 之前用 `GET /api/ice` 的结果设置它（`useMeetingClient.ts`）。
 - `tsconfig` 里 `verbatimModuleSyntax` + `allowImportingTsExtensions`：源码里的相对导入写 `.ts` 扩展名，
-  纯逻辑文件（协议解析、字幕合并、状态归约）才能被 Node 自带的测试运行器直接跑（`npm test`，不需要测试框架）；
-  `*.test.ts` 不参与 `tsc` 与打包。
+  纯逻辑文件因此也能直接用 Node 运行。
 - 屏幕截图不使用 SDK 的 `enableScreenShare`（它会建立一条 WebRTC 视频轨）。
   页面直接调用 `navigator.mediaDevices.getDisplayMedia()`，把画面画到 `<canvas>` 上取静态图上传。

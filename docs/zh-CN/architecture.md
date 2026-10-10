@@ -427,7 +427,7 @@ Agentic-Meeting/
 │   ├── agent/                 任务管理器、agent 运行器、沙箱
 │   └── web/                   HTTP 接口与静态页面
 ├── client/                    浏览器客户端（Vite + React + TypeScript）
-├── tests/                     自动化测试（默认不需要 GPU）
+├── tests/                     端到端测试（默认不需要 GPU）
 ├── third_party/               推理运行时的源码（git 子模块，只读）
 ├── runtimes/                  下载的预编译推理程序（不入库）
 ├── models/                    模型权重（不入库）
