@@ -60,6 +60,9 @@ you!
   were removed. ([#41]; browser suite [#43] and condition-based waits [#39] by [@gad-en1nd])
 - A pinned repository-wide Prettier formatter for client code, JSON, YAML and Markdown, with shared
   configuration, `npm run format` / `npm run format:check`, pre-commit and CI checks. ([#31])
+- CI runs only the jobs that the changed files can affect: Python tests for server code, tests and
+  scripts, the client build for the web client, browser end-to-end tests for either side of the
+  meeting page. A documentation-only change runs only the Prettier check. ([#45])
 - `SECURITY.md` lists the supported versions and covers the anonymous health endpoints, TURN
   credentials, the deployment checklist and the limits of deletion.
 
@@ -92,6 +95,7 @@ you!
 [#42]: https://github.com/weizyyy/Agentic-Meeting/pull/42
 [#43]: https://github.com/weizyyy/Agentic-Meeting/pull/43
 [#44]: https://github.com/weizyyy/Agentic-Meeting/pull/44
+[#45]: https://github.com/weizyyy/Agentic-Meeting/pull/45
 [@gad-en1nd]: https://github.com/gad-en1nd
 
 ## [0.1.1] - 2026-10-09

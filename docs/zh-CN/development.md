@@ -34,6 +34,23 @@ npm run build                         # 类型检查并构建
 ```
 
 CI 在 Windows 和 Linux 上分别用 Python 3.12、3.13 和 3.14 运行 Python 测试，在 Linux 上对客户端做类型检查并构建。
+并不是每次改动都跑全部任务：_Classify changes_ 任务读取改动的文件，只启动可能受影响的任务。
+Prettier 检查总是运行。
+
+| 改动的文件                                                                                   | Python（6 个任务） | Web client | Browser end-to-end |
+| -------------------------------------------------------------------------------------------- | ------------------ | ---------- | ------------------ |
+| `src/`、`config/`（含提示词）、`pyproject.toml`、`uv.lock`、`.python-version`                | 跑                 |            | 跑                 |
+| `tests/browser/`                                                                             | 跑                 |            | 跑                 |
+| `tests/` 下其他文件、`scripts/`、子模块、`runtimes.lock.toml`                                | 跑                 |            |                    |
+| `client/e2e/`、`client/playwright.config.ts`                                                 |                    |            | 跑                 |
+| `client/` 下其他文件                                                                         |                    | 跑         | 跑                 |
+| 其他 Markdown 文件、`docs/`、`LICENSE`、issue 模板、格式化工具设置                           |                    |            |                    |
+| `.github/dependabot.yml`、`.pre-commit-config.yaml`、`.gitignore`、`.env.example`、`docker/` |                    |            |                    |
+| 其他文件，包括工作流文件                                                                     | 跑                 | 跑         | 跑                 |
+
+只有分类结果表明不需要时，_All checks_ 才把跳过的任务算作通过。新增的顶层文件或目录在加入
+`.github/workflows/ci.yml` 的分类之前会跑全部任务。
+
 在本地用其他版本运行测试、同时不影响 `.venv`：
 
 ```bash

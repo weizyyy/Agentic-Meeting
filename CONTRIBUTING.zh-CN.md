@@ -51,6 +51,8 @@ Python 单独使用 `uv run ruff format src tests scripts` 格式化。
 4. 行为或配置发生变化时，同时更新 `docs/` 与 `docs/zh-CN/` 下的文档，并在 `CHANGELOG.md` 的
    _Unreleased_ 一节中添加条目。
 5. 确认 CI 通过。`main` 分支受保护：改动一律通过合并请求进入，_All checks_ 任务成功后以 squash 方式合并。
+   CI 只运行改动的文件可能影响到的任务（见 [docs/zh-CN/development.md](docs/zh-CN/development.md#常用命令)），
+   只改文档的合并请求只跑格式检查。
 
 以下规则由测试或评审把关：
 

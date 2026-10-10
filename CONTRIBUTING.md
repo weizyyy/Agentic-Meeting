@@ -55,7 +55,9 @@ how to test changes that involve real models.
 4. Update the documentation in both `docs/` and `docs/zh-CN/` when behavior or configuration
    changes, and add an entry under _Unreleased_ in `CHANGELOG.md`.
 5. Make sure CI passes. `main` is protected: changes land through pull requests, which are
-   squash-merged once the _All checks_ job succeeds.
+   squash-merged once the _All checks_ job succeeds. CI runs only the jobs the changed files can
+   affect (see [docs/development.md](docs/development.md#commands)); a documentation-only pull
+   request runs just the formatting check.
 
 A few project rules are enforced by tests or review:
 

@@ -30,8 +30,16 @@ npm ci
 npm run build                              # type-check and bundle
 ```
 
-Run all of the above before you report a change as finished. CI runs the same commands on Windows
-and Linux with Python 3.12, 3.13 and 3.14, so avoid platform-specific paths and shell syntax in code and tests.
+Run all of the above before you report a code change as finished. CI runs the same commands on
+Windows and Linux with Python 3.12, 3.13 and 3.14, so avoid platform-specific paths and shell syntax
+in code and tests.
+
+CI runs only the jobs the changed files can affect; the table is in
+[docs/development.md](docs/development.md#commands). Prettier always runs, a documentation-only
+change runs nothing else, and prompts under `config/prompts/` count as server code. Check locally
+the same way: a documentation-only change needs only `npm run format:check`. When you add a
+top-level file or directory, add it to the classification in `.github/workflows/ci.yml`; until then
+it runs every job. Keep a change's documentation in the same pull request as its code.
 
 ## Where things are
 
