@@ -134,7 +134,7 @@ jobs:
           pactl list short sinks
 
       - name: Test all browser engines
-        run: xvfb-run -a npm run test:e2e --prefix client -- --headed
+        run: npm run test:e2e --prefix client
 
       - name: Upload failure diagnostics
         if: failure() || cancelled()
