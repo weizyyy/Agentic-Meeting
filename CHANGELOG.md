@@ -22,6 +22,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - A pinned repository-wide Prettier formatter for client code, JSON, YAML and Markdown, with
   shared configuration, `npm run format` / `npm run format:check`, pre-commit and CI checks.
 
+### Fixed
+
+- The web client no longer depends on `c.daily.co`. The Pipecat SDK's default media manager
+  downloaded a script from that host and sent error reports to `sentry.io` when a meeting started,
+  so browsers without access to it could not connect at all. The page now uses the SDK's
+  `WavMediaManager`, which makes no requests of its own, and switches the connection to the new
+  microphone track itself when the system default microphone changes.
+
 ## [0.1.1] - 2026-10-09
 
 ### Added

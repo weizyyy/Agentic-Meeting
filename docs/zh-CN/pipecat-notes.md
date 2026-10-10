@@ -534,10 +534,10 @@ class MeetingRecorder(FrameProcessor):
 ```ts
 import { PipecatClient } from "@pipecat-ai/client-js";
 import { PipecatClientAudio, PipecatClientProvider } from "@pipecat-ai/client-react";
-import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
+import { SmallWebRTCTransport, WavMediaManager } from "@pipecat-ai/small-webrtc-transport";
 
 const client = new PipecatClient({
-  transport: new SmallWebRTCTransport(),
+  transport: new SmallWebRTCTransport({ mediaManager: new WavMediaManager() }),
   enableMic: true,
   enableCam: false,
   callbacks: {
@@ -560,12 +560,20 @@ await client.disconnect();
 - **助理的语音要自己挂到 `<audio>` 上**：传输层不会自动播放。用 `@pipecat-ai/client-react` 的
   `<PipecatClientProvider client={client}>` 包住界面，里面放一个 `<PipecatClientAudio />` 即可。
   客户端对象建一次，开始 / 结束只是对它 `connect()` / `disconnect()`。
-- 默认的媒体管理器是 `DailyMediaManager`（`@daily-co/daily-js`），它不暴露麦克风约束。回声消除的做法：
-  `onTrackStarted` 里对本机音频轨检查 `track.getSettings().echoCancellation`，不是 `true` 就
-  `track.applyConstraints({ echoCancellation: true })`（主流浏览器默认就是开的）。降噪与自动增益保持浏览器默认。
-  `DailyMediaManager` 取麦克风的调用是 `daily.startCamera({ startVideoOff, startAudioOff, dailyConfig })`
-  （`small-webrtc-transport/dist/index.js`），没有传入任何音频约束。约束只能事后通过 `applyConstraints` 设置；
-  浏览器的自动增益在具体设备上是否生效尚未验证。页面会把 `getSettings()` 的结果输出到控制台。
+- **页面用 `WavMediaManager`，不用默认的媒体管理器。** 不传 `mediaManager` 时传输层会建一个 `DailyMediaManager`
+  （`@daily-co/daily-js`），它在开始会议时从 `c.daily.co` 下载 call-machine 脚本，还会往 `sentry.io` 报错；浏览器访问不到
+  `c.daily.co` 时根本不会创建 `RTCPeerConnection`。页面传入 `new SmallWebRTCTransport({ mediaManager: new WavMediaManager() })`
+  （两者都由 `@pipecat-ai/small-webrtc-transport` 导出），它自己不发任何网络请求。`WavMediaManager` 用
+  `getUserMedia({ audio: true })` 取麦克风（选了设备时再带 `deviceId`），并通过 `onTrackStarted` 报告这条轨道。它还会运行一个
+  `AudioWorklet` 录音器和一个流式播放器，那是给 WebSocket 传输层用的；在 SmallWebRTC 下没人读录到的数据，助理的声音照旧作为远端
+  WebRTC 轨道到达。
+- **换麦克风时传输层不会把新轨道发出去。** 系统默认麦克风变了、或者当前的被拔掉时，`WavMediaManager` 会停掉旧轨道、换一条新的，
+  但只有 `DailyMediaManager` 接了「把轨道换进 PeerConnection」这一步。页面在 `onTrackStarted` 里自己做（`localAudio.ts`），
+  用的是传输层的 `getAudioTransceiver()`：1.10.8 的内部方法，类型声明里没有，调用前先检查它在不在。不做这一步，
+  连接里留着的是已经停掉的轨道，服务端再也收不到声音。
+- 媒体管理器不暴露麦克风约束。回声消除的做法：`onTrackStarted` 里对本机音频轨检查 `track.getSettings().echoCancellation`，
+  不是 `true` 就 `track.applyConstraints({ echoCancellation: true })`（主流浏览器默认就是开的）。降噪与自动增益保持浏览器默认。
+  约束只能事后通过 `applyConstraints` 设置；浏览器的自动增益在具体设备上是否生效尚未验证。页面会把 `getSettings()` 的结果输出到控制台。
 - **SDK 会自行重连。** 服务端重启后，无需任何操作就会出现一个新的连接（`POST /api/offer`，新的 `pc_id`）。这条重连**不会**重新触发 RTVI 的 `client-ready`，所以服务端在 `on_client_ready` 里发的
   `session` 消息页面收不到；页面要靠 HTTP 兜底——连接就绪时和连接期间每 5 秒核对一次「当前会话」（`useMeetingClient.ts`）。
   同一个 `pc_id` 的重连（ICE 重启）服务端日志里是 `Reusing existing connection`，不会再次调用 bot。
