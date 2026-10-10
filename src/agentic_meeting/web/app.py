@@ -2,7 +2,8 @@
 
 信令的写法照抄 Pipecat 自带运行器的 ``_setup_webrtc_routes``（docs/pipecat-notes.md §2）；
 我们不用它的 ``main()``，因为那会接管整个 FastAPI 应用和命令行。
-接口约定见 docs/interfaces.md §5：除信令外全部是 JSON，错误统一返回 ``{"error": "<中文说明>"}``。
+接口约定见 docs/interfaces.md §5：除信令外全部是 JSON，业务错误返回 ``{"error": "<中文说明>"}``。
+健康接口（``health_api.py``）使用 §5.8 的独立状态快照。
 截图、任务、报告、导出的接口各在自己的模块里（``frames_api.py`` 等）。
 """
 
@@ -46,7 +47,7 @@ from agentic_meeting.screen.caption import CaptionWorker
 from agentic_meeting.screen.ingest import FrameIngestor
 from agentic_meeting.store.db import Store
 from agentic_meeting.store.embeddings import EmbeddingClient, EmbeddingWorker
-from agentic_meeting.web import export, frames_api, reports_api, sessions_api, tasks_api
+from agentic_meeting.web import export, frames_api, health_api, reports_api, sessions_api, tasks_api
 
 DEFAULT_STATIC_DIR = REPO_ROOT / "client" / "dist"
 
@@ -228,9 +229,11 @@ def create_app(
         # 同一局域网内不需要 ICE 服务器，留空即可。
         ice_servers = [IceServer(urls=url) for url in cfg.server.ice_servers]
         app.state.handler = handler or SmallWebRTCRequestHandler(ice_servers=ice_servers or None)
+        app.state.health.start(the_store)
         try:
             yield
         finally:
+            await app.state.health.close()
             # 先告诉页面「服务正在停止」（它据此不自动重连），再断开全部连接
             await sessions.shutdown()
             await app.state.handler.close()
@@ -248,6 +251,7 @@ def create_app(
                 await opened.close()
 
     app = FastAPI(title="组会助理", lifespan=lifespan)
+    health_api.register(app, cfg)
 
     # ---- 错误统一成 {"error": "..."} ----
 
