@@ -14,8 +14,16 @@ recordings. Transcription status means transcription, not an audio-file recordin
 | Screenshot timestamps, descriptions and file references                                        | Database; images in `<data_dir>/sessions/<id>/frames/` |
 | Running summaries (digests) and meeting reports                                                | Database                                               |
 | Task goals, results, sources, progress events and outbound metadata                            | Database                                               |
-| Task input copies, generated files and sandbox working files                                   | `<data_dir>/sessions/<id>/tasks/<label>/`              |
+| Persistent task input copies and fetched artifacts                                             | `<data_dir>/sessions/<id>/tasks/<label>/`              |
 | Service/application logs                                                                       | `<data_dir>/logs/`                                     |
+
+The sandbox workspace is separate: Docker tasks use a per-task container (default workspace
+`/workspace`), while the local SDK uses a temporary directory. The host task directory is not
+mounted as that workspace. The runner copies inputs into the sandbox and fetches only selected
+reported artifacts back into the persistent task directory. On leaving the task context, it
+attempts to close and delete the sandbox; cleanup failures are logged. These temporary workspaces
+are not retention scan roots, so deleting the task directory does not guarantee removal of sandbox
+remnants left by a failure or crash.
 
 Downloaded exports are separate copies wherever the operator/browser saves them. Logs and task
 results can also contain meeting content; they are not equivalent to the utterance table.
