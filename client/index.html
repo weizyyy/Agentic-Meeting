@@ -8,5 +8,18 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // 主脚本没运行起来（浏览器太旧解析不了，或没加载完整）时说明原因，不留一张白页。
+      // 这段要在旧浏览器里也能跑：只用 ES5。模块脚本在 load 之前一定已经运行过。
+      window.addEventListener("load", function () {
+        if (document.documentElement.getAttribute("data-started")) return;
+        var note = document.createElement("p");
+        note.className = "unsupported";
+        note.setAttribute("role", "alert");
+        note.textContent =
+          "页面没能启动。浏览器版本可能太旧，请使用 %MIN_BROWSERS% 或更新的版本；已经是新版本的话，请刷新页面重试。";
+        document.getElementById("root").appendChild(note);
+      });
+    </script>
   </body>
 </html>

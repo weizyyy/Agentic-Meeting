@@ -167,7 +167,9 @@ uv run agentic-meeting serve --with-services
 
 Open <http://localhost:7860>, click **开始新会议** (Start meeting) and allow microphone access.
 Browsers on other machines need HTTPS — see the
-[getting started guide](docs/getting-started.md#access-from-other-devices).
+[getting started guide](docs/getting-started.md#access-from-other-devices). The page needs Chrome or
+Edge 111, Firefox 114 or Safari 16.4 or newer; see
+[supported browsers](docs/user-guide.md#supported-browsers).
 
 ## Documentation
 

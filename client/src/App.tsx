@@ -1,6 +1,7 @@
-import { PipecatClientAudio, PipecatClientProvider } from "@pipecat-ai/client-react";
+import { PipecatClientProvider } from "@pipecat-ai/client-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { AssistantAudio } from "./components/AssistantAudio.tsx";
 import { AssistantPanel } from "./components/AssistantPanel.tsx";
 import { CaptionList } from "./components/CaptionList.tsx";
 import { ControlBar } from "./components/ControlBar.tsx";
@@ -55,7 +56,6 @@ export function App({ onLogout }: Props = {}) {
 
   return (
     <PipecatClientProvider client={client}>
-      <PipecatClientAudio />
       <div className="app">
         <ControlBar
           connection={state.connection}
@@ -67,10 +67,17 @@ export function App({ onLogout }: Props = {}) {
             setListOpen((open) => !open);
             void meeting.refreshSessions();
           }}
+          canStart={meeting.unsupported === null}
           onStart={() => void meeting.start()}
           onStop={() => void meeting.stop()}
           onLogout={onLogout}
         />
+        {meeting.unsupported && (
+          <p className="unsupported" role="alert">
+            {meeting.unsupported}
+          </p>
+        )}
+        <AssistantAudio />
         <SessionBanner
           session={state.viewing}
           connection={state.connection}

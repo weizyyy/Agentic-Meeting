@@ -12,6 +12,7 @@ import {
 
 import { ApiError, createApi, type Api, type SessionDetail } from "./api.ts";
 import { authSession } from "./auth.ts";
+import { meetingUnsupportedReason } from "./browserSupport.ts";
 import { backfillAfterId, firstUtteranceId } from "./captions.ts";
 import { sendLocalAudio } from "./localAudio.ts";
 import { describeTrackSettings } from "./micLevel.ts";
@@ -163,6 +164,8 @@ export interface MeetingClient {
   resume: (id: string) => Promise<void>;
   /** 正在只读地看一场在别的设备上进行的会议 */
   watching: boolean;
+  /** 这个浏览器不能开会的原因；能开会是 null。不能开会时开始、继续都不会发起连接 */
+  unsupported: string | null;
   /** 把一个说话人的全部发言并入另一个 */
   mergeSpeakers: (idx: number, into: number) => Promise<void>;
   /** 把选中的发言改成另一个说话人；成功返回 true */
@@ -203,6 +206,8 @@ export function useMeetingClient(): MeetingClient {
   // 客户端只建一次，开始 / 结束只是对它 connect / disconnect。
   const [client] = useState(() => createMeetingClient(dispatch, setMicTrack));
   const api: Api = useMemo(() => createApi(), []);
+  // 页面打开时查一次：浏览器能力在页面生命周期里不会变。
+  const [unsupported] = useState(() => meetingUnsupportedReason());
 
   // 回调里要读最新状态，又不想每次状态变化都重建回调。
   const latest = useRef(state);
@@ -387,6 +392,10 @@ export function useMeetingClient(): MeetingClient {
   /** 连接。``sessionId`` 给了就是继续那一场，不给是新建。返回是否连上了。 */
   const connectTo = useCallback(
     async (sessionId: string | null, quiet = false): Promise<boolean> => {
+      if (unsupported) {
+        if (!quiet) dispatch({ type: "notice", level: "error", text: unsupported });
+        return false;
+      }
       const data = request.current.requestData;
       delete data.session_id;
       if (sessionId) data.session_id = sessionId;
@@ -411,7 +420,7 @@ export function useMeetingClient(): MeetingClient {
         return false;
       }
     },
-    [client, api],
+    [client, api, unsupported],
   );
 
   const start = useCallback(async () => {
@@ -775,6 +784,7 @@ export function useMeetingClient(): MeetingClient {
     start,
     resume,
     watching: watchingId !== null,
+    unsupported,
     mergeSpeakers,
     assignSpeaker,
     generateReport,

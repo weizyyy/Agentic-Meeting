@@ -24,6 +24,10 @@ already in use by a previous run.
 **Another device cannot use the microphone or share its screen.** Browsers require HTTPS for both.
 See [Access from other devices](getting-started.md#access-from-other-devices).
 
+**The page says 页面没能启动 (The page could not start), or that the browser lacks an interface.**
+The browser is older than the minimum or has WebRTC, microphone capture or Web Audio turned off. See
+[Supported browsers](user-guide.md#supported-browsers).
+
 **Another device opens the page but cannot connect, or the instance runs behind a reverse proxy.**
 See the troubleshooting section of the [deployment guide](deployment.md#5-troubleshooting): ICE
 failures, TURN, proxy headers and upload limits.
