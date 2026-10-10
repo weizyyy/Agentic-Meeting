@@ -151,6 +151,7 @@ uv run agentic-meeting serve --with-services
 | 文档                                      | 内容                                            |
 | ----------------------------------------- | ----------------------------------------------- |
 | [入门指南](docs/zh-CN/getting-started.md) | 安装、模型文件、首次运行、HTTPS                 |
+| [部署指南](docs/zh-CN/deployment.md)      | HTTPS 代理、TURN、防火墙与访问检查              |
 | [使用指南](docs/zh-CN/user-guide.md)      | 会中与会后如何使用网页                          |
 | [配置说明](docs/zh-CN/configuration.md)   | `config.toml` 的各个小节                        |
 | [故障排查](docs/zh-CN/troubleshooting.md) | 麦克风电平、唤醒、服务降级                      |

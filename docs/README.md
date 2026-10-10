@@ -7,6 +7,7 @@
 | Document                              | Contents                                                      |
 | ------------------------------------- | ------------------------------------------------------------- |
 | [Getting started](getting-started.md) | Installation, model files, first run, HTTPS                   |
+| [Deployment](deployment.md)           | HTTPS proxies, TURN, firewall and access checks               |
 | [User guide](user-guide.md)           | Working with the web page during and after a meeting          |
 | [Configuration](configuration.md)     | Every section of `config.toml`                                |
 | [Troubleshooting](troubleshooting.md) | Microphone level, wake word, degraded services                |

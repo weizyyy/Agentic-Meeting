@@ -133,6 +133,10 @@ Continue with the [user guide](user-guide.md).
 
 ## Access from other devices
 
+For an organization deployment, follow the [deployment guide](deployment.md): Caddy/nginx TLS
+termination, TURN for separate networks, the exposure checklist and browser troubleshooting.
+The direct-certificate setup below is an alternative for a trusted LAN.
+
 Browsers allow microphone and screen capture only on HTTPS pages or on `localhost`, so other
 machines on the network need a certificate. [mkcert](https://github.com/FiloSottile/mkcert) is the
 simplest way to get one:

@@ -126,6 +126,9 @@ uv run agentic-meeting serve              # 仅启动应用
 
 ## 从其他设备访问
 
+组织部署请按[部署指南](deployment.md)配置 Caddy/nginx TLS 终止、跨网段 TURN，完成对外开放
+清单及浏览器排查。下面的直接证书配置适合可信局域网，是另一种方式。
+
 浏览器只允许 HTTPS 页面或 `localhost` 页面使用麦克风和屏幕共享，因此局域网内的其他设备需要通过证书访问。
 [mkcert](https://github.com/FiloSottile/mkcert) 是最简便的办法：
 

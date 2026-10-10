@@ -169,6 +169,7 @@ Browsers on other machines need HTTPS — see the
 | Guide                                      | Contents                                                               |
 | ------------------------------------------ | ---------------------------------------------------------------------- |
 | [Getting started](docs/getting-started.md) | Installation, model files, first run, HTTPS                            |
+| [Deployment](docs/deployment.md)           | HTTPS proxies, TURN, firewall and access checks                        |
 | [User guide](docs/user-guide.md)           | Working with the web page during and after a meeting                   |
 | [Configuration](docs/configuration.md)     | Every section of `config.toml`                                         |
 | [Troubleshooting](docs/troubleshooting.md) | Microphone level, wake word, degraded services                         |

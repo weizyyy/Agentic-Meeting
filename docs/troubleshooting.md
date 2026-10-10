@@ -21,7 +21,9 @@ resolved relative to the repository root.
 already in use by a previous run.
 
 **Another device cannot use the microphone or share its screen.** Browsers require HTTPS for both.
-See [Access from other devices](getting-started.md#access-from-other-devices).
+See [Access from other devices](getting-started.md#access-from-other-devices) and
+[deployment troubleshooting](deployment.md#7-troubleshooting) for certificate trust, ICE failures,
+mixed content, proxy login/CSRF and timeout issues.
 
 **The page keeps asking for the password, or says there were too many attempts.** The password is
 read from the variable named by `server.password_env` when the application starts; restart it after

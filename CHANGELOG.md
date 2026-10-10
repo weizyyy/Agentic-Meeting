@@ -8,6 +8,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Bilingual deployment guide with Caddy/nginx HTTPS termination, trusted forwarded headers,
+  signaling/download timeouts, coturn and ICE configuration, exposure checks and troubleshooting.
+
 - Optional access password for the web application (`server.password_env`,
   `server.auth_session_days`): a login page, a signed HTTP-only session cookie that lasts 7 days by
   default, logout, CSRF protection for state-changing requests including WebRTC signaling, and a
