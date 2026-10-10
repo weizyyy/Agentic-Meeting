@@ -51,9 +51,9 @@ model endpoints you configure, which can be on the same machine or elsewhere on 
 `agentic-meeting check` lists where data will go.
 
 > [!IMPORTANT]
-> There is no sign-in yet. Use Agentic-Meeting on the local machine or on a network you control,
-> and do not expose it to the internet. An access password is the first item on the
-> [roadmap](ROADMAP.md).
+> Sign-in is off by default. Use Agentic-Meeting on the local machine or on a network you control,
+> set an [access password](docs/getting-started.md#access-password) when others share that
+> network, and do not expose it to the internet.
 
 ## Features
 
@@ -107,16 +107,16 @@ flowchart LR
     agent --> ext
 ```
 
-| Component | Implementation |
-|---|---|
-| Voice pipeline | [Pipecat](https://github.com/pipecat-ai/pipecat) 1.12 with the SmallWebRTC transport |
-| Realtime LLM | `llama-server` from [llama.cpp](https://github.com/ggml-org/llama.cpp), or any OpenAI-compatible chat completions endpoint |
-| Streaming ASR, embeddings | `llama-server` |
-| Speaker diarization | [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp), loaded in-process |
-| Speech synthesis | [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp) |
-| Storage and retrieval | SQLite with FTS5 and [sqlite-vec](https://github.com/asg017/sqlite-vec) |
-| Background agent | [OpenAI Agents SDK](https://github.com/openai/openai-agents-python), MCP servers, Docker sandbox |
-| Web client | Vite, React, TypeScript |
+| Component                 | Implementation                                                                                                             |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Voice pipeline            | [Pipecat](https://github.com/pipecat-ai/pipecat) 1.12 with the SmallWebRTC transport                                       |
+| Realtime LLM              | `llama-server` from [llama.cpp](https://github.com/ggml-org/llama.cpp), or any OpenAI-compatible chat completions endpoint |
+| Streaming ASR, embeddings | `llama-server`                                                                                                             |
+| Speaker diarization       | [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp), loaded in-process                                            |
+| Speech synthesis          | [qwentts.cpp](https://github.com/ServeurpersoCom/qwentts.cpp)                                                              |
+| Storage and retrieval     | SQLite with FTS5 and [sqlite-vec](https://github.com/asg017/sqlite-vec)                                                    |
+| Background agent          | [OpenAI Agents SDK](https://github.com/openai/openai-agents-python), MCP servers, Docker sandbox                           |
+| Web client                | Vite, React, TypeScript                                                                                                    |
 
 See [docs/architecture.md](docs/architecture.md) for the design in detail.
 
@@ -166,17 +166,17 @@ Browsers on other machines need HTTPS — see the
 
 ## Documentation
 
-| Guide | Contents |
-|---|---|
-| [Getting started](docs/getting-started.md) | Installation, model files, first run, HTTPS |
-| [User guide](docs/user-guide.md) | Working with the web page during and after a meeting |
-| [Configuration](docs/configuration.md) | Every section of `config.toml` |
-| [Troubleshooting](docs/troubleshooting.md) | Microphone level, wake word, degraded services |
-| [Runtimes and models](docs/runtimes.md) | Fetching and building runtimes, model files, multi-GPU setups |
-| [Benchmarks](docs/benchmarks.md) | Latency, memory and accuracy measured on real hardware |
-| [Architecture](docs/architecture.md) | Processes, pipeline, data flow, context management |
-| [Interface reference](docs/interfaces.md) | Configuration schema, database, HTTP API, data-channel messages, tools |
-| [Development](docs/development.md) | Conventions, testing, project layout |
+| Guide                                      | Contents                                                               |
+| ------------------------------------------ | ---------------------------------------------------------------------- |
+| [Getting started](docs/getting-started.md) | Installation, model files, first run, HTTPS                            |
+| [User guide](docs/user-guide.md)           | Working with the web page during and after a meeting                   |
+| [Configuration](docs/configuration.md)     | Every section of `config.toml`                                         |
+| [Troubleshooting](docs/troubleshooting.md) | Microphone level, wake word, degraded services                         |
+| [Runtimes and models](docs/runtimes.md)    | Fetching and building runtimes, model files, multi-GPU setups          |
+| [Benchmarks](docs/benchmarks.md)           | Latency, memory and accuracy measured on real hardware                 |
+| [Architecture](docs/architecture.md)       | Processes, pipeline, data flow, context management                     |
+| [Interface reference](docs/interfaces.md)  | Configuration schema, database, HTTP API, data-channel messages, tools |
+| [Development](docs/development.md)         | Conventions, testing, project layout                                   |
 
 Chinese versions of all documents are under [docs/zh-CN](docs/zh-CN).
 
@@ -185,13 +185,13 @@ Chinese versions of all documents are under [docs/zh-CN](docs/zh-CN).
 Measured on a 50-minute recording of a real multi-speaker panel, replayed in real time through the
 full stack (RTX 2080 Ti 22 GB, realtime LLM on a LAN endpoint):
 
-| Metric | Result |
-|---|---|
-| Caption lag (finalized text behind audio) | median 0.70 s, p95 0.78 s |
-| Wake word → first text | median 1.5 s |
-| Wake word → first audio | median 2.5 s |
-| Speakers separated | 8 (the diarization model's limit) |
-| Application memory | about 510 MB, flat after the first five minutes |
+| Metric                                    | Result                                          |
+| ----------------------------------------- | ----------------------------------------------- |
+| Caption lag (finalized text behind audio) | median 0.70 s, p95 0.78 s                       |
+| Wake word → first text                    | median 1.5 s                                    |
+| Wake word → first audio                   | median 2.5 s                                    |
+| Speakers separated                        | 8 (the diarization model's limit)               |
+| Application memory                        | about 510 MB, flat after the first five minutes |
 
 Full results and methodology are in [docs/benchmarks.md](docs/benchmarks.md).
 

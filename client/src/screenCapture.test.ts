@@ -32,7 +32,13 @@ describe("parseScreenConfig", () => {
         caption: true,
         caption_provider: "realtime_llm",
       }),
-      { enabled: false, minIntervalSecs: 3, heartbeatSecs: 30, maxSidePx: 1280, changeThreshold: 0.1 },
+      {
+        enabled: false,
+        minIntervalSecs: 3,
+        heartbeatSecs: 30,
+        maxSidePx: 1280,
+        changeThreshold: 0.1,
+      },
     );
   });
 

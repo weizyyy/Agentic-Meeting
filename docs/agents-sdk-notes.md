@@ -71,11 +71,11 @@ The request then contains `{"type": "text", …}` and
 
 `result.stream_events()` yields three kinds of events, distinguished by `event.type`:
 
-| `type` | Meaning | Use |
-|---|---|---|
-| `raw_response_event` | Raw streaming chunk from the model | Ignored |
-| `agent_updated_stream_event` | The active agent changed (also once at the start) | Ignored |
-| `run_item_stream_event` | A complete item; see `event.name` | Translated into progress events |
+| `type`                       | Meaning                                           | Use                             |
+| ---------------------------- | ------------------------------------------------- | ------------------------------- |
+| `raw_response_event`         | Raw streaming chunk from the model                | Ignored                         |
+| `agent_updated_stream_event` | The active agent changed (also once at the start) | Ignored                         |
+| `run_item_stream_event`      | A complete item; see `event.name`                 | Translated into progress events |
 
 Two `run_item_stream_event` names are used:
 

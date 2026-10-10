@@ -75,9 +75,6 @@ describe("describeTrackSettings", () => {
   });
 
   it("浏览器没给的项写「未知」", () => {
-    assert.equal(
-      describeTrackSettings({}),
-      "设备 未知，自动增益 未知，降噪 未知，回声消除 未知",
-    );
+    assert.equal(describeTrackSettings({}), "设备 未知，自动增益 未知，降噪 未知，回声消除 未知");
   });
 });

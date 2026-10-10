@@ -43,7 +43,8 @@ export function FrameTimeline({ frames, timeBase, sharing, canShare, onStart, on
       if (event.deltaY === 0 || event.ctrlKey || el.scrollWidth <= el.clientWidth) return;
       event.preventDefault();
       // 按行滚的鼠标给的是行数，不是像素
-      el.scrollLeft += event.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? event.deltaY : event.deltaY * 40;
+      el.scrollLeft +=
+        event.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? event.deltaY : event.deltaY * 40;
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);

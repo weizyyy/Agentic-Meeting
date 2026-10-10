@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { ApiError, createApi, type Api, type SessionDetail } from "./api.ts";
+import { authSession } from "./auth.ts";
 import { backfillAfterId, firstUtteranceId } from "./captions.ts";
 import { describeTrackSettings } from "./micLevel.ts";
 import { PAGE_SIZE, initialState, reduce, type Action, type MeetingState } from "./meetingState.ts";
@@ -74,7 +75,11 @@ export function createMeetingClient(
             dispatch({ type: "utteranceUpdate", message });
             break;
           case "speaker":
-            dispatch({ type: "speakerRenamed", idx: message.idx, displayName: message.display_name });
+            dispatch({
+              type: "speakerRenamed",
+              idx: message.idx,
+              displayName: message.display_name,
+            });
             break;
           case "speakers_merged":
             dispatch({
@@ -194,7 +199,14 @@ export function useMeetingClient(): MeetingClient {
 
   // 交给 SDK 的连接参数。始终是同一个对象：SDK 自己重连（新建 PeerConnection 再发一次 offer）时读的还是它，
   // 所以一旦知道自己在哪场会议里，就把 session_id 写进去——之后不管是谁发起的重连，都是「继续这一场」，不会另开一场。
-  const request = useRef({ endpoint: OFFER_ENDPOINT, requestData: {} as Record<string, string> });
+  // headers 写成取值函数：SDK 每次发 offer 和 ICE 候选时现读，重新登录换了 CSRF 令牌之后的重连也带对的那个。
+  const request = useRef({
+    endpoint: OFFER_ENDPOINT,
+    requestData: {} as Record<string, string>,
+    get headers(): Headers {
+      return authSession.headers();
+    },
+  });
   const inMeeting = useRef(false); // 连上过，并且用户没有自己离开
   const lastSessionId = useRef<string | null>(null);
   const retryTimer = useRef<number | null>(null);

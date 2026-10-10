@@ -107,7 +107,13 @@ function cap(id: number, stable: string, unstable = "", idx = 0, name = "未知"
   };
 }
 
-function utt(id: number | null, segment: number | null, text: string, idx = 1, name = "说话人 1"): UtteranceMessage {
+function utt(
+  id: number | null,
+  segment: number | null,
+  text: string,
+  idx = 1,
+  name = "说话人 1",
+): UtteranceMessage {
   return {
     type: "utterance",
     id,
@@ -158,7 +164,10 @@ test("发言定稿：替换对应的实时字幕，并把新出现的说话人�
     { type: "caption", message: cap(1, "你好", "", 2, "说话人 2") },
     { type: "utterance", message: utt(10, 1, "你好。", 2, "说话人 2") },
   ]);
-  assert.deepEqual(state.captions.map((l) => [l.final, l.utteranceId, l.stable]), [[true, 10, "你好。"]]);
+  assert.deepEqual(
+    state.captions.map((l) => [l.final, l.utteranceId, l.stable]),
+    [[true, 10, "你好。"]],
+  );
   assert.deepEqual(state.speakers, [{ idx: 2, display_name: "说话人 2" }]);
 });
 
@@ -168,8 +177,14 @@ test("说话人改名和事后更正：字幕行与说话人列表一起变", ()
     { type: "utterance", message: utt(11, null, "乙", 2, "说话人 2") },
   ]);
   state = run([{ type: "speakerRenamed", idx: 2, displayName: "王老师" }], state);
-  assert.deepEqual(state.captions.map((l) => l.speakerName), ["说话人 1", "王老师"]);
-  assert.deepEqual(state.speakers.map((s) => s.display_name), ["说话人 1", "王老师"]);
+  assert.deepEqual(
+    state.captions.map((l) => l.speakerName),
+    ["说话人 1", "王老师"],
+  );
+  assert.deepEqual(
+    state.speakers.map((s) => s.display_name),
+    ["说话人 1", "王老师"],
+  );
   state = run(
     [
       {
@@ -179,18 +194,37 @@ test("说话人改名和事后更正：字幕行与说话人列表一起变", ()
     ],
     state,
   );
-  assert.deepEqual(state.captions.map((l) => l.speakerIdx), [2, 2]);
+  assert.deepEqual(
+    state.captions.map((l) => l.speakerIdx),
+    [2, 2],
+  );
 });
 
 test("新会议的连接建立：字幕区切到它并清空；同一场会议则保留已有内容", () => {
-  const message = { type: "session" as const, id: "new", title: "", started_at: 5, resumed: false, base_secs: 0, state: "live" };
+  const message = {
+    type: "session" as const,
+    id: "new",
+    title: "",
+    started_at: 5,
+    resumed: false,
+    base_secs: 0,
+    state: "live",
+  };
   const before = run([
-    { type: "viewLoaded", detail: detail("old"), items: history(1, 3), speakers: [{ idx: 1, display_name: "说话人 1" }] },
+    {
+      type: "viewLoaded",
+      detail: detail("old"),
+      items: history(1, 3),
+      speakers: [{ idx: 1, display_name: "说话人 1" }],
+    },
   ]);
   const switched = reduce(before, { type: "sessionStarted", message });
   assert.equal(switched.viewing?.id, "new");
   assert.equal(switched.liveSessionId, "new");
-  assert.deepEqual([switched.captions.length, switched.speakers.length, switched.hasOlder], [0, 0, false]);
+  assert.deepEqual(
+    [switched.captions.length, switched.speakers.length, switched.hasOlder],
+    [0, 0, false],
+  );
 
   const again = reduce(switched, { type: "caption", message: cap(1, "话") });
   const same = reduce(again, { type: "sessionStarted", message });
@@ -199,7 +233,18 @@ test("新会议的连接建立：字幕区切到它并清空；同一场会议�
 
 test("断开连接后不再有进行中的会议编号，字幕区仍显示这场会议", () => {
   const live = run([
-    { type: "sessionStarted", message: { type: "session", id: "s1", title: "", started_at: 1, resumed: false, base_secs: 0, state: "live" } },
+    {
+      type: "sessionStarted",
+      message: {
+        type: "session",
+        id: "s1",
+        title: "",
+        started_at: 1,
+        resumed: false,
+        base_secs: 0,
+        state: "live",
+      },
+    },
     { type: "transport", transport: "ready" },
   ]);
   assert.equal(live.liveSessionId, "s1");
@@ -210,7 +255,10 @@ test("断开连接后不再有进行中的会议编号，字幕区仍显示这�
 
 test("连接被关闭的原因变成一条提示", () => {
   for (const reason of ["taken_over", "ended", "server_stopping"] as const) {
-    const state = reduce(initialState, { type: "sessionClosed", message: { type: "session_closed", reason } });
+    const state = reduce(initialState, {
+      type: "sessionClosed",
+      message: { type: "session_closed", reason },
+    });
     assert.equal(state.notices[0].text, SESSION_CLOSED_TEXT[reason]);
     assert.equal(state.notices[0].level, "warn");
   }
@@ -218,14 +266,21 @@ test("连接被关闭的原因变成一条提示", () => {
 
 test("页面一打开：显示最近的对话；不足一页就没有更早的", () => {
   const state = run([
-    { type: "viewLoaded", detail: detail("s1"), items: history(1, 3), speakers: [{ idx: 1, display_name: "说话人 1" }] },
+    {
+      type: "viewLoaded",
+      detail: detail("s1"),
+      items: history(1, 3),
+      speakers: [{ idx: 1, display_name: "说话人 1" }],
+    },
   ]);
   assert.equal(state.viewing?.id, "s1");
   assert.equal(state.captions.length, 3);
   assert.equal(state.hasOlder, false);
   assert.deepEqual(state.members, ["王老师", "李同学"]);
 
-  const full = run([{ type: "viewLoaded", detail: detail("s1"), items: history(1, PAGE_SIZE), speakers: [] }]);
+  const full = run([
+    { type: "viewLoaded", detail: detail("s1"), items: history(1, PAGE_SIZE), speakers: [] },
+  ]);
   assert.equal(full.hasOlder, true);
 });
 
@@ -236,7 +291,9 @@ test("没有任何会议：字幕区是空的", () => {
 });
 
 test("向上翻页和断线补齐", () => {
-  let state = run([{ type: "viewLoaded", detail: detail("s1"), items: history(51, PAGE_SIZE), speakers: [] }]);
+  let state = run([
+    { type: "viewLoaded", detail: detail("s1"), items: history(51, PAGE_SIZE), speakers: [] },
+  ]);
   state = run([{ type: "olderLoaded", items: history(1, PAGE_SIZE) }], state);
   assert.equal(state.captions[0].utteranceId, 1);
   assert.equal(state.captions.length, PAGE_SIZE * 2);
@@ -245,7 +302,10 @@ test("向上翻页和断线补齐", () => {
   assert.equal(state.hasOlder, false);
 
   state = run([{ type: "backfilled", items: history(100, 2) }], state);
-  assert.deepEqual(state.captions.slice(-2).map((l) => l.utteranceId), [100, 101]);
+  assert.deepEqual(
+    state.captions.slice(-2).map((l) => l.utteranceId),
+    [100, 101],
+  );
 });
 
 test("会议列表：加载、改名、删除", () => {
@@ -259,7 +319,10 @@ test("会议列表：加载、改名、删除", () => {
   assert.equal(state.sessions[1].title, "");
 
   state = run([{ type: "sessionRemoved", id: "b" }], state);
-  assert.deepEqual(state.sessions.map((x) => x.id), ["a"]);
+  assert.deepEqual(
+    state.sessions.map((x) => x.id),
+    ["a"],
+  );
   assert.equal(state.viewing?.id, "a"); // 删的不是正在看的
 
   state = run([{ type: "sessionRemoved", id: "a" }], state);
@@ -337,9 +400,19 @@ test("截图：换一场会议时清空，列表取回来后填上；过期的�
   state = reduce(state, { type: "viewLoaded", detail: detailOf("b"), items: [], speakers: [] });
   assert.deepEqual(state.frames, []);
   // 给 a 的响应这时才到：不能混进 b
-  state = reduce(state, { type: "framesLoaded", sessionId: "a", items: [frameOf(1, 10)], merge: false });
+  state = reduce(state, {
+    type: "framesLoaded",
+    sessionId: "a",
+    items: [frameOf(1, 10)],
+    merge: false,
+  });
   assert.deepEqual(state.frames, []);
-  state = reduce(state, { type: "framesLoaded", sessionId: "b", items: [frameOf(7, 5)], merge: false });
+  state = reduce(state, {
+    type: "framesLoaded",
+    sessionId: "b",
+    items: [frameOf(7, 5)],
+    merge: false,
+  });
   assert.deepEqual(state.frames, [frameOf(7, 5)]);
 });
 
@@ -486,7 +559,10 @@ test("自动重连：记下第几次，连上或放弃后归零", () => {
   assert.equal(trying.reconnectAttempt, 2);
   // 重连过程中传输层在「连接中」「断开」之间来回，不清掉计数
   assert.equal(reduce(trying, { type: "transport", transport: "connecting" }).reconnectAttempt, 2);
-  assert.equal(reduce(trying, { type: "transport", transport: "disconnected" }).reconnectAttempt, 2);
+  assert.equal(
+    reduce(trying, { type: "transport", transport: "disconnected" }).reconnectAttempt,
+    2,
+  );
   assert.equal(reduce(trying, { type: "transport", transport: "ready" }).reconnectAttempt, 0);
   assert.equal(reduce(trying, { type: "reconnectStopped" }).reconnectAttempt, 0);
 });
@@ -541,7 +617,15 @@ test("继续同一场会议：字幕和连接记录都留着", () => {
     type: "viewLoaded",
     detail: resumedDetail("s1"),
     items: [
-      { id: 1, speaker_idx: 1, speaker_name: "王老师", t_start: 3, t_end: 5, text: "断线之前说的", source: "asr" },
+      {
+        id: 1,
+        speaker_idx: 1,
+        speaker_name: "王老师",
+        t_start: 3,
+        t_end: 5,
+        text: "断线之前说的",
+        source: "asr",
+      },
     ],
     speakers: [{ idx: 1, display_name: "王老师" }],
   });
@@ -583,7 +667,12 @@ test("合并说话人：发言改到对方名下，被合并的人从列表里�
       { idx: 3, display_name: "说话人 3" },
     ],
   });
-  const merged = reduce(loaded, { type: "speakersMerged", from: 3, into: 1, displayName: "王老师" });
+  const merged = reduce(loaded, {
+    type: "speakersMerged",
+    from: 3,
+    into: 1,
+    displayName: "王老师",
+  });
   assert.deepEqual(
     merged.captions.map((l) => [l.speakerIdx, l.speakerName]),
     [
@@ -604,7 +693,14 @@ test("合并说话人：发言改到对方名下，被合并的人从列表里�
 });
 
 test("会后报告跟着正在显示的会议走", () => {
-  const info = { id: 1, status: "running", created_at: 1, provider: "realtime_llm", text_md: "", error: null } as const;
+  const info = {
+    id: 1,
+    status: "running",
+    created_at: 1,
+    provider: "realtime_llm",
+    text_md: "",
+    error: null,
+  } as const;
   const loaded = reduce(initialState, {
     type: "viewLoaded",
     detail: resumedDetail("s1"),
@@ -614,12 +710,28 @@ test("会后报告跟着正在显示的会议走", () => {
   const withReport = reduce(loaded, { type: "reportLoaded", sessionId: "s1", report: info });
   assert.equal(withReport.report?.status, "running");
   // 别的会议的报告（请求回来时已经切走了）不收
-  assert.equal(reduce(loaded, { type: "reportLoaded", sessionId: "s2", report: info }).report, null);
+  assert.equal(
+    reduce(loaded, { type: "reportLoaded", sessionId: "s2", report: info }).report,
+    null,
+  );
   // 重新加载同一场：留着；切到另一场、删掉：清掉
-  const again = reduce(withReport, { type: "viewLoaded", detail: resumedDetail("s1"), items: [], speakers: [] });
+  const again = reduce(withReport, {
+    type: "viewLoaded",
+    detail: resumedDetail("s1"),
+    items: [],
+    speakers: [],
+  });
   assert.equal(again.report?.id, 1);
-  const other = reduce(withReport, { type: "viewLoaded", detail: resumedDetail("s2"), items: [], speakers: [] });
+  const other = reduce(withReport, {
+    type: "viewLoaded",
+    detail: resumedDetail("s2"),
+    items: [],
+    speakers: [],
+  });
   assert.equal(other.report, null);
   assert.equal(reduce(withReport, { type: "sessionRemoved", id: "s1" }).report, null);
-  assert.equal(reduce(withReport, { type: "reportLoaded", sessionId: "s1", report: null }).report, null);
+  assert.equal(
+    reduce(withReport, { type: "reportLoaded", sessionId: "s1", report: null }).report,
+    null,
+  );
 });

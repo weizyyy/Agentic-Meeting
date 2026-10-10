@@ -30,3 +30,9 @@ repos:
         language: system
         types_or: [python, pyi]
         require_serial: true
+      - id: prettier
+        name: prettier
+        entry: node node_modules/prettier/bin/prettier.cjs --write --ignore-unknown
+        language: system
+        types_or: [javascript, jsx, ts, tsx, css, scss, json, markdown, yaml, html]
+        require_serial: true

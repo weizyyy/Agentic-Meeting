@@ -46,7 +46,7 @@ import numpy as np
 from aiortc import MediaStreamTrack, RTCPeerConnection, RTCSessionDescription
 from pipecat.processors.frameworks.rtvi import models as rtvi
 
-from agentic_meeting.config import AppConfig, load_config
+from agentic_meeting.config import AppConfig, load_config, secret
 
 TRACK_RATE = 48000  # WebRTC 音频轨的采样率
 FRAME_SAMPLES = 960  # 20 毫秒一帧
@@ -268,9 +268,15 @@ class SoakClient:
     """一个没有界面的会议客户端。"""
 
     def __init__(
-        self, base_url: str, track: MeetingTrack, session_id: str | None, log: Any
+        self,
+        base_url: str,
+        track: MeetingTrack,
+        session_id: str | None,
+        log: Any,
+        password: str | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        self.password = password  # 应用启用了访问口令时（server.password_env）先登录
         self.track = track
         self.session_id = session_id
         self.log = log
@@ -330,7 +336,14 @@ class SoakClient:
             body["requestData"] = {"session_id": self.session_id}
         # 应用常用自签或 mkcert 的证书，这里只连用户指定的地址，不校验证书
         async with httpx.AsyncClient(verify=False, timeout=30) as http:
-            response = await http.post(f"{self.base_url}/api/offer", json=body)
+            headers: dict[str, str] = {}
+            if self.password:
+                login = await http.post(
+                    f"{self.base_url}/api/auth/login", json={"password": self.password}
+                )
+                login.raise_for_status()
+                headers["X-CSRF-Token"] = login.json()["csrf_token"]
+            response = await http.post(f"{self.base_url}/api/offer", json=body, headers=headers)
             response.raise_for_status()
             answer = response.json()
         await self.pc.setRemoteDescription(
@@ -523,7 +536,7 @@ async def run(args: argparse.Namespace, out: Any) -> int:
             log(f"已合成 {len(clips)} 句叫助理的话")
 
     track = MeetingTrack(Path(args.audio), args.start_minutes * 60.0)
-    client = SoakClient(base_url, track, args.session_id, log)
+    client = SoakClient(base_url, track, args.session_id, log, secret(cfg.server.password_env))
     await client.connect()
     try:
         await asyncio.wait_for(client.ready.wait(), 60)

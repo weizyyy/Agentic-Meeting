@@ -50,7 +50,12 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family:
-    system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    "PingFang SC",
+    "Microsoft YaHei",
+    "Noto Sans CJK SC",
     sans-serif;
   font-size: 16px;
   line-height: 1.6;
@@ -1162,4 +1167,72 @@ time.elapsed {
   .task-sub {
     -webkit-line-clamp: 3;
   }
+}
+
+/* ---- 登录（访问口令） ---- */
+
+.login {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 16px;
+}
+
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 22rem;
+  padding: 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.login-card h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.login-hint {
+  margin: 0 0 6px;
+  color: var(--muted);
+}
+
+.login-card label {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.login-card input {
+  font: inherit;
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.login-card input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.login-error {
+  margin: 0;
+  color: var(--danger);
+}
+
+.login-card .button {
+  margin-top: 6px;
+  padding: 8px 22px;
 }

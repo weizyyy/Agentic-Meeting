@@ -204,14 +204,16 @@ export function backfillAfterId(lines: readonly CaptionLine[]): number | null {
 /** 界面上已知的最大发言编号（补齐时用作 after_id）；没有返回 null。 */
 export function lastUtteranceId(lines: readonly CaptionLine[]): number | null {
   let last: number | null = null;
-  for (const l of lines) if (l.utteranceId !== null && (last === null || l.utteranceId > last)) last = l.utteranceId;
+  for (const l of lines)
+    if (l.utteranceId !== null && (last === null || l.utteranceId > last)) last = l.utteranceId;
   return last;
 }
 
 /** 界面上最早的发言编号（向上翻页时用作 before_id）；没有返回 null。 */
 export function firstUtteranceId(lines: readonly CaptionLine[]): number | null {
   let first: number | null = null;
-  for (const l of lines) if (l.utteranceId !== null && (first === null || l.utteranceId < first)) first = l.utteranceId;
+  for (const l of lines)
+    if (l.utteranceId !== null && (first === null || l.utteranceId < first)) first = l.utteranceId;
   return first;
 }
 

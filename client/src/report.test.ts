@@ -36,7 +36,10 @@ test("按钮上的字和顶上的说明", () => {
   assert.equal(generateLabel(report()), "重新生成");
   assert.equal(reportHeadline(null), "这场会议还没有报告。");
   assert.equal(reportHeadline(report()), "由实时模型生成。");
-  assert.match(reportHeadline(report({ status: "running", provider: "agent_llm" })), /后台的远端模型/);
+  assert.match(
+    reportHeadline(report({ status: "running", provider: "agent_llm" })),
+    /后台的远端模型/,
+  );
   assert.equal(
     reportHeadline(report({ status: "failed", error: "生成超时" })),
     "报告没有生成出来：生成超时",

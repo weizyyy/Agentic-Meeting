@@ -15,14 +15,17 @@ quoted as they appear, with an English gloss.
 ## Meetings
 
 The page shows the most recent meeting as soon as it loads — no connection is needed to browse.
+If the server has an access password, the page asks for it first; **退出登录** (Log out) in the top
+bar is shown when no meeting is running on this page. If the login expires during a meeting, a
+password prompt covers the page and the meeting continues underneath.
 
-| Action | How | What happens |
-|---|---|---|
-| Start | **开始新会议** (Start meeting) | Creates a meeting and connects the microphone |
-| End | **结束会议** (End meeting) | Marks the meeting as ended and disconnects |
-| Interrupt | Close or refresh the page, lose the network | The meeting is kept and marked *interrupted* |
-| Resume | **继续** (Resume) in the banner or the meeting list | Reconnects to the same meeting |
-| Browse | Meeting list | View, rename or delete past meetings |
+| Action    | How                                                 | What happens                                  |
+| --------- | --------------------------------------------------- | --------------------------------------------- |
+| Start     | **开始新会议** (Start meeting)                      | Creates a meeting and connects the microphone |
+| End       | **结束会议** (End meeting)                          | Marks the meeting as ended and disconnects    |
+| Interrupt | Close or refresh the page, lose the network         | The meeting is kept and marked _interrupted_  |
+| Resume    | **继续** (Resume) in the banner or the meeting list | Reconnects to the same meeting                |
+| Browse    | Meeting list                                        | View, rename or delete past meetings          |
 
 **One connection at a time.** Starting or resuming a meeting in another tab or on another device
 takes over the connection; the previous page is notified and switches to read-only.
@@ -65,11 +68,11 @@ questions need the name again. You can interrupt it by speaking while it talks.
 
 Things it can do directly:
 
-| Request | Example |
-|---|---|
-| Summarize | "Nova, give me three takeaways so far." |
-| Recall | "Nova, what did Dr. Wang say about the dataset split?" |
-| Read the screen | "Nova, what is on the y-axis of this chart?" |
+| Request                       | Example                                                          |
+| ----------------------------- | ---------------------------------------------------------------- |
+| Summarize                     | "Nova, give me three takeaways so far."                          |
+| Recall                        | "Nova, what did Dr. Wang say about the dataset split?"           |
+| Read the screen               | "Nova, what is on the y-axis of this chart?"                     |
 | Look back at an earlier slide | "Nova, on the budget slide from before, which year was highest?" |
 
 **By typing.** The text box at the bottom of the assistant panel accepts questions without the wake
@@ -107,8 +110,8 @@ Markdown or regenerated.
 
 **Export.** The meeting banner offers three downloads, also available while the meeting is live:
 
-| Link | Contents |
-|---|---|
-| **转录** (Transcript) | Markdown: running summary, captions and screen summaries in time order, task results |
-| **JSON** | All structured data |
-| **完整包** (Full archive) | ZIP with the transcript, JSON, report, every screenshot and all task artifacts |
+| Link                      | Contents                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| **转录** (Transcript)     | Markdown: running summary, captions and screen summaries in time order, task results |
+| **JSON**                  | All structured data                                                                  |
+| **完整包** (Full archive) | ZIP with the transcript, JSON, report, every screenshot and all task artifacts       |

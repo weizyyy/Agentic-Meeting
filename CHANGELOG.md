@@ -13,6 +13,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   gauges. Optional service failures allow degraded readiness; incomplete metrics preserve available
   observations. Responses exclude meeting content and credentials, while numeric gauges expose load.
 - English and Chinese guidance for requesting and interpreting health checks and metrics.
+- Optional access password for the web application (`server.password_env`,
+  `server.auth_session_days`): a login page, a signed HTTP-only session cookie that lasts 7 days by
+  default, logout, CSRF protection for state-changing requests including WebRTC signaling, and a
+  limit of 5 failed logins per address in 5 minutes. Every `/api` endpoint is covered; without a
+  password nothing changes. `check` and `serve` warn when the server listens beyond the local
+  machine without a password. `scripts/soak.py` logs in when a password is configured.
+- A pinned repository-wide Prettier formatter for client code, JSON, YAML and Markdown, with
+  shared configuration, `npm run format` / `npm run format:check`, pre-commit and CI checks.
 
 ## [0.1.1] - 2026-10-09
 

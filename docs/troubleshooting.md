@@ -24,6 +24,12 @@ already in use by a previous run.
 **Another device cannot use the microphone or share its screen.** Browsers require HTTPS for both.
 See [Access from other devices](getting-started.md#access-from-other-devices).
 
+**The page keeps asking for the password, or says there were too many attempts.** The password is
+read from the variable named by `server.password_env` when the application starts; restart it after
+changing `.env`. After 5 wrong attempts from one address within 5 minutes, logins from that address
+are refused until the oldest attempt is 5 minutes old. Over plain HTTP from another device the login
+works but the password is not encrypted; use HTTPS.
+
 **Inference processes are left running after a crash.** On Windows and Linux the operating system
 ends them when the application process disappears. macOS has no equivalent mechanism; stop
 `llama-server` and `tts-server` manually.
@@ -56,13 +62,13 @@ appears on subsequent refreshes; there is no permanent polling loop.
 Numeric fields in the five metric groups use finite nonnegative counts or seconds. `null` means no sample or an
 unavailable observation, never zero; normal idle zeros and no-caption nulls do not imply `partial`.
 
-| Group | Interpretation |
-|---|---|
-| Live connections | `live_connections` is 0 or 1 for the current registered active media connection, not browser visits or historical rows; assembly/takeover gaps can show 0 |
-| Caption lag | `caption_lag_seconds` is sampled after the first successful nonempty server push for each ASR delta. `caption_sample_age_seconds` is the sample's monotonic age in seconds |
-| Queues | `transcript_retry` counts unsaved utterances; `screen_caption.depth` is 0 or 1 pending new-screen slot, excluding work in progress and summary-reuse followers (disabled is 0); `agent_tasks` is the DB `queued` count |
-| Retained tasks | `task_counts` covers all retained DB tasks in the five named states, even with the agent disabled. These are gauges, not totals since startup; deletion can lower them. Empty DB means five zeros; query failure makes the whole group null |
-| HTTP services | Fixed names `asr`, `realtime`, `tts`, `embedding`, `agent`; state and reason semantics match readiness. `unavailable` is a complete observation and alone does not make metrics partial |
+| Group            | Interpretation                                                                                                                                                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Live connections | `live_connections` is 0 or 1 for the current registered active media connection, not browser visits or historical rows; assembly/takeover gaps can show 0                                                                                   |
+| Caption lag      | `caption_lag_seconds` is sampled after the first successful nonempty server push for each ASR delta. `caption_sample_age_seconds` is the sample's monotonic age in seconds                                                                  |
+| Queues           | `transcript_retry` counts unsaved utterances; `screen_caption.depth` is 0 or 1 pending new-screen slot, excluding work in progress and summary-reuse followers (disabled is 0); `agent_tasks` is the DB `queued` count                      |
+| Retained tasks   | `task_counts` covers all retained DB tasks in the five named states, even with the agent disabled. These are gauges, not totals since startup; deletion can lower them. Empty DB means five zeros; query failure makes the whole group null |
+| HTTP services    | Fixed names `asr`, `realtime`, `tts`, `embedding`, `agent`; state and reason semantics match readiness. `unavailable` is a complete observation and alone does not make metrics partial                                                     |
 
 Caption lag estimates backlog on the shared session audio timeline. It excludes network delivery,
 browser rendering and final word stabilization, and cannot verify the 1.5-second finalized-caption
@@ -111,7 +117,7 @@ uv run python scripts/mic_check.py --wav recording.wav
 ```
 
 The script needs no model weights. It replays the recording at several gain levels through voice
-activity detection. A low *speech ratio* together with a high count of *speech starts* on the
+activity detection. A low _speech ratio_ together with a high count of _speech starts_ on the
 `0 dB` row means the input is being chopped up. Background and reference numbers are in
 [benchmarks.md](benchmarks.md#low-microphone-level).
 
@@ -175,14 +181,14 @@ The server log prints a latency breakdown after every spoken answer (`应答延�
 
 Transcription has the highest priority: no failure elsewhere stops it.
 
-| Failure | What you see | What still works |
-|---|---|---|
-| Realtime LLM unreachable | Notice "助理暂不可用" with the reason; no answers | Transcription, screenshots, export |
-| Speech synthesis unreachable | Notice "语音不可用"; answers appear as text only | Everything else; answers are still stored |
-| Embedding service unreachable | Nothing visible | Recall falls back to keyword search; embeddings are backfilled later |
-| Diarization fails to load | Notice at connection time; captions carry no speaker | Transcription and answers |
-| ASR server unreachable | Notice "识别服务暂时不可用，正在重试"; captions pause | Retries with backoff and resumes on its own |
-| Screen summary fails | That screenshot has no summary | The screenshot stays on the timeline and can still be viewed by the assistant |
-| Remote agent model or MCP unreachable | The task is marked failed with the reason | Everything else |
-| Docker missing | Tasks cannot run code and say so | Search and image reading |
-| Browser disconnects | The meeting becomes *interrupted* | The page reconnects automatically; the timeline continues |
+| Failure                               | What you see                                          | What still works                                                              |
+| ------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Realtime LLM unreachable              | Notice "助理暂不可用" with the reason; no answers     | Transcription, screenshots, export                                            |
+| Speech synthesis unreachable          | Notice "语音不可用"; answers appear as text only      | Everything else; answers are still stored                                     |
+| Embedding service unreachable         | Nothing visible                                       | Recall falls back to keyword search; embeddings are backfilled later          |
+| Diarization fails to load             | Notice at connection time; captions carry no speaker  | Transcription and answers                                                     |
+| ASR server unreachable                | Notice "识别服务暂时不可用，正在重试"; captions pause | Retries with backoff and resumes on its own                                   |
+| Screen summary fails                  | That screenshot has no summary                        | The screenshot stays on the timeline and can still be viewed by the assistant |
+| Remote agent model or MCP unreachable | The task is marked failed with the reason             | Everything else                                                               |
+| Docker missing                        | Tasks cannot run code and say so                      | Search and image reading                                                      |
+| Browser disconnects                   | The meeting becomes _interrupted_                     | The page reconnects automatically; the timeline continues                     |

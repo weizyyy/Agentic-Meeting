@@ -20,7 +20,8 @@ cd Agentic-Meeting
 git submodule update --init --depth 1
 
 uv sync --extra agent
-cd client && npm install && cd ..
+npm ci
+cd client && npm ci && cd ..
 ```
 
 自动化测试不需要 GPU、模型权重或网络：
@@ -28,12 +29,16 @@ cd client && npm install && cd ..
 ```bash
 uv run pytest
 uv run ruff check src tests scripts
-uv run ruff format src tests scripts
+uv run ruff format --check src tests scripts
+npm run format:check
 cd client && npm test && npm run build
 ```
 
 如需在每次提交前自动运行静态检查和格式化，可执行一次 `uvx pre-commit install`
 安装 [pre-commit](https://pre-commit.com/) 钩子。
+请先在仓库根目录执行 `npm ci`，让钩子使用锁定版本的 Prettier。
+在根目录执行 `npm run format` 可格式化 TypeScript/TSX、CSS、HTML、JSON、YAML 和 Markdown；
+Python 单独使用 `uv run ruff format src tests scripts` 格式化。
 
 目录结构、代码约定，以及涉及真实模型的改动如何测试，见 [docs/zh-CN/development.md](docs/zh-CN/development.md)。
 
@@ -43,8 +48,8 @@ cd client && npm test && npm run build
 2. 从 `main` 创建分支，每个合并请求只做一件事。
 3. 补充或更新测试。外部服务均通过参数注入，测试中以假实现替代。
 4. 行为或配置发生变化时，同时更新 `docs/` 与 `docs/zh-CN/` 下的文档，并在 `CHANGELOG.md` 的
-   *Unreleased* 一节中添加条目。
-5. 确认 CI 通过。`main` 分支受保护：改动一律通过合并请求进入，*All checks* 任务成功后以 squash 方式合并。
+   _Unreleased_ 一节中添加条目。
+5. 确认 CI 通过。`main` 分支受保护：改动一律通过合并请求进入，_All checks_ 任务成功后以 squash 方式合并。
 
 以下规则由测试或评审把关：
 
@@ -59,6 +64,8 @@ cd client && npm test && npm run build
 ## 提交说明
 
 第一行用一句话概括改动内容；原因不明显时，在正文中说明。中文或英文均可。
+
+本仓库是公开的。提交说明和合并请求中不要出现 AI 工具会话的链接、会话编号、本地路径和个人联系方式。
 
 ## 许可
 

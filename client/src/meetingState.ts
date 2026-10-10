@@ -134,7 +134,12 @@ export type Action =
   | { type: "notice"; level: NoticeLevel; text: string }
   | { type: "dismissNotice"; id: number }
   | { type: "sessionsLoaded"; items: SessionSummary[] }
-  | { type: "viewLoaded"; detail: SessionDetail | null; items: HistoryItem[]; speakers: SpeakerInfo[] }
+  | {
+      type: "viewLoaded";
+      detail: SessionDetail | null;
+      items: HistoryItem[];
+      speakers: SpeakerInfo[];
+    }
   | { type: "olderLoaded"; items: HistoryItem[] }
   | { type: "backfilled"; items: HistoryItem[] }
   | { type: "speakersLoaded"; speakers: SpeakerInfo[] }
@@ -165,7 +170,8 @@ export function connectionOf(transport: string): ConnectionState {
 }
 
 export const SESSION_CLOSED_TEXT: Record<SessionClosedMessage["reason"], string> = {
-  taken_over: "已在另一台设备（或另一个页面）上继续这场会议，这个页面已断开。同一时刻只能有一路连接。",
+  taken_over:
+    "已在另一台设备（或另一个页面）上继续这场会议，这个页面已断开。同一时刻只能有一路连接。",
   ended: "会议已结束。",
   server_stopping: "服务端正在停止，连接已断开；它重新起来之后会自动接着开这场会议。",
 };
@@ -248,7 +254,11 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
       return {
         ...state,
         captions: applyUtteranceUpdate(state.captions, action.message),
-        speakers: withSpeaker(state.speakers, action.message.speaker_idx, action.message.speaker_name),
+        speakers: withSpeaker(
+          state.speakers,
+          action.message.speaker_idx,
+          action.message.speaker_name,
+        ),
       };
     case "speakerRenamed":
       return {
@@ -365,7 +375,9 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
       if (state.viewing?.id !== action.sessionId) return state; // 取回来时已经切到别的会议了
       return {
         ...state,
-        frames: action.merge ? mergeFrames(state.frames, action.items) : replaceFrames(action.items),
+        frames: action.merge
+          ? mergeFrames(state.frames, action.items)
+          : replaceFrames(action.items),
       };
     case "sharing":
       return { ...state, sharing: action.sharing };

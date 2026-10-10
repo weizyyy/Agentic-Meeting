@@ -52,7 +52,11 @@ export function AssistantPanel({
         ))}
       </ul>
       <div className="reply">
-        {text ? <p>{text}</p> : <p className="empty">叫一声助理的名字，或在下面打字提问，它的回答会显示在这里。</p>}
+        {text ? (
+          <p>{text}</p>
+        ) : (
+          <p className="empty">叫一声助理的名字，或在下面打字提问，它的回答会显示在这里。</p>
+        )}
       </div>
       <TextInput enabled={canSend} onSend={onSend} />
     </section>

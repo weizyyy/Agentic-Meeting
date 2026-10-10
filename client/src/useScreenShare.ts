@@ -62,7 +62,13 @@ async function encode(canvas: HTMLCanvasElement): Promise<Blob> {
  * 不走 WebRTC 视频轨：把共享的画面画到离屏画布上，缩成 64×36 的灰度图与上一张**已上传**的比较，
  * 变化超过阈值或满兜底间隔时，把原画面等比缩小后编码上传。采集时刻换算成服务端时钟。
  */
-export function useScreenShare({ api, connected, config, dispatch, sendState }: Options): ScreenShare {
+export function useScreenShare({
+  api,
+  connected,
+  config,
+  dispatch,
+  sendState,
+}: Options): ScreenShare {
   const capture = useRef<Capture | null>(null);
   const offset = useRef(0);
   const latestConfig = useRef(config);
@@ -171,7 +177,8 @@ export function useScreenShare({ api, connected, config, dispatch, sendState }: 
         failures += 1;
         // 连续失败只提示第一次，之后每个节拍照常重试
         if (failures === 1) {
-          const text = error instanceof ApiError || error instanceof Error ? error.message : "未知错误";
+          const text =
+            error instanceof ApiError || error instanceof Error ? error.message : "未知错误";
           dispatch({ type: "notice", level: "warn", text: `截图上传失败：${text}` });
         }
       } finally {
@@ -179,12 +186,16 @@ export function useScreenShare({ api, connected, config, dispatch, sendState }: 
       }
     };
 
-    const period = Math.min(MAX_TICK_MS, Math.max(MIN_TICK_MS, latestConfig.current.minIntervalSecs * 500));
+    const period = Math.min(
+      MAX_TICK_MS,
+      Math.max(MIN_TICK_MS, latestConfig.current.minIntervalSecs * 500),
+    );
     const timer = window.setInterval(() => void tick(), period);
     capture.current = { stream, video, timer };
     video.addEventListener("loadeddata", () => void tick(), { once: true });
     // 用户在浏览器自带的「停止共享」上点了停止
-    for (const track of stream.getVideoTracks()) track.addEventListener("ended", stop, { once: true });
+    for (const track of stream.getVideoTracks())
+      track.addEventListener("ended", stop, { once: true });
 
     dispatch({ type: "sharing", sharing: true });
     latestSend.current(true);

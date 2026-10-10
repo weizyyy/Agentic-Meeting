@@ -12,7 +12,10 @@ const span = (connected: number, disconnected: number | null, from: number, to: 
 
 test("没中断过的会议：墙上时刻就是开始时刻加上会议时间", () => {
   assert.equal(wallClockAt(65, { startedAt: 1000, connections: [] }), 1065);
-  assert.equal(wallClockAt(65, { startedAt: 1000, connections: [span(1000, null, 0, null)] }), 1065);
+  assert.equal(
+    wallClockAt(65, { startedAt: 1000, connections: [span(1000, null, 0, null)] }),
+    1065,
+  );
 });
 
 test("中断过的会议：按所在的那次连接推算", () => {

@@ -4,7 +4,7 @@
 我们不用它的 ``main()``，因为那会接管整个 FastAPI 应用和命令行。
 接口约定见 docs/interfaces.md §5：除信令外全部是 JSON，业务错误返回 ``{"error": "<中文说明>"}``。
 健康接口（``health_api.py``）使用 §5.8 的独立状态快照。
-截图、任务、报告、导出的接口各在自己的模块里（``frames_api.py`` 等）。
+截图、任务、报告、导出的接口各在自己的模块里（``frames_api.py`` 等），访问口令在 ``auth.py``。
 """
 
 from __future__ import annotations
@@ -47,7 +47,15 @@ from agentic_meeting.screen.caption import CaptionWorker
 from agentic_meeting.screen.ingest import FrameIngestor
 from agentic_meeting.store.db import Store
 from agentic_meeting.store.embeddings import EmbeddingClient, EmbeddingWorker
-from agentic_meeting.web import export, frames_api, health_api, reports_api, sessions_api, tasks_api
+from agentic_meeting.web import (
+    auth,
+    export,
+    frames_api,
+    health_api,
+    reports_api,
+    sessions_api,
+    tasks_api,
+)
 
 DEFAULT_STATIC_DIR = REPO_ROOT / "client" / "dist"
 
@@ -265,6 +273,10 @@ def create_app(
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_request: Request, exc: RequestValidationError) -> JSONResponse:
         return JSONResponse({"error": f"请求格式有误：{exc.errors()[:1]}"}, status_code=422)
+
+    # ---- 访问口令（interfaces.md §5.7）：启用时拦住除登录以外的全部 /api ----
+
+    auth.register(app, auth.AuthGuard.from_config(cfg))
 
     # ---- 会话、发言、说话人（interfaces.md §5.1、§5.4） ----
 

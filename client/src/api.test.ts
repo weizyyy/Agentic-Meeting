@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ApiError, createApi } from "./api.ts";
+import { AuthSession, CSRF_HEADER } from "./auth.ts";
 
 interface Call {
   url: string;
@@ -75,7 +76,9 @@ test("重命名、结束、删除：方法、路径和请求体", async () => {
 
 test("说话人：列表和改名", async () => {
   const { fn, calls } = fakeFetch((call) =>
-    call.init?.method === "PUT" ? ok({ idx: 2, display_name: "王老师" }) : ok({ items: [{ idx: 1, display_name: "说话人 1" }] }),
+    call.init?.method === "PUT"
+      ? ok({ idx: 2, display_name: "王老师" })
+      : ok({ items: [{ idx: 1, display_name: "说话人 1" }] }),
   );
   const api = createApi(fn);
   assert.deepEqual(await api.listSpeakers("s1"), [{ idx: 1, display_name: "说话人 1" }]);
@@ -148,7 +151,9 @@ test("上传截图：multipart，带采集时刻；文件名跟着实际格式�
 });
 
 test("上传截图被拒：带上服务端的说明", async () => {
-  const api = createApi(fakeFetch(() => ok({ error: "现在没有进行中的会议，截图没有保存" }, 404)).fn);
+  const api = createApi(
+    fakeFetch(() => ok({ error: "现在没有进行中的会议，截图没有保存" }, 404)).fn,
+  );
   await assert.rejects(api.uploadFrame(new Blob([]), 1), {
     message: "现在没有进行中的会议，截图没有保存",
     status: 404,
@@ -157,7 +162,9 @@ test("上传截图被拒：带上服务端的说明", async () => {
 
 test("任务：列表、详情、取消；编号要编码", async () => {
   const { fn, calls } = fakeFetch((call) =>
-    call.url.startsWith("/api/tasks?") ? ok({ items: [{ id: "s 1.t1" }] }) : ok({ id: "s 1.t1", status: "cancelled" }),
+    call.url.startsWith("/api/tasks?")
+      ? ok({ items: [{ id: "s 1.t1" }] })
+      : ok({ id: "s 1.t1", status: "cancelled" }),
   );
   const api = createApi(fn);
   assert.deepEqual(await api.listTasks("s 1"), [{ id: "s 1.t1" }]);
@@ -181,7 +188,14 @@ test("合并说话人：POST 到被合并的那个，请求体里是并到谁", 
 test("会后报告：没有时返回 null；触发生成返回编号", async () => {
   const none = createApi(fakeFetch(() => ok({ error: "这场会议还没有报告" }, 404)).fn);
   assert.equal(await none.getReport("s1"), null);
-  const report = { id: 3, status: "done", created_at: 1, provider: "realtime_llm", text_md: "# x", error: null };
+  const report = {
+    id: 3,
+    status: "done",
+    created_at: 1,
+    provider: "realtime_llm",
+    text_md: "# x",
+    error: null,
+  };
   const { fn, calls } = fakeFetch((call) =>
     call.init?.method === "POST" ? ok({ report_id: 4, status: "running" }, 202) : ok(report),
   );
@@ -198,7 +212,6 @@ test("会后报告：没有时返回 null；触发生成返回编号", async () 
   const busy = createApi(fakeFetch(() => ok({ error: "这场会议已经有一份报告正在生成" }, 409)).fn);
   await assert.rejects(busy.startReport("s1"), /正在生成/);
 });
-
 
 test("改发言人：已有的说话人给编号，新建的给名字", async () => {
   const done = { speaker: { idx: 2, display_name: "小李" }, ids: [5, 6] };
@@ -218,4 +231,28 @@ test("改发言人：已有的说话人给编号，新建的给名字", async ()
     ids: [7],
     new_speaker: "张老师",
   });
+});
+
+test("登录之后：改动性的请求带 CSRF 令牌，读取不带；401 通知页面重新登录", async () => {
+  const session = new AuthSession();
+  session.setToken("tok");
+  let expired = 0;
+  session.onUnauthorized(() => expired++);
+  const { fn, calls } = fakeFetch((call) =>
+    call.url === "/api/tasks/x/cancel"
+      ? ok({ error: "请先登录" }, 401)
+      : ok({ id: "s1", title: "t", items: [] }),
+  );
+  const api = createApi(fn, session);
+  await api.renameSession("s1", "t");
+  await api.listSessions();
+  await assert.rejects(
+    api.cancelTask("x"),
+    (e: unknown) => e instanceof ApiError && e.status === 401,
+  );
+  assert.equal(new Headers(calls[0].init?.headers).get(CSRF_HEADER), "tok");
+  assert.equal(new Headers(calls[0].init?.headers).get("content-type"), "application/json");
+  assert.equal(new Headers(calls[1].init?.headers).has(CSRF_HEADER), false);
+  assert.equal(expired, 1);
+  assert.equal(session.csrfToken, null);
 });

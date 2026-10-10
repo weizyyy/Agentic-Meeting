@@ -16,15 +16,15 @@
 
 ## 准备工作
 
-| 项目 | 说明 |
-|---|---|
-| 操作系统 | 带 NVIDIA 显卡的 Windows 11 或 Linux，或 Apple 芯片的 macOS |
-| 显存 | 本地语音模型需要单卡 12 GB 或以上，各档配置见 [runtimes.md §4](runtimes.md#4-模型文件) |
+| 项目                             | 说明                                                                                                                   |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 操作系统                         | 带 NVIDIA 显卡的 Windows 11 或 Linux，或 Apple 芯片的 macOS                                                            |
+| 显存                             | 本地语音模型需要单卡 12 GB 或以上，各档配置见 [runtimes.md §4](runtimes.md#4-模型文件)                                 |
 | [uv](https://docs.astral.sh/uv/) | 安装 Python 和锁定版本的依赖。支持 Python 3.12、3.13 和 3.14；默认使用 3.12，可用 `uv sync --python 3.14` 指定其他版本 |
-| Node.js 22.18+ | 构建网页客户端 |
-| Git | 推理运行时以子模块形式管理 |
-| C++ 工具链、CMake | 仅在构建语音合成运行时时需要，见 [runtimes.md §3.3](runtimes.md#33-qwenttscpp) |
-| Docker | 可选，供后台 agent 运行代码 |
+| Node.js 22.18+                   | 构建网页客户端                                                                                                         |
+| Git                              | 推理运行时以子模块形式管理                                                                                             |
+| C++ 工具链、CMake                | 仅在构建语音合成运行时时需要，见 [runtimes.md §3.3](runtimes.md#33-qwenttscpp)                                         |
+| Docker                           | 可选，供后台 agent 运行代码                                                                                            |
 
 ## 安装
 
@@ -55,13 +55,13 @@ python scripts/runtimes.py status
 
 模型权重需要自行下载并放到 `models/` 目录下，本仓库中的任何脚本都不会下载权重。
 
-| 用途 | 需要的文件 |
-|---|---|
-| 流式识别 | 模型 GGUF 及其音频投影（`mmproj`）GGUF |
-| 说话人区分 | NeMo-Speech.cpp 格式的说话人区分 GGUF |
-| 语音合成 | qwentts.cpp 格式的 talker GGUF 与 codec GGUF |
-| 嵌入 | 嵌入模型 GGUF |
-| 实时模型 | 对话模型 GGUF（识图时还需 `mmproj`）—— 仅在用 llama.cpp 部署时需要 |
+| 用途       | 需要的文件                                                         |
+| ---------- | ------------------------------------------------------------------ |
+| 流式识别   | 模型 GGUF 及其音频投影（`mmproj`）GGUF                             |
+| 说话人区分 | NeMo-Speech.cpp 格式的说话人区分 GGUF                              |
+| 语音合成   | qwentts.cpp 格式的 talker GGUF 与 codec GGUF                       |
+| 嵌入       | 嵌入模型 GGUF                                                      |
+| 实时模型   | 对话模型 GGUF（识图时还需 `mmproj`）—— 仅在用 llama.cpp 部署时需要 |
 
 测试所用的模型以及各运行时要求的格式见 [runtimes.md §4](runtimes.md#4-模型文件)。
 
@@ -87,6 +87,7 @@ cp .env.example .env
    ```
 
    实时模型应关闭思考（reasoning）。先思考再回答的模型，首字延迟会成倍增加。
+
 4. **后台 agent**（可选）—— 在 `[agent]` 中填写接口地址、模型名和 MCP 服务；不需要时设置 `enabled = false`。
 
 密钥不写入 `config.toml`。配置文件中只保存环境变量的**名字**（`api_key_env`、`headers_env`），
@@ -143,11 +144,11 @@ curl -i http://localhost:7860/metrics
 这三个精确 GET 路由无需登录，返回 `Content-Type: application/json`，位于后端根路径，不带 `/api`。
 5173 端口的 Vite 开发服务器目前只代理 `/api`；这些检查请请求 7860 或自行配置的后端端口。
 
-| 端点 | 用途与响应 |
-|---|---|
-| `/healthz` | 进程存活：HTTP 200，精确响应 `{"status":"ok"}`。无外部 I/O；模型故障不使存活检查失败 |
-| `/readyz` | 应用就绪：生命周期为 running，已打开 Store 的 `SELECT 1` 成功，且必选 ASR `/health` 健康。HTTP 200 时为 `ok` 或 `degraded`；503 时为 `not_ready` |
-| `/metrics` | JSON gauge 和服务观测，始终 HTTP 200。`ok` 表示观测完整；`partial` 保留可得字段，缺失观测使用 `null`/`unknown` |
+| 端点       | 用途与响应                                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/healthz` | 进程存活：HTTP 200，精确响应 `{"status":"ok"}`。无外部 I/O；模型故障不使存活检查失败                                                             |
+| `/readyz`  | 应用就绪：生命周期为 running，已打开 Store 的 `SELECT 1` 成功，且必选 ASR `/health` 健康。HTTP 200 时为 `ok` 或 `degraded`；503 时为 `not_ready` |
+| `/metrics` | JSON gauge 和服务观测，始终 HTTP 200。`ok` 表示观测完整；`partial` 保留可得字段，缺失观测使用 `null`/`unknown`                                   |
 
 仅启用的可选服务故障或未知时，就绪状态为 `degraded`；ASR、存储或生命周期失败则为 `not_ready`。
 就绪检查用于判断能否接收转录流量，存活检查用于判断 HTTP 进程能否响应。
@@ -156,7 +157,8 @@ curl -i http://localhost:7860/metrics
 [故障排查](troubleshooting.md#健康状态与指标)。
 
 响应不含会议内容、标识符、URL 或凭据，但匿名数值仍会体现负载和活动程度。
-未来密码鉴权须仅保留这三个精确路径的 GET 匿名例外；此处尚未验证该集成。
+启用访问口令后，中间件保护 `/api` 及其下路径，这三个根路径 GET 仍保持匿名。
+后续鉴权改动须保留它们的匿名访问，不因此免除业务 API 的鉴权。
 这项功能不代表实例可以安全地暴露到公网。
 
 ## 从其他设备访问
@@ -179,6 +181,27 @@ tls_key = "config/meeting-key.pem"
 
 其他设备即可访问 `https://<服务器的局域网 IP>`。如需消除证书警告，把 `mkcert -CAROOT` 所示目录中的
 `rootCA.pem` 安装为各设备的受信任根证书。`*.pem` 文件已被 Git 忽略。同一局域网内无需配置 ICE 服务器。
+
+### 访问口令
+
+不设置访问口令时，任何能访问该端口的人都可以查看和删除会议记录。如果网络里还有不该看到会议内容的人，
+请设置口令：
+
+```toml
+[server]
+password_env = "AGENTIC_MEETING_PASSWORD"
+```
+
+```bash
+# 仓库根目录的 .env（已被 Git 忽略）
+AGENTIC_MEETING_PASSWORD=<较长的口令，至少 8 个字符>
+```
+
+之后每个浏览器第一次打开页面时需要输入口令，登录有效期为 `auth_session_days`（默认 7 天）。
+顶部栏的「退出登录」可在当前浏览器上退出。修改口令或删除 `data/auth_secret` 会让所有设备退出登录。
+5 分钟内输错 5 次后，该设备需要等待一段时间才能再试。
+
+请与 HTTPS 一起使用：纯 HTTP 下口令以明文在网络上传输。口令是整个应用共用的一个密码，目前还没有个人账号。
 
 ## 启用代码沙箱
 
