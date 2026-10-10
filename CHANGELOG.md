@@ -14,7 +14,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   browser, and past meetings stay readable ([#47]).
 - When the browser's autoplay policy blocks the assistant's voice, the page says so and offers a
   button that turns it on, instead of staying silent ([#47]).
-- Container images and a Docker Compose setup for Linux ([#15]): an application image and a speech
+- Container images and a Docker Compose setup for Linux ([#49]): an application image and a speech
   synthesis image in CPU, CUDA and Vulkan variants, with `llama-server` from llama.cpp's own images
   at the pinned build. Each inference service runs in its own container and can be started, moved or
   replaced separately; model weights are mounted from the host and never built into an image.
@@ -22,8 +22,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Docker. The release workflow publishes the images and the sandbox image to GHCR. See
   `docs/containers.md`.
 
-[#15]: https://github.com/weizyyy/Agentic-Meeting/issues/15
 [#47]: https://github.com/weizyyy/Agentic-Meeting/pull/47
+[#49]: https://github.com/weizyyy/Agentic-Meeting/pull/49
 
 ## [0.2.0] - 2026-10-10
 
