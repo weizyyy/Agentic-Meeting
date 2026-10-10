@@ -137,8 +137,12 @@ class MeetingClient:
 
     # ---- 动作 ----
 
-    async def speak(self, seconds: float = 2.0, timeout_secs: float = 30) -> None:
-        """放录音的前 ``seconds`` 秒（默认的 2 秒正好是一句话），再放 1 秒静音，等它放完。"""
+    async def speak(self, seconds: float = 1.0, timeout_secs: float = 30) -> None:
+        """放录音的前 ``seconds`` 秒，再放 1 秒静音，等它放完。
+
+        默认的 1 秒里只有一个短语、中间没有停顿：要是放到 1.3 秒之后，停顿处会先被判成说完了，
+        助理一开口又被后半句打断。
+        """
         speech = load_speech()[: int(seconds * SAMPLE_RATE)]
         self.mic.play(np.concatenate([speech, np.zeros(SAMPLE_RATE, dtype="<i2")]))
         await asyncio.wait_for(self.mic.played.wait(), timeout_secs)

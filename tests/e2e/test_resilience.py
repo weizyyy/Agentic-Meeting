@@ -105,11 +105,7 @@ async def test_meetings_survive_a_restart(start_app, inference, meeting_factory)
 
 @pytest.mark.skipif(
     sys.platform == "win32",
-    reason="已知问题只在 Ctrl+C（SIGINT）下确认过；Windows 上停应用发的是 Ctrl+Break",
-)
-@pytest.mark.xfail(
-    strict=True,
-    reason="已知问题：会议进行中按 Ctrl+C，uvicorn 停在关闭 HTTP 服务这一步不退出，要再按一次 Ctrl+C",
+    reason="Windows 上停应用发的是 Ctrl+Break，不是 Ctrl+C",
 )
 async def test_ctrl_c_during_a_meeting_stops_the_server(start_app, meeting_factory):
     """没有一并拉起模型服务时，按一次 Ctrl+C 应当直接停下；页面按原有逻辑发现连接断了，不需要额外通知。"""
