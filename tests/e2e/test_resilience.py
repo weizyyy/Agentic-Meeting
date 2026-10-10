@@ -70,7 +70,11 @@ async def test_captions_resume_after_the_recognition_service_comes_back(
         return [u for u in client.of_type("utterance") if u["text"] == "识别服务回来了"]
 
     await until(recovered, "识别恢复后出字幕", timeout_secs=90)
-    assert (await http.get("/readyz")).status_code == 200
+
+    async def ready():  # 就绪检查的服务状态有几秒缓存，刚恢复时可能还是旧结果
+        return (await http.get("/readyz")).status_code == 200
+
+    await until(ready, "识别恢复后就绪检查通过")
 
 
 async def test_meetings_survive_a_restart(start_app, inference, meeting_factory):
@@ -131,12 +135,19 @@ async def test_health_endpoints_describe_the_services(app, http, inference, serv
     name = {"asr": "asr", "llm": "realtime"}[service]
 
     async def reported():
+        # 等一次确实探测到这个服务不通、其余照常的结果；慢机器上探测超时会短暂报 unknown
         response = await http.get("/readyz")
         body = response.json()
-        return (response.status_code, body) if body["services"][name]["status"] != "ok" else None
+        services = body["services"]
+        others_ok = all(
+            s["status"] in ("ok", "reachable") for n, s in services.items() if n != name
+        )
+        if services[name]["status"] == "unavailable" and others_ok:
+            return response.status_code, body
+        return None
 
     status, body = await until(reported, "健康检查发现服务不通")
     if service == "asr":  # 识别是核心功能：不通就是没就绪
-        assert status == 503 and body["status"] == "not_ready"
+        assert (status, body["status"]) == (503, "not_ready"), body
     else:
-        assert status == 200 and body["status"] == "degraded"
+        assert (status, body["status"]) == (200, "degraded"), body
