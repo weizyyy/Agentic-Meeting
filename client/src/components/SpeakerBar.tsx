@@ -70,7 +70,12 @@ export function SpeakerBar({
             ＋ 新说话人
           </button>
         ) : (
-          <span className="chip chip-editing" onBlur={() => setAdding(null)}>
+          <span
+            className="chip chip-editing"
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setAdding(null);
+            }}
+          >
             <input
               aria-label="新说话人的名字"
               placeholder="名字，回车确认"
@@ -92,6 +97,14 @@ export function SpeakerBar({
                 <option key={name} value={name} />
               ))}
             </datalist>
+            <MemberChoices
+              names={nameSuggestions(members, speakers, null)}
+              label={(name) => `新建说话人「${name}」，把选中的发言归到他名下`}
+              onPick={(name) => {
+                setAdding(null);
+                onAssign({ newSpeaker: name });
+              }}
+            />
           </span>
         )}
         <button type="button" className="link" onClick={onClearSelection}>
@@ -143,6 +156,14 @@ export function SpeakerBar({
                 <option key={name} value={name} />
               ))}
             </datalist>
+            <MemberChoices
+              names={nameSuggestions(members, speakers, p.idx).filter((n) => n !== p.display_name)}
+              label={(name) => `把「${p.display_name}」改名为「${name}」`}
+              onPick={(name) => {
+                setEditing(null);
+                onRename(p.idx, name);
+              }}
+            />
             {mergeTargets(speakers, p.idx).length > 0 && (
               <select
                 aria-label={`把「${p.display_name}」合并到另一个说话人`}
@@ -183,5 +204,39 @@ export function SpeakerBar({
         ),
       )}
     </div>
+  );
+}
+
+/**
+ * 成员名单里的候选，直接显示成按钮点一下就用。
+ * 不能只靠 datalist：输入框里已经有当前名字，浏览器只列出包含这几个字的候选，名单看上去就是空的。
+ */
+function MemberChoices({
+  names,
+  label,
+  onPick,
+}: {
+  names: readonly string[];
+  label: (name: string) => string;
+  onPick: (name: string) => void;
+}) {
+  if (names.length === 0) return null;
+  return (
+    <span className="member-choices" role="group" aria-label="成员名单">
+      {names.map((name) => (
+        <button
+          key={name}
+          type="button"
+          className="chip chip-member"
+          title={label(name)}
+          aria-label={label(name)}
+          // 不抢输入框的焦点：Safari 点按钮不给按钮焦点，失焦会先把编辑框收起来，点击就落空了
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onPick(name)}
+        >
+          {name}
+        </button>
+      ))}
+    </span>
   );
 }

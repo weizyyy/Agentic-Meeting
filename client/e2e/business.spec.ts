@@ -108,6 +108,46 @@ test("通过页面改名及合并说话人，刷新后字幕归属与数据库�
   expect(other.items).toEqual([{ idx: 1, display_name: "测试同学1" }]);
 });
 
+test("配置里的成员名单作为改名候选，点一下就改名", async ({ page, request }) => {
+  const seeds = await (await request.get("/__test/state")).json();
+  await openEndedMeeting(page);
+  const speakers = page.getByRole("group", { name: "说话人", exact: true });
+  await speakers.getByRole("button", { name: "测试同学1", exact: true }).click();
+  const choices = speakers.getByRole("group", { name: "成员名单" });
+  await expect(choices.getByRole("button")).toHaveText(["林晓", "周远"]);
+  await choices.getByRole("button", { name: "把「测试同学1」改名为「林晓」" }).click();
+  await expect(speakers.getByRole("button", { name: "林晓", exact: true })).toBeVisible();
+  await expect(choices).toHaveCount(0);
+  const renamed = await (await request.get(`/api/speakers?session_id=${seeds.ended}`)).json();
+  expect(renamed.items).toContainEqual({ idx: 1, display_name: "林晓" });
+
+  // 已经被别人用了的名字不再出现在候选里
+  await speakers.getByRole("button", { name: "测试同学2", exact: true }).click();
+  await expect(choices.getByRole("button")).toHaveText(["周远"]);
+});
+
+test("还没有任何会议时打开页面，第一场会议也能用成员名单改名", async ({ page, request }) => {
+  const seeds = await (await request.get("/__test/state")).json();
+  for (const id of [seeds.ended, seeds.interrupted]) {
+    expect((await request.delete(`/api/sessions/${id}`)).ok()).toBe(true);
+  }
+  expect((await request.get("/api/session")).status()).toBe(404);
+  await page.reload();
+  await page.getByRole("button", { name: "开始新会议", exact: true }).first().click();
+  await expect(page.getByRole("status").first()).toHaveText("已连接");
+  await request.post("/__test/emit", { data: { text: "第一场会议的发言" } });
+  await expect(page.getByText("第一场会议的发言", { exact: true })).toBeVisible();
+
+  const speakers = page.getByRole("group", { name: "说话人", exact: true });
+  await speakers.getByRole("button", { name: "说话人 1", exact: true }).click();
+  const choices = speakers.getByRole("group", { name: "成员名单" });
+  await expect(choices.getByRole("button")).toHaveText(["林晓", "周远"]);
+  await choices.getByRole("button", { name: "把「说话人 1」改名为「周远」" }).click();
+  await expect(speakers.getByRole("button", { name: "周远", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "结束会议", exact: true }).click();
+  await expect(page.getByRole("status").first()).toHaveText("未连接");
+});
+
 test("打开成功任务详情并下载真实产物", async ({ page, request }) => {
   const seeds = await (await request.get("/__test/state")).json();
   await openEndedMeeting(page);

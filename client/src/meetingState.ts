@@ -233,6 +233,8 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
         report: action.detail.deletion_pending ? null : state.report,
         hasOlder: action.detail.deletion_pending ? false : state.hasOlder,
         connections: action.detail.connections ?? state.connections,
+        // 打开页面时还没有会议（或之后才改了配置）的话，名单要靠这里补上
+        members: action.detail.members ?? state.members,
         sessions: state.sessions.map((s) => (s.id === action.detail.id ? action.detail : s)),
       };
     }

@@ -78,15 +78,16 @@ speaker within two seconds are merged into one row.
 
 Speakers appear as chips above the captions.
 
-- **Rename** — click a chip and type a name. Names listed in `session.members` are offered as
-  suggestions. The new name applies to the whole meeting, including what the assistant sees.
+- **Rename** — click a chip and type a name, or click one of the names from `session.members`
+  shown next to the input. Names already used by another speaker are left out. The new name
+  applies to the whole meeting, including what the assistant sees.
 - **Merge** — **合并到…** moves all of one speaker's captions to another speaker. This cannot be
   undone.
 - **Reassign individual captions** — click the time-and-speaker block at the left of a row to
   select it, or drag across rows to select a range. The speaker chips turn into targets: click one
-  to assign the selected captions to that speaker, or choose **＋ 新说话人** (New speaker). Press
-  `Esc` to cancel. The text area of a row is not part of the selection, so you can still select and
-  copy text.
+  to assign the selected captions to that speaker, or choose **＋ 新说话人** (New speaker) and type
+  a name or pick one from `session.members`. Press `Esc` to cancel. The text area of a row is not
+  part of the selection, so you can still select and copy text.
 
 ## Talking to the assistant
 

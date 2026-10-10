@@ -980,6 +980,22 @@ body {
   gap: 6px;
 }
 
+.member-choices {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip-member {
+  font-size: 0.8125rem;
+  padding: 0 10px;
+  border-style: dashed;
+}
+
+.chip-member:hover {
+  border-color: var(--accent);
+}
+
 .chip-editing select {
   font: inherit;
   font-size: 0.8125rem;
