@@ -18,6 +18,11 @@ manually — nothing in this project downloads weights.
 Versions are pinned in [`runtimes.lock.toml`](../runtimes.lock.toml). The sources are Git
 submodules under `third_party/` (shallow, read-only).
 
+The container images use the same versions: the application image fetches the NeMo-Speech.cpp
+package with this script, the speech synthesis image builds the qwentts.cpp submodule, and
+`llama-server` comes from llama.cpp's own images at the same build
+([containers.md §5](containers.md#5-images)).
+
 ## 2. The runtime script
 
 ```bash
@@ -276,8 +281,11 @@ system has not been run there. macOS is untested.
 2. Move the submodule: `git -C third_party/<name> fetch --depth 1 origin <tag>`, check it out, then
    `git add third_party/<name>` in the repository root.
 3. Run `python scripts/runtimes.py fetch <name> --force`.
-4. Repeat the verification in §6 and run `uv run pytest`.
-5. If an interface changed, update [interfaces.md §9](interfaces.md) and this document.
+4. For llama.cpp, change the build number in the image tags of `compose.yaml` and
+   `docker/compose.*.yaml`; a test in `tests/test_repository_rules.py` compares them with
+   `runtimes.lock.toml`. The other images pick up the new versions when they are rebuilt.
+5. Repeat the verification in §6 and run `uv run pytest`.
+6. If an interface changed, update [interfaces.md §9](interfaces.md) and this document.
 
 Pipecat is upgraded the same way: change the exact version in `pyproject.toml`, run `uv sync`, and
 review [pipecat-notes.md](pipecat-notes.md) item by item.

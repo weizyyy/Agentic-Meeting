@@ -2,7 +2,7 @@
 
 [English](../getting-started.md) · **简体中文**
 
-本文介绍从克隆仓库到开始第一场会议的全部步骤。
+本文介绍从克隆仓库到开始第一场会议的全部步骤。想在 Linux 上把整套系统放进容器运行，请看[容器](containers.md)。
 
 - [准备工作](#准备工作)
 - [安装](#安装)
@@ -24,7 +24,7 @@
 | Node.js 22.18+                   | 构建网页客户端                                                                                                         |
 | Git                              | 推理运行时以子模块形式管理                                                                                             |
 | C++ 工具链、CMake                | 仅在构建语音合成运行时时需要，见 [runtimes.md §3.3](runtimes.md#33-qwenttscpp)                                         |
-| Docker                           | 可选，供后台 agent 运行代码                                                                                            |
+| Docker                           | 可选，供后台 agent 运行代码，或者把整套系统放进容器运行（[容器](containers.md)）                                       |
 
 ## 安装
 
@@ -218,6 +218,9 @@ docker build -t agentic-meeting-sandbox:py312 docker/sandbox
 kind = "docker"
 docker_image = "agentic-meeting-sandbox:py312"
 ```
+
+每次发版也会把这个镜像发布为 `ghcr.io/weizyyy/agentic-meeting-sandbox`（[容器 §5](containers.md#5-镜像)），
+可以直接 `docker pull`，不必自己构建。
 
 ## 不用麦克风进行验证
 

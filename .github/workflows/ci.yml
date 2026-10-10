@@ -25,6 +25,7 @@ jobs:
       python: ${{ steps.classify.outputs.python }}
       client: ${{ steps.classify.outputs.client }}
       browser: ${{ steps.classify.outputs.browser }}
+      images: ${{ steps.classify.outputs.images }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -37,34 +38,39 @@ jobs:
         run: |
           # A pull request is checked out as a merge commit whose first parent is the base branch.
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then base=HEAD^1; else base="$BEFORE"; fi
-          python=false client=false browser=false
+          python=false client=false browser=false images=false
           if changed=$(git diff --name-only "$base" HEAD); then
             while IFS= read -r path; do
               case "$path" in
                 "") ;;
                 # Server code and runtime input: Python suite and the browser tests' real server.
-                src/* | config/* | pyproject.toml | uv.lock | .python-version)
-                  python=true browser=true ;;
+                src/* | config/* | .python-version) python=true browser=true ;;
+                pyproject.toml | uv.lock) python=true browser=true images=true ;;
                 # The browser tests' server is also linted with the Python suite.
                 tests/browser/*) python=true browser=true ;;
+                # Container images and Compose files; a rule test compares their runtime versions.
+                docker/* | compose.yaml) python=true images=true ;;
+                # Locked dependencies and runtimes, which the images also install.
+                runtimes.lock.toml | third_party/* | scripts/runtimes.py | scripts/container.py)
+                  python=true images=true ;;
                 # Python tests, scripts (linted and rule-checked), fixtures from submodules.
-                tests/* | scripts/* | third_party/* | runtimes.lock.toml) python=true ;;
+                tests/* | scripts/*) python=true ;;
                 client/e2e/* | client/playwright.config.ts) browser=true ;;
                 client/*) client=true browser=true ;;
                 # Documentation, formatter settings and files no test reads: Prettier only.
                 docs/* | *.md | LICENSE | .github/ISSUE_TEMPLATE/* | .github/dependabot.yml) ;;
                 package.json | package-lock.json | .prettierrc.json | .prettierignore) ;;
-                .pre-commit-config.yaml | .gitignore | .env.example | docker/*) ;;
-                *) python=true client=true browser=true ;;
+                .pre-commit-config.yaml | .gitignore | .env.example) ;;
+                *) python=true client=true browser=true images=true ;;
               esac
             done <<< "$changed"
             printf '%s\n' "$changed"
           else
             echo "Cannot list the changed files; running every job."
-            python=true client=true browser=true
+            python=true client=true browser=true images=true
           fi
-          echo "python=$python client=$client browser=$browser" | tee -a "$GITHUB_STEP_SUMMARY"
-          printf 'python=%s\nclient=%s\nbrowser=%s\n' "$python" "$client" "$browser" >> "$GITHUB_OUTPUT"
+          echo "python=$python client=$client browser=$browser images=$images" | tee -a "$GITHUB_STEP_SUMMARY"
+          printf 'python=%s\nclient=%s\nbrowser=%s\nimages=%s\n' "$python" "$client" "$browser" "$images" >> "$GITHUB_OUTPUT"
 
   formatting:
     name: Prettier
@@ -205,13 +211,99 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
 
+  # The container images build and their programs start, without weights or a GPU. Only the CUDA
+  # build of speech synthesis, which compiles for an hour, is left to the release (images.yml).
+  images:
+    name: Container image ${{ matrix.image }} (${{ matrix.variant }})
+    needs: changes
+    if: needs.changes.outputs.images == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: app, variant: cpu }
+          - { image: app, variant: cuda }
+          - { image: app, variant: vulkan }
+          - { image: tts, variant: cpu }
+          - { image: tts, variant: vulkan }
+          - { image: sandbox, variant: cpu }
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check out the speech synthesis source
+        if: matrix.image == 'tts'
+        run: |
+          git submodule update --init --depth 1 third_party/qwentts.cpp
+          git -C third_party/qwentts.cpp submodule update --init --depth 1
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.image == 'sandbox' && 'docker/sandbox' || '.' }}
+          file: docker/${{ matrix.image }}/Dockerfile
+          build-args: VARIANT=${{ matrix.variant }}
+          tags: image:test
+          load: true
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.variant }}
+
+      # The CUDA libraries need the driver, which a runner does not have.
+      - name: Start the application and load the diarization library
+        if: matrix.image == 'app' && matrix.variant != 'cuda'
+        run: |
+          docker run --rm image:test --help
+          docker run --rm --entrypoint python image:test -c '
+          import ctypes
+          import agentic_meeting.web.app
+          from agentic_meeting.services.paths import find_library
+          path = find_library("nemo_speech_asr_c")
+          ctypes.CDLL(str(path))
+          print("loaded", path)
+          '
+          docker run --rm --entrypoint python image:test \
+            scripts/container.py --config config/config.example.toml asr-template /tmp/asr.jinja
+
+      - name: Start tts-server
+        if: matrix.image == 'tts'
+        run: |
+          # Without arguments tts-server prints its usage and exits with 1; a missing shared library
+          # would stop it earlier with 127.
+          status=0
+          docker run --rm image:test || status=$?
+          test "$status" -eq 1
+
+      - name: Run Python in the sandbox
+        if: matrix.image == 'sandbox'
+        run: docker run --rm image:test python -c "import matplotlib, numpy, pandas"
+
+      - name: Check the Compose files
+        if: matrix.image == 'sandbox'
+        run: |
+          mkdir -p models data && touch config/config.toml .env
+          docker compose config --quiet
+          docker compose -f compose.yaml -f docker/compose.cuda.yaml config --quiet
+          AGENTIC_MEETING_RENDER_GID=1 docker compose -f compose.yaml -f docker/compose.vulkan.yaml config --quiet
+          AGENTIC_MEETING_DOCKER_GID=1 docker compose -f compose.yaml -f docker/compose.sandbox.yaml config --quiet
+          # The llama.cpp images that the Compose files name exist upstream
+          for override in "" docker/compose.cuda.yaml docker/compose.vulkan.yaml; do
+            AGENTIC_MEETING_RENDER_GID=1 COMPOSE_PROFILES=realtime,embedding \
+              docker compose -f compose.yaml ${override:+-f "$override"} config --images
+          done | grep '/llama.cpp:' | sort -u | while read -r image; do
+            docker buildx imagetools inspect "$image" > /dev/null
+            echo "found $image"
+          done
+
   # The only check required by the branch ruleset, so the job matrix can change without
   # touching repository settings. A skipped job counts as passed only when the classification said
   # the change does not need it.
   all-checks:
     name: All checks
     if: always()
-    needs: [changes, formatting, python, client, e2e]
+    needs: [changes, formatting, python, client, e2e, images]
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every needed job succeeded
@@ -220,5 +312,6 @@ jobs:
           contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') ||
           (needs.python.result == 'skipped' && needs.changes.outputs.python != 'false') ||
           (needs.client.result == 'skipped' && needs.changes.outputs.client != 'false') ||
-          (needs.e2e.result == 'skipped' && needs.changes.outputs.browser != 'false')
+          (needs.e2e.result == 'skipped' && needs.changes.outputs.browser != 'false') ||
+          (needs.images.result == 'skipped' && needs.changes.outputs.images != 'false')
         run: exit 1

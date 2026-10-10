@@ -6,6 +6,18 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- Container images and a Docker Compose setup for Linux ([#15]): an application image and a speech
+  synthesis image in CPU, CUDA and Vulkan variants, with `llama-server` from llama.cpp's own images
+  at the pinned build. Each inference service runs in its own container and can be started, moved or
+  replaced separately; model weights are mounted from the host and never built into an image.
+  Override files add NVIDIA GPUs, Vulkan devices and, opt-in, the code sandbox through the host's
+  Docker. The release workflow publishes the images and the sandbox image to GHCR. See
+  `docs/containers.md`.
+
+[#15]: https://github.com/weizyyy/Agentic-Meeting/issues/15
+
 ## [0.2.0] - 2026-10-10
 
 This release makes it safe to let other people reach an instance: an access password, TURN and

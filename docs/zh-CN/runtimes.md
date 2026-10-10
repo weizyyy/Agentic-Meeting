@@ -17,6 +17,9 @@
 版本锁定在 [`runtimes.lock.toml`](../../runtimes.lock.toml) 中；源码以 Git 子模块的形式放在
 `third_party/` 下（浅克隆，只读）。
 
+容器镜像用的是同样的版本：应用镜像用本脚本获取 NeMo-Speech.cpp 的预编译包，语音合成镜像从 qwentts.cpp
+子模块构建，`llama-server` 用 llama.cpp 官方发布的同一构建号的镜像（[容器 §5](containers.md#5-镜像)）。
+
 ## 2. 获取脚本
 
 ```bash
@@ -258,8 +261,10 @@ Docker 29 上运行。Linux 上自动化测试全部通过，完整系统尚未�
 2. 更新对应子模块指针：`git -C third_party/<名字> fetch --depth 1 origin <新标签>`，检出后在仓库根目录
    `git add third_party/<名字>`。
 3. `python scripts/runtimes.py fetch <名字> --force`。
-4. 重跑 §6 的验证和 `uv run pytest`。
-5. 接口有变化时，更新 interfaces.md §9 与本文件。
+4. 升级 llama.cpp 时，同时改 `compose.yaml` 和 `docker/compose.*.yaml` 里镜像标签中的构建号；
+   `tests/test_repository_rules.py` 里有一条测试核对它们与 `runtimes.lock.toml` 一致。其他镜像重新构建时自动用上新版本。
+5. 重跑 §6 的验证和 `uv run pytest`。
+6. 接口有变化时，更新 interfaces.md §9 与本文件。
 
 Pipecat 的升级同理：改 `pyproject.toml` 里的精确版本号 → `uv sync` → 逐条核对
 [pipecat-notes.md](pipecat-notes.md)。

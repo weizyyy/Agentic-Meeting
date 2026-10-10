@@ -56,6 +56,7 @@ it runs every job. Keep a change's documentation in the same pull request as its
 | `src/agentic_meeting/web/`          | HTTP API and static site                                                                                     |
 | `client/src/`                       | Web client; pure logic lives in plain `.ts` files                                                            |
 | `config/config.example.toml`        | Configuration template; `config/prompts/` and `config/asr_profiles/` hold prompts and model-specific formats |
+| `docker/`, `compose.yaml`           | Container images (application, speech synthesis, sandbox) and Compose files; see `docs/containers.md`        |
 | `scripts/`                          | Runtime fetch/build, headless replay, realtime-LLM evaluation, microphone check                              |
 | `tests/`                            | End-to-end tests in `tests/e2e/`; fake inference services are in `tests/e2e/inference.py`                    |
 | `client/e2e/`, `tests/browser/`     | Browser end-to-end tests (Playwright) and the test server they start                                         |

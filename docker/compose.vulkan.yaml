@@ -1,0 +1,41 @@
+# Vulkan（AMD、Intel 显卡）：叠加在 compose.yaml 上使用。NVIDIA 显卡请用 compose.cuda.yaml。
+#
+#   docker compose -f compose.yaml -f docker/compose.vulkan.yaml up -d
+#
+# 容器里的进程要能读写 /dev/dri 下的设备：在 .env 里把 AGENTIC_MEETING_RENDER_GID 设成宿主机 render 组的 gid
+# （getent group render | cut -d: -f3）。嵌入模型仍只用 CPU。
+
+x-vulkan: &vulkan
+  devices:
+    - /dev/dri:/dev/dri
+  group_add:
+    - "${AGENTIC_MEETING_RENDER_GID:?在 .env 里设置 AGENTIC_MEETING_RENDER_GID（宿主机 render 组的 gid）}"
+
+services:
+  asr:
+    <<: *vulkan
+    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp}:${LLAMA_SERVER_VULKAN_TAG:-server-vulkan-b11429}
+
+  realtime:
+    <<: *vulkan
+    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp}:${LLAMA_SERVER_VULKAN_TAG:-server-vulkan-b11429}
+
+  tts:
+    <<: *vulkan
+    image: ${AGENTIC_MEETING_TTS_IMAGE:-ghcr.io/weizyyy/agentic-meeting-tts}:${AGENTIC_MEETING_TTS_TAG:-vulkan}
+    build:
+      args:
+        VARIANT: vulkan
+
+  app:
+    <<: *vulkan
+    image: ${AGENTIC_MEETING_IMAGE:-ghcr.io/weizyyy/agentic-meeting}:${AGENTIC_MEETING_TAG:-vulkan}
+    build:
+      args:
+        VARIANT: vulkan
+
+  asr-template:
+    image: ${AGENTIC_MEETING_IMAGE:-ghcr.io/weizyyy/agentic-meeting}:${AGENTIC_MEETING_TAG:-vulkan}
+    build:
+      args:
+        VARIANT: vulkan

@@ -1,0 +1,5 @@
+# docker/tts/Dockerfile 的构建上下文是仓库根目录，只需要 qwentts.cpp 的源码。
+**
+!third_party/qwentts.cpp/
+third_party/qwentts.cpp/build/
+**/.git

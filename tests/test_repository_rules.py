@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import ast
 import json
+import re
+import tomllib
 
 import pytest
 
@@ -18,23 +20,42 @@ WEIGHT_FILE_LITERALS = ('.gguf"', ".gguf'")  # 源码里写死的权重文件名
 
 
 def test_no_model_names_in_source():
-    """硬性规则（AGENTS.md 第 2 条）：源码、客户端和脚本里不写具体模型名，源码里不写权重文件名。
+    """硬性规则（AGENTS.md 第 2 条）：源码、客户端、脚本和容器文件里不写具体模型名，源码里不写权重文件名。
 
     ``scripts/runtimes.py`` 要按扩展名认出权重文件，所以权重扩展名只在 ``src/`` 里查。
     """
+    checked = [
+        *((path, MODEL_NAMES + WEIGHT_FILE_LITERALS) for path in REPO_ROOT.glob("src/**/*.py")),
+        *((path, MODEL_NAMES) for path in REPO_ROOT.glob("scripts/**/*.py")),
+        *((path, MODEL_NAMES) for path in REPO_ROOT.glob("client/src/**/*.ts*")),
+        *((path, MODEL_NAMES) for path in REPO_ROOT.glob("docker/**/*") if path.is_file()),
+        (REPO_ROOT / "compose.yaml", MODEL_NAMES),
+    ]
     offenders = []
-    for folder, patterns, banned in (
-        ("src", ["*.py"], MODEL_NAMES + WEIGHT_FILE_LITERALS),
-        ("scripts", ["*.py"], MODEL_NAMES),
-        ("client/src", ["*.ts", "*.tsx"], MODEL_NAMES),
-    ):
-        for pattern in patterns:
-            for path in (REPO_ROOT / folder).rglob(pattern):
-                text = path.read_text(encoding="utf-8").lower()
-                offenders += [
-                    f"{path.relative_to(REPO_ROOT)}: {word}" for word in banned if word in text
-                ]
+    for path, banned in checked:
+        text = path.read_text(encoding="utf-8").lower()
+        offenders += [f"{path.relative_to(REPO_ROOT)}: {word}" for word in banned if word in text]
     assert not offenders, "发现写死的模型名/权重名：\n" + "\n".join(offenders)
+
+
+def test_compose_files_use_the_locked_llama_cpp_build():
+    """Compose 里 llama-server 的上游镜像与 runtimes.lock.toml 钉住的是同一个构建号。
+
+    升级运行时（docs/runtimes.md §7）时两处要一起改，否则容器里跑的版本和本机安装的不一样，
+    而这只有在某个接口真的变了时才会暴露。
+    """
+    with (REPO_ROOT / "runtimes.lock.toml").open("rb") as f:
+        release_tag = tomllib.load(f)["llama_cpp"]["release_tag"]
+    files = [REPO_ROOT / "compose.yaml", *sorted((REPO_ROOT / "docker").glob("compose.*.yaml"))]
+    pattern = re.compile(r"llama\.cpp\}:\$\{\w+:-(server[\w-]*?)-(b\d+)\}")
+    found = [
+        (path.relative_to(REPO_ROOT).as_posix(), match.group(1), match.group(2))
+        for path in files
+        for match in pattern.finditer(path.read_text(encoding="utf-8"))
+    ]
+    assert {flavor for _, flavor, _ in found} == {"server", "server-cuda", "server-vulkan"}
+    stale = [f"{name}: {flavor}-{tag}" for name, flavor, tag in found if tag != release_tag]
+    assert not stale, f"与 runtimes.lock.toml 的 {release_tag} 不一致：" + "、".join(stale)
 
 
 def test_asr_profile_matches_the_upstream_chat_template():
