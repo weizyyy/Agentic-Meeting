@@ -204,3 +204,9 @@ uv run python scripts/soak.py --audio meeting.mp3 --minutes 30
 
 The meeting it creates appears in the web page afterwards, so you can review the transcript,
 generate a report and try the exports. See [benchmarks.md](benchmarks.md) for a sample run.
+
+## Transcription status and data retention
+
+Once the connection is ready, the fixed top bar shows that transcription is active. Connecting, disconnected and reconnecting states are distinct; a read-only view of another device's meeting never indicates local transcription. Ending or takeover clears the indication immediately. The default dismissible start notice is separate: `session.recording_notice=false` suppresses only that notice.
+
+Keep in the meeting list and detail is stored on the server and changes only after a successful request; failures show an error. It prevents automatic cleanup, not explicit deletion, and cannot restore removed content. Automatic cleanup is disabled by default. Before enabling it, review [Configuration](configuration.md#retention) and [Data governance](data-governance.md) for category clocks, external destinations and backups. Pending meetings show metadata only; retry deletion from the list.

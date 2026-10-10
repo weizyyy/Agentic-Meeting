@@ -9,7 +9,7 @@
 密钥不保存在此文件中。以 `_env` 结尾的字段填写的是环境变量的**名字**，变量的值放在 `.env` 中
 （见 [`.env.example`](../../.env.example)）。
 
-- [`[session]`](#session) · [`[server]`](#server) · [`[realtime_llm]`](#realtime_llm) ·
+- [`[session]`](#session) · [`[retention]`](#retention) · [`[server]`](#server) · [`[realtime_llm]`](#realtime_llm) ·
   [`[asr]`](#asr) · [`[diarization]`](#diarization) · [`[tts]`](#tts) · [`[embedding]`](#embedding)
 - [`[audio]`](#audio) · [`[turn]`](#turn) · [`[realtime]`](#realtime) · [`[screen]`](#screen) ·
   [`[transcript]`](#transcript) · [`[report]`](#report) · [`[agent]`](#agent)
@@ -24,6 +24,22 @@
 | `wake_aliases`   | `[]`     | 同样可以唤醒助理的其他写法：英文单词，或至少两个汉字。识别经常把名字写成某种固定写法时使用，例如名字为 `Nova` 时填 `["Novel", "诺瓦"]` |
 | `hotwords`       | `[]`     | 提供给语音识别的提示词：成员姓名、课题术语、英文缩写                                                                                   |
 | `members`        | `[]`     | 给说话人改名时的候选名单                                                                                                               |
+
+`recording_notice` 默认为 `true`，控制连接就绪后的开会提示；设为 `false` 不会隐藏固定转录状态，也不会关闭转录。这不是事前同意弹窗。新建和手动继续在实际 ready 时提示一次；SDK 自动重连不重复提示。
+
+## `[retention]`
+
+各类数据独立配置，默认全部为 `0`（不自动清理），`0` 不是立即删除。
+
+| 配置项                  | 默认值 | 范围与含义                                           |
+| ----------------------- | ------ | ---------------------------------------------------- |
+| `transcript_days`       | `0`    | 0–36500；发言、向量与全文索引                        |
+| `screenshots_days`      | `0`    | 0–36500；截图文件与记录（含描述）                    |
+| `reports_days`          | `0`    | 0–36500；终态报告与运行摘要                          |
+| `task_artifacts_days`   | `0`    | 0–36500；终态任务目录与产物清单，不删除任务原文/结果 |
+| `cleanup_interval_secs` | `3600` | 60–86400；清理轮次间隔，秒                           |
+
+期限须为整数，不能用布尔、负数、小数或越界值。一天为 86400 秒，按服务器 UTC 时间比较；会议/报告/摘要/任务采用不同时间锚点。清理不会删除正在进行的会议或受保护后台工作；「保留」免于四类自动清理，人工删除仍有效。中断但未结束的会议也可能过期。完整时钟、残留副本与失败重试见[数据治理](data-governance.md#3-保留期限与保留标记)。
 
 ## `[server]`
 

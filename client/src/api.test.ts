@@ -266,3 +266,41 @@ test("登录之后：改动性的请求带 CSRF 令牌，读取不带；401 通�
   assert.equal(expired, 1);
   assert.equal(session.csrfToken, null);
 });
+
+test("保留标记：true/false独立PATCH，保留返回摘要并带CSRF", async () => {
+  const session = new AuthSession();
+  session.setToken("fake-csrf");
+  const { fn, calls } = fakeFetch((call) =>
+    ok({
+      id: "s/1",
+      title: "原标题",
+      keep: JSON.parse(String(call.init?.body)).keep,
+      deletion_pending: false,
+    }),
+  );
+  const api = createApi(fn, session);
+  for (const keep of [true, false]) {
+    assert.equal((await api.keepSession("s/1", keep)).keep, keep);
+  }
+  for (const [index, keep] of [true, false].entries()) {
+    assert.equal(calls[index].url, "/api/sessions/s%2F1");
+    assert.equal(calls[index].init?.method, "PATCH");
+    assert.deepEqual(JSON.parse(String(calls[index].init?.body)), { keep });
+    assert.equal(new Headers(calls[index].init?.headers).get(CSRF_HEADER), "fake-csrf");
+  }
+});
+test("保留失败不伪造成功，沿用认证、CSRF和删除冲突错误", async () => {
+  for (const status of [401, 403, 404, 409, 500]) {
+    const session = new AuthSession();
+    session.setToken("fake-csrf");
+    const api = createApi(fakeFetch(() => ok({ error: "未完成" }, status)).fn, session);
+    await assert.rejects(api.keepSession("s", true), { status, message: "未完成" });
+    assert.equal(session.csrfToken, status === 401 ? null : "fake-csrf");
+  }
+  await assert.rejects(
+    createApi(async () => {
+      throw new Error();
+    }).keepSession("s", false),
+    { status: 0 },
+  );
+});

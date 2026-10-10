@@ -94,7 +94,7 @@ test("改名候选：成员名单里还没被别人用的名字", () => {
 });
 
 test("session 消息对应的最小摘要", () => {
-  const summary = summaryFromSessionMessage({ id: "s1", title: "", started_at: 100 });
+  const summary = summaryFromSessionMessage({ keep: false, id: "s1", title: "", started_at: 100 });
   assert.deepEqual(
     [summary.id, summary.state, summary.ended_at, summary.utterance_count],
     ["s1", "live", null, 0],
@@ -131,4 +131,14 @@ test("合并说话人的候选：别的、说话人区分给出的人", async ()
 test("导出地址的三种格式", () => {
   assert.equal(exportUrl("abc", "json"), "/api/export/abc.json");
   assert.equal(exportUrl("a b", "zip"), "/api/export/a%20b.zip");
+});
+
+test("转录状态不依赖会议详情或notice：连接、重连和关闭各有明确状态", async () => {
+  const { recordingLabel } = await import("./sessionView.ts");
+  assert.match(recordingLabel("connected", null, 0), /^正在转录/);
+  assert.match(recordingLabel("connecting", null, 0), /尚未转录/);
+  assert.match(recordingLabel("disconnected", null, 2), /已断开.*重连/);
+  assert.equal(recordingLabel("disconnected", null, 0), "未在本机转录");
+  assert.equal(recordingLabel("error", null, 0), "未在本机转录");
+  assert.equal(recordingLabel("connected", "taken_over", 0), "转录已停止");
 });

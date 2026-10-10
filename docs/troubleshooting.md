@@ -131,3 +131,13 @@ Transcription has the highest priority: no failure elsewhere stops it.
 | Remote agent model or MCP unreachable | The task is marked failed with the reason             | Everything else                                                               |
 | Docker missing                        | Tasks cannot run code and say so                      | Search and image reading                                                      |
 | Browser disconnects                   | The meeting becomes _interrupted_                     | The page reconnects automatically; the timeline continues                     |
+
+## Keep, cleanup and pending deletion
+
+**Data remains after setting a period.** Zero disables that category. The clocks in [Data governance §3](data-governance.md#3-retention-and-keep) may start later than the meeting; equality with the cutoff is retained. Live, kept or protected background work is skipped and revisited later. Expiring transcripts does not delete report, screenshot-caption or task input copies.
+
+**Keep did not save.** Read the error: network failures, expired login, CSRF rejection or deletion conflicts do not show success. Retry after reconnecting or logging in. Keep cannot undo pending deletion.
+
+**Deletion fails or remains pending.** A 409 can mean busy meeting/background work or another deletion attempt; wait. A 500 means deletion is incomplete and some files may already be gone. The page refreshes status and retains Retry delete; cleanup passes and restart also retry, even with all periods zero. Repair server directory permissions, disk or refused links/path ownership before retrying; do not move the database or construct deletion paths manually. Successful deletion removes the record; DELETE of an already removed id returns 404. There is no undo.
+
+**The start notice is absent.** `session.recording_notice` controls only the dismissible notice, which automatic SDK reconnect does not repeat. The top bar's transcription indication remains independent of assistant state and successful detail loading.

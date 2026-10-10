@@ -170,6 +170,7 @@ Browsers on other machines need HTTPS — see the
 | ------------------------------------------ | ---------------------------------------------------------------------- |
 | [Getting started](docs/getting-started.md) | Installation, model files, first run, HTTPS                            |
 | [User guide](docs/user-guide.md)           | Working with the web page during and after a meeting                   |
+| [Data governance](docs/data-governance.md) | Storage, destinations, retention and deletion limits                   |
 | [Configuration](docs/configuration.md)     | Every section of `config.toml`                                         |
 | [Troubleshooting](docs/troubleshooting.md) | Microphone level, wake word, degraded services                         |
 | [Runtimes and models](docs/runtimes.md)    | Fetching and building runtimes, model files, multi-GPU setups          |

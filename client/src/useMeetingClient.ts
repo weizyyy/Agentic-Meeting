@@ -174,6 +174,8 @@ export interface MeetingClient {
   loadOlder: () => Promise<void>;
   refreshSessions: () => Promise<void>;
   renameSession: (id: string, title: string) => Promise<void>;
+  keepSession: (id: string, keep: boolean) => Promise<void>;
+  keepPending: ReadonlySet<string>;
   deleteSession: (id: string) => Promise<void>;
   renameSpeaker: (idx: number, displayName: string) => Promise<void>;
   /** 向助理发一条文字消息（只用文字回答）。发出去返回 true；没通过校验或还没连接返回 false 并给出提示。 */
@@ -188,6 +190,8 @@ export interface MeetingClient {
 
 export function useMeetingClient(): MeetingClient {
   const [state, dispatch] = useReducer(reduce, initialState);
+  const [keepPending, setKeepPending] = useState<ReadonlySet<string>>(new Set());
+  const keepInFlight = useRef(new Set<string>());
   const [micTrack, setMicTrack] = useState<MediaStreamTrack | null>(null);
   // 客户端只建一次，开始 / 结束只是对它 connect / disconnect。
   const [client] = useState(() => createMeetingClient(dispatch, setMicTrack));
@@ -238,21 +242,40 @@ export function useMeetingClient(): MeetingClient {
   }, [api, fail]);
 
   /** 把字幕区切到一场会议：取它最近的发言和说话人。``id`` 为空时取「当前会话」。 */
+  const viewRequest = useRef(0);
   const loadView = useCallback(
     async (id: string | null) => {
+      const requestId = ++viewRequest.current;
+      dispatch({ type: "viewRequested", requestId });
       try {
         const detail: SessionDetail | null = id
           ? await api.getSession(id)
           : await api.currentSession();
+        if (requestId !== viewRequest.current) return;
         if (!detail) {
-          dispatch({ type: "viewLoaded", detail: null, items: [], speakers: [] });
+          dispatch({ type: "viewLoaded", requestId, detail: null, items: [], speakers: [] });
+          return;
+        }
+        if (
+          detail.deletion_pending ||
+          (latest.current.viewing?.id === detail.id && latest.current.viewing.deletion_pending) ||
+          latest.current.sessions.some((s) => s.id === detail.id && s.deletion_pending)
+        ) {
+          dispatch({
+            type: "viewLoaded",
+            requestId,
+            detail: { ...detail, deletion_pending: true },
+            items: [],
+            speakers: [],
+          });
           return;
         }
         const [items, speakers] = await Promise.all([
           api.listUtterances(detail.id, { tail: PAGE_SIZE }),
           api.listSpeakers(detail.id),
         ]);
-        dispatch({ type: "viewLoaded", detail, items, speakers });
+        if (requestId !== viewRequest.current) return;
+        dispatch({ type: "viewLoaded", requestId, detail, items, speakers });
         // 截图时间线单独取：取不到不影响字幕
         void api
           .listFrames(detail.id)
@@ -269,6 +292,9 @@ export function useMeetingClient(): MeetingClient {
           .then((report) => dispatch({ type: "reportLoaded", sessionId: detail.id, report }))
           .catch(() => undefined);
       } catch (error) {
+        if (requestId !== viewRequest.current) return;
+        if (error instanceof ApiError && error.status === 404)
+          dispatch({ type: "viewLoaded", requestId, detail: null, items: [], speakers: [] });
         fail("读取会议内容失败", error);
       }
     },
@@ -280,6 +306,10 @@ export function useMeetingClient(): MeetingClient {
     try {
       const current = await api.currentSession();
       if (!current) return;
+      if (current.deletion_pending) {
+        await loadView(current.id);
+        return;
+      }
       if (current.state === "live") rememberSession(current.id);
       dispatch({ type: "detailRefreshed", detail: current });
       if (latest.current.viewing?.id !== current.id) {
@@ -447,6 +477,7 @@ export function useMeetingClient(): MeetingClient {
   const watchingId =
     state.connection === "disconnected" &&
     state.reconnectAttempt === 0 &&
+    !state.viewing?.deletion_pending &&
     state.viewing?.state === "live"
       ? state.viewing.id
       : null;
@@ -454,13 +485,22 @@ export function useMeetingClient(): MeetingClient {
     if (watchingId === null) return;
     const timer = window.setInterval(() => {
       const after = backfillAfterId(latest.current.captions);
-      void Promise.all([
-        api.getSession(watchingId),
-        api.listUtterances(watchingId, after === null ? { tail: PAGE_SIZE } : { afterId: after }),
-      ])
-        .then(([detail, items]) => {
+      void api
+        .getSession(watchingId)
+        .then(async (detail) => {
           dispatch({ type: "detailRefreshed", detail });
-          if (items.length > 0) dispatch({ type: "backfilled", items });
+          if (
+            detail.deletion_pending ||
+            latest.current.viewing?.deletion_pending ||
+            latest.current.viewing?.id !== watchingId
+          )
+            return;
+          const items = await api.listUtterances(
+            watchingId,
+            after === null ? { tail: PAGE_SIZE } : { afterId: after },
+          );
+          if (latest.current.viewing?.id === watchingId && items.length > 0)
+            dispatch({ type: "backfilled", items });
         })
         .catch(() => undefined); // 取不到就等下一次
     }, WATCH_POLL_MS);
@@ -507,12 +547,31 @@ export function useMeetingClient(): MeetingClient {
   const renameSession = useCallback(
     async (id: string, title: string) => {
       try {
-        dispatch({ type: "sessionRenamed", summary: await api.renameSession(id, title) });
+        dispatch({ type: "sessionUpdated", summary: await api.renameSession(id, title) });
       } catch (error) {
         fail("重命名失败", error);
       }
     },
     [api, fail],
+  );
+
+  const keepSession = useCallback(
+    async (id: string, keep: boolean) => {
+      if (keepInFlight.current.has(id)) return;
+      keepInFlight.current.add(id);
+      setKeepPending(new Set(keepInFlight.current));
+      try {
+        dispatch({ type: "sessionUpdated", summary: await api.keepSession(id, keep) });
+      } catch (error) {
+        fail("修改保留标记失败", error);
+        await refreshSessions();
+        if (latest.current.viewing?.id === id) await loadView(id);
+      } finally {
+        keepInFlight.current.delete(id);
+        setKeepPending(new Set(keepInFlight.current));
+      }
+    },
+    [api, fail, refreshSessions, loadView],
   );
 
   const deleteSession = useCallback(
@@ -521,13 +580,15 @@ export function useMeetingClient(): MeetingClient {
         await api.deleteSession(id);
       } catch (error) {
         fail("删除失败", error);
+        await refreshSessions();
+        if (latest.current.viewing?.id === id) await loadView(id);
         return;
       }
       const wasViewing = latest.current.viewing?.id === id;
       dispatch({ type: "sessionRemoved", id });
       if (wasViewing) await loadView(null);
     },
-    [api, fail, loadView],
+    [api, fail, loadView, refreshSessions],
   );
 
   const renameSpeaker = useCallback(
@@ -716,6 +777,8 @@ export function useMeetingClient(): MeetingClient {
     loadOlder,
     refreshSessions,
     renameSession,
+    keepSession,
+    keepPending,
     deleteSession,
     renameSpeaker,
     sendText,
