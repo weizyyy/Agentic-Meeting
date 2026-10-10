@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 import numpy as np
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import RTCConfiguration, RTCPeerConnection, RTCSessionDescription
 from aiortc.mediastreams import MediaStreamError, MediaStreamTrack
 from av import AudioFrame
 
@@ -80,7 +80,9 @@ class MeetingClient:
 
     def __init__(self, http: httpx.AsyncClient) -> None:
         self._http = http
-        self.pc = RTCPeerConnection()
+        # 不用 aiortc 默认的公网 STUN 服务器：测试不该依赖外网，本机连接有 host 候选就够了。
+        # 用了的话每次协商都要等它回应，收不到时要等满 5 秒，正好撞上服务端 5 秒的 keep-alive。
+        self.pc = RTCPeerConnection(RTCConfiguration(iceServers=[]))
         self.mic = Microphone()
         self.messages: list[dict[str, Any]] = []
         self.rtvi: list[dict[str, Any]] = []  # 其他 RTVI 消息（bot-ready、bot-llm-text 等）
