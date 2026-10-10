@@ -34,7 +34,7 @@ from agentic_meeting.web.app import create_app
 
 def configuration(root: Path) -> AppConfig:
     """只读模板；不读取用户配置、环境文件或启动模型。"""
-    data = tomllib.loads(EXAMPLE_CONFIG_PATH.read_text())
+    data = tomllib.loads(EXAMPLE_CONFIG_PATH.read_text(encoding="utf-8"))
     data["session"]["data_dir"] = str(root)
     cfg = AppConfig.model_validate(data)
     cfg.agent.enabled = cfg.embedding.enabled = cfg.tts.enabled = False
