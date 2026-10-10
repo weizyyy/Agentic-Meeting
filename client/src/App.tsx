@@ -67,10 +67,16 @@ export function App({ onLogout }: Props = {}) {
             setListOpen((open) => !open);
             void meeting.refreshSessions();
           }}
+          canStart={meeting.unsupported === null}
           onStart={() => void meeting.start()}
           onStop={() => void meeting.stop()}
           onLogout={onLogout}
         />
+        {meeting.unsupported && (
+          <p className="unsupported" role="alert">
+            {meeting.unsupported}
+          </p>
+        )}
         <SessionBanner
           session={state.viewing}
           connection={state.connection}

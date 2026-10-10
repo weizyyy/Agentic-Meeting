@@ -89,6 +89,15 @@ body {
   flex: 1;
 }
 
+/* 浏览器不能开会（缺接口或不是 HTTPS）；index.html 里脚本没能运行时的提示也用它 */
+.unsupported {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--error-bg);
+  font-size: 0.875rem;
+}
+
 .status {
   font-size: 0.875rem;
   color: var(--muted);

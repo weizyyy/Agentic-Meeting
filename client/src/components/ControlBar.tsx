@@ -17,6 +17,8 @@ interface Props {
   micTrack: MediaStreamTrack | null;
   listOpen: boolean;
   onToggleList: () => void;
+  /** 这个浏览器能不能开会；不能时「开始新会议」变灰，原因显示在顶部栏下面 */
+  canStart: boolean;
   onStart: () => void;
   onStop: () => void;
   /** 启用了访问口令时才有。会议进行中不显示，免得退出后页面上留着一个没人管的连接 */
@@ -31,6 +33,7 @@ export function ControlBar({
   closedReason,
   listOpen,
   onToggleList,
+  canStart,
   onStart,
   onStop,
   onLogout,
@@ -66,7 +69,12 @@ export function ControlBar({
           结束会议
         </button>
       ) : (
-        <button type="button" className="button button-start" onClick={onStart}>
+        <button
+          type="button"
+          className="button button-start"
+          disabled={!canStart}
+          onClick={onStart}
+        >
           开始新会议
         </button>
       )}

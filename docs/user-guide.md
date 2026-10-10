@@ -5,12 +5,39 @@
 How to use the web page during and after a meeting. The interface is in Chinese; button labels are
 quoted as they appear, with an English gloss.
 
+- [Supported browsers](#supported-browsers)
 - [Meetings](#meetings)
 - [Captions and speakers](#captions-and-speakers)
 - [Talking to the assistant](#talking-to-the-assistant)
 - [Screen sharing](#screen-sharing)
 - [Background tasks](#background-tasks)
 - [Report and export](#report-and-export)
+
+## Supported browsers
+
+Use a desktop browser no older than:
+
+| Browser | Minimum version |
+| ------- | --------------- |
+| Chrome  | 111             |
+| Edge    | 111             |
+| Firefox | 114             |
+| Safari  | 16.4            |
+
+These are the versions the page is built for (`client/src/browserSupport.ts`). The automated browser
+tests run the current Chromium, Firefox and WebKit engines on Linux; Chrome, Edge and Safari on
+Windows and macOS have not yet been checked by hand.
+
+When a browser cannot hold a meeting, the page says why instead of failing on connect:
+
+- **Older than the minimum.** The page shows **页面没能启动** (The page could not start) with the
+  list above, instead of staying blank.
+- **Opened over plain `http://` from another machine.** A red line under the top bar says the page
+  was not opened over HTTPS or `localhost`. **开始新会议** (Start meeting) is greyed out and
+  **继续** (Resume) only repeats the reason. Past meetings can still be read. See
+  [Access from other devices](getting-started.md#access-from-other-devices).
+- **A recent browser with WebRTC, microphone capture or Web Audio turned off** by a setting, a
+  policy or an extension. The same line names what is missing.
 
 ## Meetings
 
