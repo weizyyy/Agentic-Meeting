@@ -7,6 +7,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from waiting import wait_until
 
 from agentic_meeting.agent.tasks import (
     RESTART_REASON,
@@ -36,11 +37,11 @@ class FakeRunner:
         return self.gates.setdefault(label, asyncio.Event())
 
     async def __call__(self, task: TaskRecord, on_event) -> TaskResult:
-        self.started.append(task.label)
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         try:
             await on_event("tool_call", f"正在检索「{task.goal}」", {"query": task.goal})
+            self.started.append(task.label)
             await self.gate(task.label).wait()
             outcome = self.outcomes.get(task.label)
             if isinstance(outcome, BaseException):
@@ -82,11 +83,6 @@ class Rig:
             for _, d in self.messages
             if d["type"] == "task_event" and d["task_id"] == task_id
         ]
-
-
-async def settle(times=30):
-    for _ in range(times):
-        await asyncio.sleep(0.002)
 
 
 @pytest.fixture
@@ -172,7 +168,7 @@ async def test_submit_runs_the_task_to_success_and_records_everything(rig):
     assert task.label == "t1" and task.id == f"{rig.session_id}.t1"
     assert (task.status, task.modality, task.frame_ids) == ("queued", "text", [7, 9])
     assert (task.t_from, task.t_to, task.requested_by, task.requested_t) == (542.0, 842.0, 2, 842.0)
-    await settle()
+    await wait_until(lambda: bool(rig.runner.started), description="任务运行器开始")
     assert (await rig.store.get_task(task.id)).status == "running"
     rig.clock = 1060.0
     rig.runner.gate("t1").set()
@@ -221,7 +217,7 @@ async def test_labels_count_up_within_a_session_and_restart_in_another(rig, stor
 
 async def test_concurrency_limit_keeps_the_third_task_queued(rig):
     tasks = [await rig.submit(f"任务{i}") for i in range(3)]
-    await settle()
+    await wait_until(lambda: len(rig.runner.started) == 2, description="两个并发任务开始")
     assert rig.runner.started == ["t1", "t2"]
     assert [(await rig.store.get_task(t.id)).status for t in tasks] == [
         "running",
@@ -230,7 +226,7 @@ async def test_concurrency_limit_keeps_the_third_task_queued(rig):
     ]
     rig.runner.gate("t1").set()
     await rig.manager.wait(tasks[0].id)
-    await settle()
+    await wait_until(lambda: len(rig.runner.started) == 3, description="排队任务开始")
     assert rig.runner.started == ["t1", "t2", "t3"]
     for label in ("t2", "t3"):
         rig.runner.gate(label).set()
@@ -280,7 +276,7 @@ async def test_timeout_fails_the_task_and_says_so(store):
 
 async def test_cancel_interrupts_a_running_task(rig):
     task = await rig.submit()
-    await settle()
+    await wait_until(lambda: len(rig.runner.started) == 1, description="待取消任务开始")
     cancelled = await rig.manager.cancel(task.id)
     assert (cancelled.status, cancelled.error) == ("cancelled", "已取消")
     assert rig.runner.cancelled == ["t1"]
@@ -297,7 +293,7 @@ async def test_cancel_interrupts_a_running_task(rig):
 
 async def test_cancel_a_queued_task_before_it_ever_runs(rig):
     tasks = [await rig.submit(f"任务{i}") for i in range(3)]
-    await settle()
+    await wait_until(lambda: len(rig.runner.started) == 2, description="队列前两项开始")
     cancelled = await rig.manager.cancel(tasks[2].id)
     assert cancelled.status == "cancelled"
     assert "t3" not in rig.runner.started
@@ -306,7 +302,6 @@ async def test_cancel_a_queued_task_before_it_ever_runs(rig):
         rig.runner.gate(label).set()
     await rig.manager.wait(tasks[0].id)
     await rig.manager.wait(tasks[1].id)
-    await settle()
     assert "t3" not in rig.runner.started  # 之后也不会被捡起来跑
 
 
@@ -330,7 +325,7 @@ async def test_status_reports_recent_steps_for_a_label_or_the_latest_task(rig):
     first = await rig.submit("第一件事")
     rig.clock = 1001.0
     second = await rig.submit("第二件事")
-    await settle()
+    await wait_until(lambda: len(rig.runner.started) == 2, description="待查询任务开始")
     for i in range(4):
         await rig.manager.add_event(second.id, "step", f"第 {i} 步")
     latest = await rig.manager.status(rig.session_id)
@@ -425,7 +420,7 @@ async def test_close_stops_running_tasks_and_marks_them_failed(store):
     session = await store.create_session()
     rig = Rig(store, session.id, max_concurrent=1)
     running, queued = await rig.submit("跑着的"), await rig.submit("排着的")
-    await settle()
+    await wait_until(lambda: len(rig.runner.started) == 1, description="关闭前运行器开始")
     await rig.manager.close()
     for task in (running, queued):
         stored = await store.get_task(task.id)

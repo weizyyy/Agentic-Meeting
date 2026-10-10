@@ -11,6 +11,7 @@ import pytest
 from PIL import Image
 from pipecat.frames.frames import LLMMessagesAppendFrame
 from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
+from waiting import wait_until
 
 from agentic_meeting.pipeline.activity import AssistantActivity
 from agentic_meeting.pipeline.bot import wire_activity
@@ -178,13 +179,12 @@ class App:
         assert r.status_code == 200, r.text
         return r.json()["id"]
 
-    async def caption_status(self, frame_id, want, tries=400):
-        for _ in range(tries):
+    async def caption_status(self, frame_id, want):
+        async def ready():
             frame = await self.store.get_frame(frame_id)
-            if frame.caption_status == want:
-                return frame
-            await asyncio.sleep(0.005)
-        raise AssertionError(f"截图 {frame_id} 的摘要状态一直不是 {want}")
+            return frame if frame.caption_status == want else None
+
+        return await wait_until(ready, description=f"截图 {frame_id} 的摘要状态为 {want}")
 
 
 async def test_uploaded_frame_gets_caption_page_message_and_context_line(make_cfg, tmp_path):

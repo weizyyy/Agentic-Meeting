@@ -8,6 +8,7 @@ import json
 import httpx
 import pytest
 from loguru import logger
+from waiting import wait_until
 
 from agentic_meeting.store import embeddings as module
 from agentic_meeting.store.db import Store, pack_vector
@@ -225,14 +226,6 @@ def capture_logs(level="DEBUG"):
     return lines, sink
 
 
-async def wait_until(predicate, tries=400):
-    for _ in range(tries):
-        if predicate():
-            return
-        await asyncio.sleep(0.005)
-    raise AssertionError("等待的条件一直没有满足")
-
-
 async def test_loop_retries_with_backoff_and_logs_outage_once(store, service):
     s = await store.create_session()
     await add(store, s.id, "学习率", 0)
@@ -274,10 +267,7 @@ async def test_loop_backoff_grows_and_is_capped(store, service):
     )
     worker.start()
     try:
-        for _ in range(200):
-            if len(delays) >= 8:
-                break
-            await real_sleep(0.005)
+        await wait_until(lambda: len(delays) >= 8, description="嵌入退避完成八次")
     finally:
         await worker.stop()
     assert delays[:6] == [2.0, 4.0, 5.0, 5.0, 5.0, 5.0]
@@ -472,12 +462,11 @@ async def test_app_backfills_in_background_with_injected_embedder(make_cfg, tmp_
     await store.close()
 
 
-async def wait_until_async(store, tries=400):
-    for _ in range(tries):
-        if not await store.unembedded_utterances():
-            return
-        await asyncio.sleep(0.005)
-    raise AssertionError("回填一直没有完成")
+async def wait_until_async(store):
+    async def completed():
+        return not await store.unembedded_utterances()
+
+    await wait_until(completed, description="嵌入回填完成")
 
 
 async def test_app_does_no_embedding_when_only_store_is_injected(make_cfg, tmp_path):

@@ -12,6 +12,7 @@ import sys
 
 import httpx
 import pytest
+from waiting import wait_until
 
 from agentic_meeting import cli
 from agentic_meeting.config import EXAMPLE_CONFIG_PATH, load_config
@@ -176,15 +177,13 @@ async def test_serve_stops_the_services_when_cancelled_like_ctrl_c(
     fake_server.block = True
     specs = cli.build_specs(ready_cfg)
     task = asyncio.create_task(cli._run_serve(ready_cfg, specs, with_services=True))
-    for _ in range(100):
-        if "server:serve" in recorder.events:
-            break
-        await asyncio.sleep(0.02)
-    assert not task.done()
-
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    try:
+        await wait_until(lambda: "server:serve" in recorder.events, description="服务器开始运行")
+        assert not task.done()
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
     assert recorder.events[-1] == "supervisor:stop"
 
 
@@ -231,14 +230,8 @@ async def test_make_server_serves_the_app_over_a_real_socket(make_cfg, tmp_path)
     task = asyncio.create_task(server.serve())
     try:
         async with httpx.AsyncClient(trust_env=False) as client:
-            for _ in range(100):
-                try:
-                    response = await client.get(f"http://127.0.0.1:{cfg.server.port}/api/time")
-                    break
-                except httpx.TransportError:
-                    await asyncio.sleep(0.05)
-            else:
-                pytest.fail("服务器没有起来")
+            await wait_until(lambda: server.started, timeout_secs=5.0, description="服务器监听就绪")
+            response = await client.get(f"http://127.0.0.1:{cfg.server.port}/api/time")
         assert response.status_code == 200 and "server_time" in response.json()
     finally:
         server.should_exit = True

@@ -6,6 +6,7 @@ import asyncio
 import sqlite3
 
 import pytest
+from waiting import wait_until
 
 from agentic_meeting.pipeline.background import Preempted
 from agentic_meeting.pipeline.digest import (
@@ -354,16 +355,19 @@ async def test_finalize_runs_in_background_and_reports_nothing_on_failure(store)
     await say(store, sid, "最后一句", 1.0)
     model = FakeModel()
     worker = worker_for(store, model)
-    worker.finalize(sid)  # 不等
-    assert (await wait_for_digest(store, sid)).text == "纪要第1版"
+    try:
+        worker.finalize(sid)  # 不等
+        await wait_until(lambda: not worker._finalizing, description="纪要收尾任务完成")
+        assert (await wait_for_digest(store, sid)).text == "纪要第1版"
 
-    for failure in (RuntimeError("boom"), Preempted()):
-        await say(store, sid, "又一句", 9.0)
-        model.replies = [failure]
-        worker.finalize(sid)
-        await asyncio.sleep(0.05)  # 失败只记日志，不抛到别处
-    assert len(await store.list_digests(sid)) == 1
-    await worker.stop()
+        for failure in (RuntimeError("boom"), Preempted()):
+            await say(store, sid, "又一句", 9.0)
+            model.replies = [failure]
+            worker.finalize(sid)
+            await wait_until(lambda: not worker._finalizing, description="失败纪要任务收尾")
+        assert len(await store.list_digests(sid)) == 1
+    finally:
+        await worker.stop()
 
 
 async def test_finalize_times_out_and_stop_cancels_pending_work(store):
@@ -372,13 +376,16 @@ async def test_finalize_times_out_and_stop_cancels_pending_work(store):
     model = FakeModel()
     model.gate.clear()
     worker = worker_for(store, model)
-    worker.finalize(sid, timeout_secs=0.05)
-    await asyncio.sleep(0.15)
-    assert worker._finalizing == set() and await store.latest_digest(sid) is None
+    try:
+        worker.finalize(sid, timeout_secs=0.05)
+        await wait_until(lambda: not worker._finalizing, description="纪要超时取消并收尾")
+        assert worker._finalizing == set() and await store.latest_digest(sid) is None
 
-    worker.finalize(sid, timeout_secs=30)
-    await model.started.wait()
-    await worker.stop()
+        model.started.clear()
+        worker.finalize(sid, timeout_secs=30)
+        await asyncio.wait_for(model.started.wait(), 2.0)
+    finally:
+        await worker.stop()
     assert worker._finalizing == set()
 
 

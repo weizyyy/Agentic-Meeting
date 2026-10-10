@@ -6,6 +6,7 @@ import asyncio
 import base64
 
 import pytest
+from waiting import wait_until
 
 from agentic_meeting.pipeline.background import BackgroundModel, Preempted
 from agentic_meeting.screen.caption import (
@@ -32,8 +33,10 @@ class FakeModel:
         self.resumed = asyncio.Event()
         self.resumed.set()
         self.started = asyncio.Event()
+        self.waiting_resumed = asyncio.Event()
 
     async def wait_resumed(self):
+        self.waiting_resumed.set()
         await self.resumed.wait()
 
     async def run(self, messages, *, system="", max_tokens):
@@ -80,11 +83,10 @@ class Rig:
 
     async def idle(self):
         """等后台循环把手头的事做完。"""
-        for _ in range(400):
-            await asyncio.sleep(0.005)
-            if self.worker._pending is None and self.worker._current is None:
-                return
-        raise AssertionError("画面摘要一直没有做完")
+        await wait_until(
+            lambda: self.worker._pending is None and self.worker._current is None,
+            description="画面摘要收尾",
+        )
 
 
 @pytest.fixture
@@ -232,6 +234,7 @@ async def test_no_requests_while_paused_and_latest_wins_after_resume(rig):
     rig.model.resumed.clear()
     older = await rig.frame(1.0)
     await rig.worker.submit(older)
+    await asyncio.wait_for(rig.model.waiting_resumed.wait(), 2.0)
     await asyncio.sleep(0.05)
     assert rig.model.calls == []  # 暂停期间不发请求
     newer = await rig.frame(2.0)

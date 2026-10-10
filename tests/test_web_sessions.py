@@ -137,11 +137,14 @@ async def test_session_list_paging(env):
     assert (await env.client.get("/api/sessions", params={"limit": 0})).status_code == 422
 
 
-async def test_live_session_duration_counts_up_to_now(env):
+async def test_live_session_duration_counts_up_to_now(env, monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr(env.manager, "_now", lambda: clock[0])
+    monkeypatch.setattr("agentic_meeting.web.sessions_api.time.time", lambda: clock[0])
     live, _, _ = await env.go_live()
-    await asyncio.sleep(0.05)
+    clock[0] += 5.0
     (row,) = (await env.client.get("/api/sessions")).json()["items"]
-    assert row["state"] == "live" and row["duration_secs"] > 0
+    assert row["state"] == "live" and row["duration_secs"] == 5.0
 
 
 async def test_session_detail_has_screen_settings_and_connections(env, cfg):

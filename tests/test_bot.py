@@ -309,14 +309,24 @@ async def test_speaking_after_the_wake_window_has_closed_does_not_interrupt(cfg)
     assert sum(isinstance(f, InterruptionFrame) for f in down) == 1  # 只有叫名字那一次
 
 
-async def answer_then_someone_else_speaks(cfg, *, answered: bool):
+async def answer_then_someone_else_speaks(cfg, monkeypatch, *, answered: bool):
     """叫名字问一句 →（助理答完 / 没答完）→ 另一个人接着说会上的事。返回交给模型的上下文帧。"""
     parts = build_parts(cfg)
     activity = AssistantActivity(idle_delay_secs=0.0)
     wire_wake_sleep(activity, parts.wake, parts.user_aggregator)
 
+    submitted = asyncio.Event()
+    push = parts.user_aggregator.push_frame
+
+    async def observed_push(frame, direction):
+        await push(frame, direction)
+        if isinstance(frame, LLMContextFrame):
+            submitted.set()
+
+    monkeypatch.setattr(parts.user_aggregator, "push_frame", observed_push)
+
     async def assistant_answers() -> None:
-        await asyncio.sleep(1.4)  # 第一轮的上下文已经交给模型
+        await asyncio.wait_for(submitted.wait(), 2.0)
         await activity.set_generating(True)
         if answered:
             await activity.set_generating(False)
@@ -334,20 +344,24 @@ async def answer_then_someone_else_speaks(cfg, *, answered: bool):
         SleepFrame(sleep=1.2),
     ]
     answering = asyncio.create_task(assistant_answers())
-    down, _ = await drive_aggregator(parts, frames)
-    await answering
-    await activity.close()
-    return [f for f in down if isinstance(f, LLMContextFrame)]
+    try:
+        down, _ = await drive_aggregator(parts, frames)
+        await answering
+        return [f for f in down if isinstance(f, LLMContextFrame)]
+    finally:
+        answering.cancel()
+        await asyncio.gather(answering, return_exceptions=True)
+        await activity.close()
 
 
-async def test_after_the_answer_other_peoples_speech_no_longer_reaches_the_model(cfg):
+async def test_after_the_answer_other_peoples_speech_no_longer_reaches_the_model(cfg, monkeypatch):
     # 唤醒窗口 5 秒还没过，但助理已经答完：会上其他人接着说的话不该再触发它
-    assert len(await answer_then_someone_else_speaks(cfg, answered=True)) == 1
+    assert len(await answer_then_someone_else_speaks(cfg, monkeypatch, answered=True)) == 1
 
 
-async def test_while_the_answer_is_still_coming_speech_still_reaches_the_model(cfg):
+async def test_while_the_answer_is_still_coming_speech_still_reaches_the_model(cfg, monkeypatch):
     # 助理还没答完时开口是打断 / 追问，仍然算数（和原来一样）
-    assert len(await answer_then_someone_else_speaks(cfg, answered=False)) == 2
+    assert len(await answer_then_someone_else_speaks(cfg, monkeypatch, answered=False)) == 2
 
 
 # --------------------------------------------------------------------------- #
