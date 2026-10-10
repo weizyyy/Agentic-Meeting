@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures.ts";
 
-test("真实页面、WebRTC、RTVI 与合成媒体探针", async ({ page, request }) => {
+test("真实页面、WebRTC、RTVI 与合成媒体探针", async ({ page, request }, info) => {
   const seeds = await (await request.get("/__test/state")).json();
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "组会助理" })).toBeVisible();
@@ -28,6 +28,7 @@ test("真实页面、WebRTC、RTVI 与合成媒体探针", async ({ page, reques
       .getVideoTracks()
       .map((track) => ({ state: track.readyState, kind: track.kind }));
     const video = document.createElement("video");
+    video.id = "canvas-probe-original";
     video.muted = true;
     video.playsInline = true;
     video.srcObject = stream;
@@ -57,6 +58,63 @@ test("真实页面、WebRTC、RTVI 与合成媒体探针", async ({ page, reques
       video.srcObject = null;
     }
   });
+  if (!screen.width) {
+    const alternatives = await page.evaluate(async () => {
+      const results = [];
+      for (const manual of [false, true]) {
+        const source = document.createElement("canvas");
+        source.width = 640;
+        source.height = 360;
+        const draw = source.getContext("2d", { willReadFrequently: true })!;
+        const stream = source.captureStream(manual ? 0 : 10);
+        const track = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
+        const paint = () => {
+          draw.fillStyle = "#345678";
+          draw.fillRect(0, 0, 640, 360);
+          if (manual) track.requestFrame();
+        };
+        const timer = setInterval(paint, 100);
+        const video = document.createElement("video");
+        video.id = `canvas-probe-cpu-${manual ? "manual" : "automatic"}`;
+        video.muted = true;
+        video.playsInline = true;
+        video.srcObject = stream;
+        let playback = "pending";
+        void video.play().then(
+          () => (playback = "resolved"),
+          (error) => (playback = String(error)),
+        );
+        try {
+          const deadline = Date.now() + 3000;
+          while (video.readyState < 2 && Date.now() < deadline)
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          const output = document.createElement("canvas");
+          output.width = output.height = 1;
+          const context = output.getContext("2d")!;
+          if (video.readyState >= 2) context.drawImage(video, 0, 0, 1, 1);
+          results.push({
+            manual,
+            sourcePixel: Array.from(draw.getImageData(0, 0, 1, 1).data),
+            settings: track.getSettings(),
+            width: video.videoWidth,
+            height: video.videoHeight,
+            readyState: video.readyState,
+            playback,
+            pixel: Array.from(context.getImageData(0, 0, 1, 1).data),
+          });
+        } finally {
+          clearInterval(timer);
+          stream.getTracks().forEach((item) => item.stop());
+          video.srcObject = null;
+        }
+      }
+      return results;
+    });
+    await info.attach("canvas-consumption-diagnostic", {
+      body: JSON.stringify({ screen, alternatives }, null, 2),
+      contentType: "application/json",
+    });
+  }
   expect(screen.tracks).toEqual([{ state: "live", kind: "video" }]);
   expect(screen).toMatchObject({
     width: 640,
