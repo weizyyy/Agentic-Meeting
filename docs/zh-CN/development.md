@@ -107,6 +107,63 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
   uv run pytest -m gpu tests/test_agent_runner.py -s
   ```
 
+### 浏览器端到端测试
+
+浏览器测试使用客户端 lockfile 中的 Playwright 1.64.0、Python 3.12–3.14 和 Node.js 24（CI 版本）。
+在仓库根目录安装锁定依赖、构建真实客户端并安装三个浏览器引擎：
+
+```bash
+uv sync --frozen --extra agent
+npm ci
+npm ci --prefix client
+npm run build --prefix client
+cd client
+npx playwright install --with-deps chromium firefox webkit
+cd ..
+```
+
+浏览器安装会下载浏览器二进制文件，在 Linux 上安装系统包可能需要管理员权限；不会下载模型权重。
+修改客户端代码后先重新构建，再运行测试，因为测试服务器提供的是 `client/dist/`。
+
+```bash
+# 三个引擎：Chromium、Firefox 和 WebKit
+npm run test:e2e --prefix client
+# 单个引擎
+npm run test:e2e --prefix client -- --project=chromium
+# 单个引擎中的一个用例
+npm run test:e2e --prefix client -- --project=chromium --grep '^真实页面、WebRTC、RTVI 与合成媒体探针$'
+```
+
+三个引擎运行相同的核心用例，单 worker，不重试。每个用例启动独立的 `tests.browser.server` Python 子进程，
+监听动态分配的回环端口。夹具等待服务器启动完成后输出的结构化 `E2E_READY` 消息。
+服务器拥有一个系统临时目录（`agentic-meeting-e2e-*`），内含独立 SQLite 数据库、虚构会议种子、截图与任务产物。
+收尾时停止子进程、关闭 Store 并删除该目录，不读取或写入 `config/config.toml`、`.env` 或 `data/`。
+强制终止进程可能留下临时文件；确认测试进程已退出后，只删除系统临时目录中属于该用例的
+`agentic-meeting-e2e-*` 目录。
+
+测试覆盖生产 `create_app`、Store、HTTP 业务接口，以及真实 SmallWebRTC 传输、Pipecat 管线和 RTVI 数据通道。
+推理由受控测试 bot 替代，不启动 ASR、LLM、TTS、向量嵌入或屏幕描述模型。
+Chromium 与 WebKit 使用 CPU WebAudio 麦克风轨道，Firefox 使用浏览器原生的假媒体设备。
+三个引擎都使用 `canvas.captureStream()` 屏幕轨道替代真实桌面采集。
+浏览器对测试服务器之外的请求会被阻断并使测试失败。
+这些检查不验证真实麦克风或屏幕授权、物理设备、模型效果、外部服务、GPU 行为或互联网 ICE 连通性。
+CI 在 Ubuntu CPU 上运行三个引擎；其他系统的平台相关浏览器启动或 ICE 故障需要定位，不能通过跳过引擎绕过。
+
+失败时的 trace、截图与每个用例的 `server.log` 保存在 `client/test-results/`，HTML 报告位于
+`client/playwright-report/`。调试命令：
+
+```bash
+cd client
+npx playwright show-report playwright-report
+# 将示例替换为失败用例的实际 trace 路径
+npx playwright show-trace 'test-results/<failed-test>/trace.zip'
+```
+
+这两个产物目录已被 Git 忽略，调试完成后可以删除。CI 只在失败或取消时上传这两个目录，保留三天。
+E2E job 接入必需的 `All checks`，其失败、取消或跳过都会传播为检查失败。
+
+### 使用真实模型的检查
+
 端到端的验证使用 [runtimes.md §6](runtimes.md) 中介绍的脚本：`scripts/soak.py` 把一段录音送入运行中的服务，
 `scripts/eval_realtime_model.py` 检查当前实时模型的工具选择与延迟。修改
 `config/prompts/realtime_system.md` 或更换模型之后，请运行后者。

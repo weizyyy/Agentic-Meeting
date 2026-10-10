@@ -91,12 +91,60 @@ jobs:
       - name: Type-check and build
         run: npm run build
 
+  e2e:
+    name: Browser end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+
+      - name: Install locked dependencies
+        run: |
+          uv sync --frozen --extra agent
+          npm ci
+          npm ci --prefix client
+
+      - name: Build web client
+        run: npm run build --prefix client
+
+      - name: Install browser engines and system dependencies
+        working-directory: client
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Test all browser engines
+        run: npm run test:e2e --prefix client
+
+      - name: Upload failure diagnostics
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-diagnostics
+          path: |
+            client/playwright-report/
+            client/test-results/
+          retention-days: 3
+          if-no-files-found: ignore
+
   # The only check required by the branch ruleset, so the job matrix can change without
   # touching repository settings.
   all-checks:
     name: All checks
     if: always()
-    needs: [formatting, python, client]
+    needs: [formatting, python, client, e2e]
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every job succeeded

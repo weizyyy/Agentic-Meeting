@@ -120,6 +120,70 @@ Automated tests run without a GPU, model weights or network access.
   uv run pytest -m gpu tests/test_agent_runner.py -s
   ```
 
+### Browser end-to-end tests
+
+The browser suite uses Playwright 1.64.0 from the client lockfile, Python 3.12–3.14 and Node.js
+24 (the CI version). From the repository root, install the locked dependencies, build the real
+client and install all three browser engines:
+
+```bash
+uv sync --frozen --extra agent
+npm ci
+npm ci --prefix client
+npm run build --prefix client
+cd client
+npx playwright install --with-deps chromium firefox webkit
+cd ..
+```
+
+Browser installation downloads browser binaries and may need administrator privileges for system
+packages on Linux; it does not download model weights. After changing client code, rebuild before
+running these tests because the server serves `client/dist/`.
+
+```bash
+# All three engines: Chromium, Firefox and WebKit
+npm run test:e2e --prefix client
+# One engine
+npm run test:e2e --prefix client -- --project=chromium
+# One test in one engine
+npm run test:e2e --prefix client -- --project=chromium --grep '^真实页面、WebRTC、RTVI 与合成媒体探针$'
+```
+
+The same core cases run in each engine, with one worker and no retries. Each test starts its own
+`tests.browser.server` Python subprocess on a dynamically allocated loopback port. The fixture
+waits for the structured `E2E_READY` message after server startup. The server owns a system
+temporary directory (`agentic-meeting-e2e-*`) containing a separate SQLite database and fictional
+seed meetings, screenshots and task artifacts. Teardown stops the subprocess, closes the Store
+and removes that directory; it never reads or writes `config/config.toml`, `.env` or `data/`.
+Forced process termination can leave temporary files behind; after ensuring the test process has
+exited, remove only its `agentic-meeting-e2e-*` directory from the system temporary directory.
+
+Tests exercise production `create_app`, Store and HTTP business endpoints, the real
+SmallWebRTC transport, Pipecat pipeline and RTVI data channel. Inference is replaced by a controlled
+test bot; ASR, LLM, TTS, embeddings and screen caption models are not started. Chromium and WebKit
+use CPU WebAudio microphone tracks; Firefox uses its native fake media devices. All three engines
+use `canvas.captureStream()` screen tracks instead of capturing a desktop. Browser requests outside
+the test server are blocked and fail the test. These checks do not validate real microphone or
+screen permissions, physical devices, model quality, external services, GPU behavior or Internet
+ICE connectivity. CI runs the three engines on Ubuntu CPU; platform-specific browser startup or
+ICE failures on other operating systems must be investigated rather than skipping an engine.
+
+Failure traces and screenshots, plus per-test `server.log`, are written under
+`client/test-results/`; the HTML report is in `client/playwright-report/`. Inspect them with:
+
+```bash
+cd client
+npx playwright show-report playwright-report
+# Replace the example with a failed test's actual trace path
+npx playwright show-trace 'test-results/<failed-test>/trace.zip'
+```
+
+Both output directories are ignored by Git and can be deleted after debugging. CI uploads only
+these two directories after a failure or cancellation, with a three-day retention period. The
+E2E job is required by `All checks`, including failure, cancellation and skipped-job propagation.
+
+### Checks with real models
+
 End-to-end checks use the scripts described in [runtimes.md §6](runtimes.md): `scripts/soak.py`
 replays a recording through a running server, and `scripts/eval_realtime_model.py` checks tool
 selection and latency of the configured realtime LLM. Run the latter after changing
