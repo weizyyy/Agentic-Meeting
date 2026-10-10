@@ -1,0 +1,24 @@
+# docker/app/Dockerfile 的构建上下文是仓库根目录。只放镜像需要的文件：
+# 密钥（.env）、用户配置（config/config.toml）、证书、模型权重和会议数据一律不进镜像。
+**
+
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!runtimes.lock.toml
+!src/
+!scripts/
+!config/config.example.toml
+!config/asr_profiles/
+!config/prompts/
+
+!client/
+client/node_modules/
+client/dist/
+client/.vite/
+client/test-results/
+client/playwright-report/
+
+**/.git
+**/__pycache__/

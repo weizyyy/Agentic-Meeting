@@ -2,7 +2,8 @@
 
 **English** · [简体中文](zh-CN/getting-started.md)
 
-This guide takes you from a fresh clone to a running meeting.
+This guide takes you from a fresh clone to a running meeting. To run everything in containers on
+Linux instead, follow [containers.md](containers.md).
 
 - [Prerequisites](#prerequisites)
 - [Install](#install)
@@ -24,7 +25,7 @@ This guide takes you from a fresh clone to a running meeting.
 | Node.js 22.18+                   | Builds the web client                                                                                                                               |
 | Git                              | The inference runtimes are tracked as submodules                                                                                                    |
 | C++ toolchain, CMake             | Only for building the speech synthesis runtime; see [runtimes.md §3.3](runtimes.md#33-qwenttscpp)                                                   |
-| Docker                           | Optional. Lets the background agent run code                                                                                                        |
+| Docker                           | Optional. Lets the background agent run code, or runs the whole system in containers ([containers.md](containers.md))                               |
 
 ## Install
 
@@ -235,6 +236,9 @@ docker build -t agentic-meeting-sandbox:py312 docker/sandbox
 kind = "docker"
 docker_image = "agentic-meeting-sandbox:py312"
 ```
+
+Each release also publishes this image as `ghcr.io/weizyyy/agentic-meeting-sandbox`
+([containers.md §5](containers.md#5-images)); `docker pull` it instead of building.
 
 ## Verify without a microphone
 

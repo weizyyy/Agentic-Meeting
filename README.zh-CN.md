@@ -159,6 +159,7 @@ Safari 16.4 及以上版本，见[支持的浏览器](docs/zh-CN/user-guide.md#�
 | [配置说明](docs/zh-CN/configuration.md)   | `config.toml` 的各个小节                        |
 | [故障排查](docs/zh-CN/troubleshooting.md) | 麦克风电平、唤醒、服务降级                      |
 | [部署](docs/zh-CN/deployment.md)          | 反向代理与 HTTPS、TURN、对外开放前的检查清单    |
+| [容器](docs/zh-CN/containers.md)          | Docker Compose、镜像、组合推理服务              |
 | [运行时与模型](docs/zh-CN/runtimes.md)    | 推理运行时的获取与构建、模型文件、多显卡分配    |
 | [性能实测](docs/zh-CN/benchmarks.md)      | 在真实硬件上测得的延迟、内存与准确率            |
 | [架构](docs/zh-CN/architecture.md)        | 进程、管线、数据流、上下文管理                  |

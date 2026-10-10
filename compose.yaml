@@ -1,0 +1,234 @@
+# Agentic-Meeting 的容器编排，说明见 docs/containers.md。
+#
+#   docker compose up -d                                                # 只用 CPU
+#   docker compose -f compose.yaml -f docker/compose.cuda.yaml up -d    # NVIDIA 显卡
+#
+# 每个推理服务一个容器，可以只起其中几个（docker compose up -d asr tts），也可以换成别的镜像或别的机器。
+# 可选的服务按 profile 启用：在 .env 里写 COMPOSE_PROFILES=realtime,tts,embedding。
+#
+# 模型权重、配置、.env 和会议数据都在宿主机上，挂进容器；镜像里没有权重，启动时也不下载。
+# 权重路径写在 .env 里，写法与 config/config.toml 相同（相对仓库根目录，例如 models/asr/xxx.gguf）。
+#
+# 各推理服务的命令行与 services up 生成的一致（docs/interfaces.md §9），只是在自己的容器里监听
+# 0.0.0.0:8080，再映射到宿主机 127.0.0.1 上 config.toml 默认的端口：外面的机器连不到它们。
+
+# llama-server 用 llama.cpp 上游发布的镜像，版本与 runtimes.lock.toml 的 llama_cpp.release_tag 相同
+x-llama-server: &llama-server
+  image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp}:${LLAMA_SERVER_TAG:-server-b11429}
+  restart: unless-stopped
+  volumes:
+    - type: bind
+      source: ./models
+      target: /app/models
+      read_only: true
+  healthcheck: &healthcheck
+    test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/health"]
+    interval: 15s
+    timeout: 5s
+    retries: 3
+    # 加载模型要一段时间，这段时间里的失败不算
+    start_period: 10m
+    start_interval: 5s
+
+x-app-image: &app-image
+  image: ${AGENTIC_MEETING_IMAGE:-ghcr.io/weizyyy/agentic-meeting}:${AGENTIC_MEETING_TAG:-cpu}
+  build:
+    context: .
+    dockerfile: docker/app/Dockerfile
+    args:
+      VARIANT: cpu
+
+x-config: &config
+  type: bind
+  source: ./config/config.toml
+  target: /app/config/config.toml
+  read_only: true
+  bind:
+    create_host_path: false
+
+services:
+  # 识别服务启动时要用的对话模板，取自 config.toml 的 asr.profile；写完就退出
+  asr-template:
+    <<: *app-image
+    user: "0:0"
+    entrypoint: ["python", "scripts/container.py"]
+    command: ["asr-template", "/templates/asr_chat_template.jinja"]
+    restart: "no"
+    volumes:
+      - *config
+      - asr-template:/templates
+
+  # 流式识别（必需）
+  asr:
+    <<: *llama-server
+    depends_on:
+      asr-template:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - type: bind
+        source: ./models
+        target: /app/models
+        read_only: true
+      - asr-template:/templates:ro
+    command:
+      - -m
+      - ${ASR_MODEL:-}
+      - --mmproj
+      - ${ASR_MMPROJ:-}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - -c
+      - ${ASR_CTX_SIZE:-8192}
+      - -np
+      - "1"
+      - -ngl
+      - ${ASR_GPU_LAYERS:-all}
+      - --jinja
+      - --chat-template-file
+      - /templates/asr_chat_template.jinja
+      - --cache-ram
+      - "0"
+
+  # 实时应答模型（realtime_llm.mode = "llama_server" 时）
+  realtime:
+    <<: *llama-server
+    profiles: [realtime]
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      # 留空 = 不加载视觉投影（不能识图的模型，config.toml 里同时设 supports_vision = false）
+      LLAMA_ARG_MMPROJ: ${REALTIME_MMPROJ:-}
+    command:
+      - -m
+      - ${REALTIME_MODEL:-}
+      # 与 realtime_llm.llama_server.model 相同
+      - -a
+      - realtime
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - -c
+      - ${REALTIME_CTX_SIZE:-32768}
+      - -np
+      - ${REALTIME_PARALLEL:-2}
+      - -ngl
+      - ${REALTIME_GPU_LAYERS:-all}
+      - --jinja
+      - --reasoning
+      - ${REALTIME_REASONING:-off}
+
+  # 语音合成
+  tts:
+    image: ${AGENTIC_MEETING_TTS_IMAGE:-ghcr.io/weizyyy/agentic-meeting-tts}:${AGENTIC_MEETING_TTS_TAG:-cpu}
+    build:
+      context: .
+      dockerfile: docker/tts/Dockerfile
+      args:
+        VARIANT: cpu
+    profiles: [tts]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8082:8080"
+    volumes:
+      - type: bind
+        source: ./models
+        target: /app/models
+        read_only: true
+    healthcheck: *healthcheck
+    command:
+      - --model
+      - ${TTS_MODEL:-}
+      - --codec
+      - ${TTS_CODEC:-}
+      # 与 tts.model 相同
+      - --alias
+      - tts
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --lang
+      - ${TTS_LANGUAGE:-Chinese}
+
+  # 嵌入模型，默认只用 CPU
+  embedding:
+    <<: *llama-server
+    profiles: [embedding]
+    ports:
+      - "127.0.0.1:8083:8080"
+    command:
+      - -m
+      - ${EMBEDDING_MODEL:-}
+      # 与 embedding.model 相同
+      - -a
+      - embedding
+      - --embedding
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - -ngl
+      - "0"
+      - --cache-ram
+      - "0"
+      - --pooling
+      - ${EMBEDDING_POOLING:-last}
+      - --device
+      - none
+
+  # 应用。WebRTC 的媒体走随机 UDP 端口，只能用宿主机网络，所以只支持 Linux。
+  app:
+    <<: *app-image
+    network_mode: host
+    # data/ 要对这个用户可写；默认 1000 是大多数单用户 Linux 机器上第一个用户的 uid
+    user: "${AGENTIC_MEETING_UID:-1000}:${AGENTIC_MEETING_GID:-1000}"
+    init: true
+    # 与在终端里按 Ctrl+C 一样，让应用收尾后退出
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+    restart: unless-stopped
+    depends_on:
+      asr:
+        condition: service_healthy
+      realtime:
+        condition: service_healthy
+        required: false
+      tts:
+        condition: service_healthy
+        required: false
+      embedding:
+        condition: service_healthy
+        required: false
+    volumes:
+      - *config
+      - type: bind
+        source: ./.env
+        target: /app/.env
+        read_only: true
+        bind:
+          create_host_path: false
+      # 说话人区分在应用进程里运行，它的权重也在这里
+      - type: bind
+        source: ./models
+        target: /app/models
+        read_only: true
+      - type: bind
+        source: ./data
+        target: /app/data
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "python", "scripts/container.py", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 2m
+      start_interval: 5s
+
+volumes:
+  asr-template:

@@ -1,0 +1,46 @@
+# NVIDIA 显卡：叠加在 compose.yaml 上使用，宿主机要装好 NVIDIA Container Toolkit。
+#
+#   docker compose -f compose.yaml -f docker/compose.cuda.yaml up -d
+#
+# 识别、实时应答模型、语音合成和应用（说话人区分）用显卡，嵌入模型仍只用 CPU。
+# 镜像基于 CUDA 12，显卡驱动需要支持 CUDA 12.8（570 或更新的版本）。
+# 多块显卡时，在各服务下改 device_ids（nvidia-smi 的编号），或用 config.toml 的 diarization.gpu。
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  asr:
+    <<: *gpu
+    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp}:${LLAMA_SERVER_CUDA_TAG:-server-cuda-b11429}
+
+  realtime:
+    <<: *gpu
+    image: ${LLAMA_SERVER_IMAGE:-ghcr.io/ggml-org/llama.cpp}:${LLAMA_SERVER_CUDA_TAG:-server-cuda-b11429}
+
+  tts:
+    <<: *gpu
+    image: ${AGENTIC_MEETING_TTS_IMAGE:-ghcr.io/weizyyy/agentic-meeting-tts}:${AGENTIC_MEETING_TTS_TAG:-cuda}
+    build:
+      args:
+        VARIANT: cuda
+
+  app:
+    <<: *gpu
+    image: ${AGENTIC_MEETING_IMAGE:-ghcr.io/weizyyy/agentic-meeting}:${AGENTIC_MEETING_TAG:-cuda}
+    build:
+      args:
+        VARIANT: cuda
+
+  # 只写模板，用哪个版本的应用镜像都行；和 app 用同一个，免得多拉一个镜像
+  asr-template:
+    image: ${AGENTIC_MEETING_IMAGE:-ghcr.io/weizyyy/agentic-meeting}:${AGENTIC_MEETING_TAG:-cuda}
+    build:
+      args:
+        VARIANT: cuda

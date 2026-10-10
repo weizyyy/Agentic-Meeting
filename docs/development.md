@@ -36,20 +36,24 @@ npm ci
 npm run build                         # type-check and build
 ```
 
-CI runs the Python suite on Windows and Linux with Python 3.12, 3.13 and 3.14, and type-checks and
-builds the client on Linux. Not every change runs every job: the _Classify changes_ job reads the
-changed files and starts only the jobs they can affect. The Prettier check always runs.
+CI runs the Python suite on Windows and Linux with Python 3.12, 3.13 and 3.14, type-checks and
+builds the client on Linux, and builds the container images and starts the programs in them. Not
+every change runs every job: the _Classify changes_ job reads the changed files and starts only the
+jobs they can affect. The Prettier check always runs.
 
-| Changed files                                                                                | Python (6 jobs) | Web client | Browser end-to-end |
-| -------------------------------------------------------------------------------------------- | --------------- | ---------- | ------------------ |
-| `src/`, `config/` (prompts included), `pyproject.toml`, `uv.lock`, `.python-version`         | yes             |            | yes                |
-| `tests/browser/`                                                                             | yes             |            | yes                |
-| Other files in `tests/`, `scripts/`, submodules, `runtimes.lock.toml`                        | yes             |            |                    |
-| `client/e2e/`, `client/playwright.config.ts`                                                 |                 |            | yes                |
-| Other files in `client/`                                                                     |                 | yes        | yes                |
-| Other Markdown files, `docs/`, `LICENSE`, issue templates, formatter settings                |                 |            |                    |
-| `.github/dependabot.yml`, `.pre-commit-config.yaml`, `.gitignore`, `.env.example`, `docker/` |                 |            |                    |
-| Anything else, workflow files included                                                       | yes             | yes        | yes                |
+| Changed files                                                                     | Python (6 jobs) | Web client | Browser end-to-end | Container images |
+| --------------------------------------------------------------------------------- | --------------- | ---------- | ------------------ | ---------------- |
+| `src/`, `config/` (prompts included), `.python-version`                           | yes             |            | yes                |                  |
+| `pyproject.toml`, `uv.lock`                                                       | yes             |            | yes                | yes              |
+| `tests/browser/`                                                                  | yes             |            | yes                |                  |
+| `docker/`, `compose.yaml`                                                         | yes             |            |                    | yes              |
+| Submodules, `runtimes.lock.toml`, `scripts/runtimes.py`, `scripts/container.py`   | yes             |            |                    | yes              |
+| Other files in `tests/` and `scripts/`                                            | yes             |            |                    |                  |
+| `client/e2e/`, `client/playwright.config.ts`                                      |                 |            | yes                |                  |
+| Other files in `client/`                                                          |                 | yes        | yes                |                  |
+| Other Markdown files, `docs/`, `LICENSE`, issue templates, formatter settings     |                 |            |                    |                  |
+| `.github/dependabot.yml`, `.pre-commit-config.yaml`, `.gitignore`, `.env.example` |                 |            |                    |                  |
+| Anything else, workflow files included                                            | yes             | yes        | yes                | yes              |
 
 _All checks_ accepts a skipped job only when the classification said the change does not need it.
 A new top-level file or directory runs every job until it is added to the classification in

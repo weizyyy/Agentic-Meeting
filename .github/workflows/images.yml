@@ -1,0 +1,125 @@
+name: Container images
+
+# Builds the application, speech synthesis and sandbox images (docs/containers.md). The release
+# workflow calls it to publish them to GHCR. Started by hand, it builds every variant without
+# publishing; CI builds the others on every change that affects them (ci.yml).
+on:
+  workflow_call:
+    inputs:
+      push:
+        description: Publish the images to GHCR
+        type: boolean
+        default: false
+      variants:
+        description: JSON list of variants to build
+        type: string
+        default: '["cpu", "cuda", "vulkan"]'
+  workflow_dispatch:
+    inputs:
+      variants:
+        description: JSON list of variants to build (nothing is published)
+        type: string
+        default: '["cpu", "cuda", "vulkan"]'
+
+jobs:
+  image:
+    name: ${{ matrix.image }} (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [app, tts]
+        variant: ${{ fromJSON(inputs.variants) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Speech synthesis is built from source; the other runtimes are prebuilt packages.
+      - name: Check out the speech synthesis source
+        if: matrix.image == 'tts'
+        run: |
+          git submodule update --init --depth 1 third_party/qwentts.cpp
+          git -C third_party/qwentts.cpp submodule update --init --depth 1
+
+      # The CUDA toolchain image alone takes about 10 GB.
+      - name: Free disk space
+        if: matrix.variant == 'cuda'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: Choose image names
+        id: names
+        env:
+          IMAGE: ${{ matrix.image }}
+          VARIANT: ${{ matrix.variant }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          case "$IMAGE" in
+            app) name="ghcr.io/$owner/agentic-meeting" ;;
+            tts) name="ghcr.io/$owner/agentic-meeting-tts" ;;
+          esac
+          tags="$name:$VARIANT"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tags="$name:${GITHUB_REF_NAME#v}-$VARIANT,$tags"
+          fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: inputs.push
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/${{ matrix.image }}/Dockerfile
+          build-args: VARIANT=${{ matrix.variant }}
+          tags: ${{ steps.names.outputs.tags }}
+          push: ${{ inputs.push }}
+          cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.variant }}
+
+  sandbox:
+    name: sandbox
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Choose image names
+        id: names
+        run: |
+          name="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/agentic-meeting-sandbox"
+          tags="$name:latest"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            tags="$name:${GITHUB_REF_NAME#v},$tags"
+          fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        if: inputs.push
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        uses: docker/build-push-action@v7
+        with:
+          context: docker/sandbox
+          tags: ${{ steps.names.outputs.tags }}
+          push: ${{ inputs.push }}
+          cache-from: type=gha,scope=sandbox
+          cache-to: type=gha,mode=max,scope=sandbox

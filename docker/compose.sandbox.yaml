@@ -1,0 +1,18 @@
+# 让后台 agent 在容器里也能执行代码：叠加在 compose.yaml（以及显卡的那份）之后使用。
+#
+#   docker compose -f compose.yaml -f docker/compose.cuda.yaml -f docker/compose.sandbox.yaml up -d
+#
+# 应用通过宿主机的 Docker 为每个任务开一个沙箱容器（与宿主机上的应用容器并列），用完删除。
+# 能访问 Docker 套接字就等于拥有宿主机的 root 权限，只在信任这台机器上的配置和用户时使用。
+# 在 .env 里把 AGENTIC_MEETING_DOCKER_GID 设成宿主机 docker 组的 gid（getent group docker | cut -d: -f3）。
+
+services:
+  app:
+    volumes:
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        bind:
+          create_host_path: false
+    group_add:
+      - "${AGENTIC_MEETING_DOCKER_GID:?在 .env 里设置 AGENTIC_MEETING_DOCKER_GID（宿主机 docker 组的 gid）}"

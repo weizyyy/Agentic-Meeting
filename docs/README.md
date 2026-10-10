@@ -12,6 +12,7 @@
 | [Configuration](configuration.md)     | Every section of `config.toml`                                       |
 | [Troubleshooting](troubleshooting.md) | Microphone level, wake word, degraded services                       |
 | [Deployment](deployment.md)           | Reverse proxy and HTTPS, TURN, checklist before exposing an instance |
+| [Containers](containers.md)           | Docker Compose, images, combining services, sandbox in a container   |
 | [Runtimes and models](runtimes.md)    | Fetching and building runtimes, model files, multi-GPU setups        |
 | [Benchmarks](benchmarks.md)           | Latency, memory and accuracy measured on real hardware               |
 
