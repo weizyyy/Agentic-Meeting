@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import sys
+import time
 
 import pytest
 
@@ -105,20 +105,17 @@ async def test_meetings_survive_a_restart(start_app, inference, meeting_factory)
 )
 @pytest.mark.xfail(
     strict=True,
-    reason="已知问题：会议进行中按 Ctrl+C，uvicorn 停在关闭 HTTP 服务这一步，迟迟不进入 lifespan 收尾"
-    "（断开会议、通知页面的正是收尾），要再按一次 Ctrl+C 强制退出",
+    reason="已知问题：会议进行中按 Ctrl+C，uvicorn 停在关闭 HTTP 服务这一步不退出，要再按一次 Ctrl+C",
 )
-async def test_stopping_the_server_during_a_meeting_tells_the_page(start_app, meeting_factory):
+async def test_ctrl_c_during_a_meeting_stops_the_server(start_app, meeting_factory):
+    """没有一并拉起模型服务时，按一次 Ctrl+C 应当直接停下；页面按原有逻辑发现连接断了，不需要额外通知。"""
     app = await start_app()
     async with app.http() as http:
         client = meeting_factory(http)()
         await client.connect()
-        stopping = asyncio.create_task(app.shutdown(timeout_secs=15))
-        try:
-            closed = await client.next_message("session_closed", timeout_secs=10)
-            assert closed["reason"] == "server_stopping"
-        finally:
-            await stopping
+        started = time.monotonic()
+        await app.shutdown(timeout_secs=20)  # 超时会被强行结束
+        assert time.monotonic() - started < 10, "按一次 Ctrl+C 没有停下"
 
 
 @pytest.mark.parametrize("service", ["asr", "llm"])
