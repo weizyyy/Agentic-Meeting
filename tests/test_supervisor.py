@@ -16,6 +16,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from waiting import wait_until
 
 from agentic_meeting.config import AppConfig, load_asr_profile
 from agentic_meeting.services.supervisor import (
@@ -771,7 +772,11 @@ async def test_stop_kills_a_process_that_ignores_terminate(make_supervisor, tmp_
     supervisor = make_supervisor([spec], stop_grace_secs=0.5)
     async with asyncio.timeout(30):
         await supervisor.start()
-        await asyncio.sleep(1.0)  # 等它装好信号处理
+        await wait_until(
+            lambda: "ready" in spec.log_path.read_text(),
+            timeout_secs=5.0,
+            description="假子进程装好信号处理",
+        )
         began = time.monotonic()
         await supervisor.stop()
     assert time.monotonic() - began < 10

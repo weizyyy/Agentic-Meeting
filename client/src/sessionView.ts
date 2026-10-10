@@ -82,11 +82,14 @@ export function nameSuggestions(
 export function summaryFromSessionMessage(message: {
   id: string;
   title: string;
+  keep: boolean;
   started_at: number;
 }): SessionSummary {
   return {
     id: message.id,
     title: message.title,
+    keep: message.keep,
+    deletion_pending: false,
     started_at: message.started_at,
     ended_at: null,
     last_active_at: message.started_at,
@@ -96,4 +99,17 @@ export function summaryFromSessionMessage(message: {
     speakers: [],
     preview: [],
   };
+}
+
+/** ready 是本机管线就绪；不能用异端会议的 live 状态或可关闭提示替代。 */
+export function recordingLabel(
+  connection: string,
+  closedReason: string | null,
+  retry: number,
+): string {
+  if (closedReason !== null) return "转录已停止";
+  if (connection === "connected") return "正在转录 · 发言和共享画面保存在服务器";
+  if (retry > 0) return "转录已断开 · 正在重连";
+  if (connection === "connecting") return "正在连接 · 尚未转录";
+  return "未在本机转录";
 }

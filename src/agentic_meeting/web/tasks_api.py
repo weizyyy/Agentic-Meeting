@@ -60,6 +60,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         task = await resources(request).store.get_task(task_id)
         if task is None:
             raise _fail(404, NOT_FOUND_TASK)
+        await resources(request).store.require_available(task.session_id)
         return task
 
     @app.get("/api/tasks")
@@ -71,6 +72,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
             session = await res.sessions.current_session()
         if session is None:
             raise _fail(404, "找不到这场会议" if session_id else "现在没有会议")
+        await res.store.require_available(session.id)
         return {"items": [task_json(t) for t in await res.store.list_tasks(session.id)]}
 
     @app.get("/api/tasks/{task_id}")

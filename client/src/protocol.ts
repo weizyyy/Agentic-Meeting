@@ -76,6 +76,7 @@ export interface SessionMessage {
   type: "session";
   id: string;
   title: string;
+  keep: boolean;
   started_at: number;
   resumed: boolean;
   base_secs: number;
@@ -252,16 +253,17 @@ export function parseServerMessage(data: unknown): ServerMessage | null {
       return null;
     }
     case "session": {
-      const { id, title, started_at, resumed, base_secs, state } = data;
+      const { id, title, keep, started_at, resumed, base_secs, state } = data;
       if (
         typeof id === "string" &&
         typeof title === "string" &&
+        typeof keep === "boolean" &&
         typeof started_at === "number" &&
         typeof resumed === "boolean" &&
         typeof base_secs === "number" &&
         typeof state === "string"
       ) {
-        return { type: "session", id, title, started_at, resumed, base_secs, state };
+        return { type: "session", id, title, keep, started_at, resumed, base_secs, state };
       }
       return null;
     }

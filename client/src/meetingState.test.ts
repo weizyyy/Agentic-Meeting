@@ -132,6 +132,8 @@ function summary(id: string, over: Partial<SessionSummary> = {}): SessionSummary
     id,
     title: "",
     started_at: 100,
+    keep: false,
+    deletion_pending: false,
     ended_at: null,
     last_active_at: 100,
     state: "interrupted",
@@ -203,6 +205,7 @@ test("说话人改名和事后更正：字幕行与说话人列表一起变", ()
 test("新会议的连接建立：字幕区切到它并清空；同一场会议则保留已有内容", () => {
   const message = {
     type: "session" as const,
+    keep: false,
     id: "new",
     title: "",
     started_at: 5,
@@ -237,6 +240,7 @@ test("断开连接后不再有进行中的会议编号，字幕区仍显示这�
       type: "sessionStarted",
       message: {
         type: "session",
+        keep: false,
         id: "s1",
         title: "",
         started_at: 1,
@@ -313,7 +317,7 @@ test("会议列表：加载、改名、删除", () => {
     { type: "sessionsLoaded", items: [summary("a"), summary("b")] },
     { type: "viewLoaded", detail: detail("a"), items: history(1, 2), speakers: [] },
   ]);
-  state = run([{ type: "sessionRenamed", summary: summary("a", { title: "周一组会" }) }], state);
+  state = run([{ type: "sessionUpdated", summary: summary("a", { title: "周一组会" }) }], state);
   assert.equal(state.viewing?.title, "周一组会");
   assert.equal(state.sessions[0].title, "周一组会");
   assert.equal(state.sessions[1].title, "");
@@ -355,6 +359,8 @@ const detailOf = (id: string, screen: Record<string, unknown> = {}): SessionDeta
   id,
   title: "",
   started_at: 1,
+  keep: false,
+  deletion_pending: false,
   ended_at: null,
   last_active_at: 1,
   state: "interrupted",
@@ -369,6 +375,7 @@ const detailOf = (id: string, screen: Record<string, unknown> = {}): SessionDeta
 
 const sessionMessage = (id: string) => ({
   type: "session" as const,
+  keep: false,
   id,
   title: "",
   started_at: 1,
@@ -532,6 +539,8 @@ const resumedDetail = (id: string, extra: Partial<SessionDetail> = {}): SessionD
   id,
   title: "周三组会",
   started_at: 1000,
+  keep: false,
+  deletion_pending: false,
   ended_at: null,
   last_active_at: 1100,
   state: "interrupted",
@@ -600,6 +609,7 @@ test("各次连接跟着正在显示的会议走", () => {
     type: "sessionStarted",
     message: {
       type: "session",
+      keep: false,
       id: "s9",
       title: "",
       started_at: 5000,
@@ -633,6 +643,7 @@ test("继续同一场会议：字幕和连接记录都留着", () => {
     type: "sessionStarted",
     message: {
       type: "session",
+      keep: false,
       id: "s1",
       title: "周三组会",
       started_at: 1000,
@@ -734,4 +745,129 @@ test("会后报告跟着正在显示的会议走", () => {
     reduce(withReport, { type: "reportLoaded", sessionId: "s1", report: null }).report,
     null,
   );
+});
+
+test("待删除详情清内容，列表同步保留状态，迟到内容不重新显示", () => {
+  let state = reduce(initialState, {
+    type: "viewLoaded",
+    detail: detail("s1"),
+    items: [],
+    speakers: [],
+  });
+  state = { ...state, sessions: [summary("s1"), summary("s2")] };
+  state = reduce(state, {
+    type: "detailRefreshed",
+    detail: detail("s1", { keep: true, deletion_pending: true }),
+  });
+  assert.equal(state.sessions[0].keep, true);
+  assert.equal(state.sessions[0].deletion_pending, true);
+  assert.equal(state.sessions[1].deletion_pending, false);
+  assert.deepEqual(state.captions, []);
+  assert.equal(state.hasOlder, false);
+  assert.equal(reduce(state, { type: "reportLoaded", sessionId: "s1", report: null }), state);
+});
+test("关闭立刻停指示，同ready不恢复；SDK重连无需session消息恢复", () => {
+  let state = reduce(initialState, { type: "transport", transport: "ready" });
+  state = reduce(state, {
+    type: "sessionClosed",
+    message: { type: "session_closed", reason: "taken_over" },
+  });
+  assert.equal(state.liveSessionId, null);
+  assert.equal(reduce(state, { type: "transport", transport: "ready" }).closedReason, "taken_over");
+  state = reduce(state, { type: "transport", transport: "disconnected" });
+  state = reduce(state, { type: "transport", transport: "ready" });
+  assert.equal(state.connection, "connected");
+  assert.equal(state.closedReason, null);
+});
+test("保留成功只更新目标摘要，不影响另一会议", () => {
+  const before = {
+    ...initialState,
+    viewing: summary("s2"),
+    sessions: [summary("s1"), summary("s2")],
+  };
+  const after = reduce(before, { type: "sessionUpdated", summary: summary("s1", { keep: true }) });
+  assert.equal(after.viewing, before.viewing);
+  assert.equal(after.sessions[0].keep, true);
+  assert.equal(before.sessions[0].keep, false);
+});
+
+test("旧查看请求的404清空与成功返回都不能覆盖后来选中的会议", () => {
+  let state = reduce(initialState, { type: "viewRequested", requestId: 1 });
+  state = reduce(state, { type: "viewRequested", requestId: 2 });
+  state = reduce(state, {
+    type: "viewLoaded",
+    requestId: 2,
+    detail: detail("s2"),
+    items: [],
+    speakers: [],
+  });
+  assert.equal(
+    reduce(state, { type: "viewLoaded", requestId: 1, detail: null, items: [], speakers: [] }),
+    state,
+  );
+  assert.equal(
+    reduce(state, {
+      type: "viewLoaded",
+      requestId: 1,
+      detail: detail("s1"),
+      items: [],
+      speakers: [],
+    }),
+    state,
+  );
+});
+test("待删除不可被迟到保留或改名成功摘要撤销", () => {
+  const state = {
+    ...initialState,
+    viewing: summary("s1", { deletion_pending: true }),
+    sessions: [summary("s1", { deletion_pending: true })],
+  };
+  assert.equal(
+    reduce(state, { type: "sessionUpdated", summary: summary("s1", { keep: true }) }),
+    state,
+  );
+});
+
+test("旧详情和列表响应不能撤销已知待删除", () => {
+  const pending = summary("s1", { deletion_pending: true });
+  const state = { ...initialState, viewing: pending, sessions: [pending] };
+  assert.equal(reduce(state, { type: "detailRefreshed", detail: detail("s1") }), state);
+  assert.equal(
+    reduce(state, { type: "viewLoaded", detail: detail("s1"), items: [], speakers: [] }),
+    state,
+  );
+  const listed = reduce(state, { type: "sessionsLoaded", items: [summary("s1"), summary("s2")] });
+  assert.equal(listed.sessions[0].deletion_pending, true);
+  assert.equal(listed.sessions[1].deletion_pending, false);
+  assert.deepEqual(reduce(listed, { type: "sessionsLoaded", items: [summary("s2")] }).sessions, [
+    summary("s2"),
+  ]);
+});
+
+test("列表发现当前会议待删除时详情也立即禁内容，另一会议不受影响", () => {
+  const state = {
+    ...initialState,
+    viewing: summary("s1"),
+    sessions: [summary("s1"), summary("s2")],
+  };
+  const updated = reduce(state, {
+    type: "sessionsLoaded",
+    items: [summary("s1", { keep: true, deletion_pending: true }), summary("s2")],
+  });
+  assert.equal(updated.viewing?.deletion_pending, true);
+  assert.equal(updated.viewing?.keep, true);
+  assert.equal(updated.sessions[1].deletion_pending, false);
+  assert.deepEqual(updated.frames, []);
+});
+
+test("待删除忽略非空的旧截图、任务、字幕和说话人响应", () => {
+  const state = { ...initialState, viewing: summary("s1", { deletion_pending: true }) };
+  for (const action of [
+    { type: "framesLoaded", sessionId: "s1", items: [frameOf(1, 0)], merge: false },
+    { type: "tasksLoaded", sessionId: "s1", items: [taskOf("s1.t1", 0)] },
+    { type: "backfilled", items: history(1, 1) },
+    { type: "olderLoaded", items: history(1, 1) },
+    { type: "speakersLoaded", speakers: [{ idx: 1, display_name: "虚构成员" }] },
+  ] as Action[])
+    assert.equal(reduce(state, action), state);
 });

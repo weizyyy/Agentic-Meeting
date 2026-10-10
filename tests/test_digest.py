@@ -6,6 +6,7 @@ import asyncio
 import sqlite3
 
 import pytest
+from waiting import wait_until
 
 from agentic_meeting.pipeline.background import Preempted
 from agentic_meeting.pipeline.digest import (
@@ -258,15 +259,19 @@ class Clock:
     def __init__(self):
         self.delays: list[float] = []
         self._ticks: asyncio.Queue[None] = asyncio.Queue()
+        self._sleeping = asyncio.Event()
 
     async def sleep(self, secs):
         self.delays.append(secs)
+        self._sleeping.set()
         await self._ticks.get()
 
     async def tick(self):
+        # 下一次 sleep 才表示整轮与数据库工作释放都已完成，不猜测线程调度耗时。
+        await self._sleeping.wait()
+        self._sleeping.clear()
         self._ticks.put_nowait(None)
-        for _ in range(20):
-            await asyncio.sleep(0.005)
+        await self._sleeping.wait()
 
 
 async def test_loop_digests_the_live_session_every_interval(store):
@@ -340,6 +345,41 @@ async def test_retry_delay_never_exceeds_the_interval(store):
         await worker.stop()
 
 
+async def test_clock_waits_for_committed_digest_work_to_finish(store, monkeypatch):
+    from agentic_meeting.config import RetentionConfig
+    from agentic_meeting.store.db import SessionBusy
+
+    sid = (await store.create_session()).id
+    await say(store, sid, "虚构发言", 1.0)
+    model, clock = FakeModel(), Clock()
+    worker = worker_for(store, model, current_session=lambda: sid, sleep=clock.sleep)
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = store._release_work
+
+    async def paused(session_id):
+        entered.set()
+        await release.wait()
+        await original(session_id)
+
+    monkeypatch.setattr(store, "_release_work", paused)
+    worker.start()
+    ticking = asyncio.create_task(clock.tick())
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        assert (await store.latest_digest(sid)).text == "纪要第1版"
+        assert not ticking.done()  # 已落库，实际工作收尾仍未放行。
+        with pytest.raises(SessionBusy):
+            await store.claim_cleanup(sid, RetentionConfig(), 0, manual=True)
+        release.set()
+        await asyncio.wait_for(ticking, 1)
+        assert len(clock.delays) == 2
+    finally:
+        release.set()
+        ticking.cancel()  # 中途断言失败时，worker 停止后不会再进入下一次 sleep。
+        await asyncio.gather(ticking, return_exceptions=True)
+        await worker.stop()
+
+
 async def wait_for_digest(store, sid, tries=400):
     for _ in range(tries):
         digest = await store.latest_digest(sid)
@@ -354,16 +394,19 @@ async def test_finalize_runs_in_background_and_reports_nothing_on_failure(store)
     await say(store, sid, "最后一句", 1.0)
     model = FakeModel()
     worker = worker_for(store, model)
-    worker.finalize(sid)  # 不等
-    assert (await wait_for_digest(store, sid)).text == "纪要第1版"
+    try:
+        worker.finalize(sid)  # 不等
+        await wait_until(lambda: not worker._finalizing, description="纪要收尾任务完成")
+        assert (await wait_for_digest(store, sid)).text == "纪要第1版"
 
-    for failure in (RuntimeError("boom"), Preempted()):
-        await say(store, sid, "又一句", 9.0)
-        model.replies = [failure]
-        worker.finalize(sid)
-        await asyncio.sleep(0.05)  # 失败只记日志，不抛到别处
-    assert len(await store.list_digests(sid)) == 1
-    await worker.stop()
+        for failure in (RuntimeError("boom"), Preempted()):
+            await say(store, sid, "又一句", 9.0)
+            model.replies = [failure]
+            worker.finalize(sid)
+            await wait_until(lambda: not worker._finalizing, description="失败纪要任务收尾")
+        assert len(await store.list_digests(sid)) == 1
+    finally:
+        await worker.stop()
 
 
 async def test_finalize_times_out_and_stop_cancels_pending_work(store):
@@ -372,13 +415,16 @@ async def test_finalize_times_out_and_stop_cancels_pending_work(store):
     model = FakeModel()
     model.gate.clear()
     worker = worker_for(store, model)
-    worker.finalize(sid, timeout_secs=0.05)
-    await asyncio.sleep(0.15)
-    assert worker._finalizing == set() and await store.latest_digest(sid) is None
+    try:
+        worker.finalize(sid, timeout_secs=0.05)
+        await wait_until(lambda: not worker._finalizing, description="纪要超时取消并收尾")
+        assert worker._finalizing == set() and await store.latest_digest(sid) is None
 
-    worker.finalize(sid, timeout_secs=30)
-    await model.started.wait()
-    await worker.stop()
+        model.started.clear()
+        worker.finalize(sid, timeout_secs=30)
+        await asyncio.wait_for(model.started.wait(), 2.0)
+    finally:
+        await worker.stop()
     assert worker._finalizing == set()
 
 

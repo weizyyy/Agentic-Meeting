@@ -29,8 +29,8 @@ class GatedRunner:
         self.started = asyncio.Event()
 
     async def __call__(self, task, on_event):
-        self.started.set()
         await on_event("tool_call", "正在检索「引用数」", {"query": "引用数"})
+        self.started.set()
         await self.gate.wait()
         return TaskResult(
             brief="被引 1243 次",
@@ -77,7 +77,6 @@ async def test_list_detail_and_cancel(env):
         modality="text",
     )
     await env.runner.started.wait()
-    await asyncio.sleep(0.02)
 
     listing = (await env.client.get("/api/tasks", params={"session_id": session.id})).json()
     (item,) = listing["items"]

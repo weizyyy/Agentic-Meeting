@@ -61,6 +61,7 @@ export function App({ onLogout }: Props = {}) {
           connection={state.connection}
           reconnectAttempt={state.reconnectAttempt}
           micTrack={meeting.micTrack}
+          closedReason={state.closedReason}
           listOpen={listOpen}
           onToggleList={() => {
             setListOpen((open) => !open);
@@ -75,92 +76,96 @@ export function App({ onLogout }: Props = {}) {
           connection={state.connection}
           reconnectAttempt={state.reconnectAttempt}
           watching={meeting.watching}
+          keepPending={meeting.keepPending.has(state.viewing?.id ?? "")}
+          onKeep={(id, keep) => void meeting.keepSession(id, keep)}
           onRename={(id, title) => void meeting.renameSession(id, title)}
           onResume={(id) => void meeting.resume(id)}
           onStart={() => void meeting.start()}
         />
-        <main className="layout">
-          <div className="column">
-            <SpeakerBar
-              speakers={state.speakers}
-              members={state.members}
-              onRename={(idx, name) => void meeting.renameSpeaker(idx, name)}
-              onMerge={(idx, into) => void meeting.mergeSpeakers(idx, into)}
-              selectedCount={tab === "captions" ? selected.size : 0}
-              onAssign={(target) => {
-                void meeting.assignSpeaker([...selected], target).then((done) => {
-                  if (done) setSelected(new Set());
-                });
-              }}
-              onClearSelection={() => setSelected(new Set())}
-            />
-            <div className="tabs" role="tablist" aria-label="字幕和报告">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab === "captions"}
-                className={`tab${tab === "captions" ? " tab-current" : ""}`}
-                onClick={() => setTab("captions")}
-              >
-                字幕
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab === "report"}
-                className={`tab${tab === "report" ? " tab-current" : ""}`}
-                onClick={() => setTab("report")}
-              >
-                报告
-                {state.report?.status === "running" && (
-                  <span className="tab-dot" aria-label="生成中" />
-                )}
-              </button>
+        {!state.viewing?.deletion_pending && (
+          <main className="layout">
+            <div className="column">
+              <SpeakerBar
+                speakers={state.speakers}
+                members={state.members}
+                onRename={(idx, name) => void meeting.renameSpeaker(idx, name)}
+                onMerge={(idx, into) => void meeting.mergeSpeakers(idx, into)}
+                selectedCount={tab === "captions" ? selected.size : 0}
+                onAssign={(target) => {
+                  void meeting.assignSpeaker([...selected], target).then((done) => {
+                    if (done) setSelected(new Set());
+                  });
+                }}
+                onClearSelection={() => setSelected(new Set())}
+              />
+              <div className="tabs" role="tablist" aria-label="字幕和报告">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === "captions"}
+                  className={`tab${tab === "captions" ? " tab-current" : ""}`}
+                  onClick={() => setTab("captions")}
+                >
+                  字幕
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === "report"}
+                  className={`tab${tab === "report" ? " tab-current" : ""}`}
+                  onClick={() => setTab("report")}
+                >
+                  报告
+                  {state.report?.status === "running" && (
+                    <span className="tab-dot" aria-label="生成中" />
+                  )}
+                </button>
+              </div>
+              {tab === "captions" ? (
+                <CaptionList
+                  lines={state.captions}
+                  hasOlder={state.hasOlder}
+                  connections={state.connections}
+                  emptyText={emptyText}
+                  onLoadOlder={() => void meeting.loadOlder()}
+                  timeBase={timeBase}
+                  selected={selected}
+                  onSelect={setSelected}
+                />
+              ) : (
+                <ReportPanel
+                  session={state.viewing}
+                  report={state.report}
+                  onGenerate={() => void meeting.generateReport()}
+                />
+              )}
             </div>
-            {tab === "captions" ? (
-              <CaptionList
-                lines={state.captions}
-                hasOlder={state.hasOlder}
-                connections={state.connections}
-                emptyText={emptyText}
-                onLoadOlder={() => void meeting.loadOlder()}
+            <div className="column side">
+              <AssistantPanel
+                state={state.assistantState}
+                text={state.assistantText}
+                replyMode={state.replyMode}
+                notices={state.notices}
+                canSend={state.connection === "connected"}
+                onSend={meeting.sendText}
+                onDismissNotice={meeting.dismissNotice}
+              />
+              <TaskPanel
+                tasks={state.tasks}
+                onLoad={meeting.loadTask}
+                onCancel={(id) => void meeting.cancelTask(id)}
+              />
+              <FrameTimeline
+                frames={state.frames}
                 timeBase={timeBase}
-                selected={selected}
-                onSelect={setSelected}
+                sharing={state.sharing}
+                canShare={state.connection === "connected" && state.screen.enabled}
+                onStart={() => void meeting.startScreenShare()}
+                onStop={meeting.stopScreenShare}
               />
-            ) : (
-              <ReportPanel
-                session={state.viewing}
-                report={state.report}
-                onGenerate={() => void meeting.generateReport()}
-              />
-            )}
-          </div>
-          <div className="column side">
-            <AssistantPanel
-              state={state.assistantState}
-              text={state.assistantText}
-              replyMode={state.replyMode}
-              notices={state.notices}
-              canSend={state.connection === "connected"}
-              onSend={meeting.sendText}
-              onDismissNotice={meeting.dismissNotice}
-            />
-            <TaskPanel
-              tasks={state.tasks}
-              onLoad={meeting.loadTask}
-              onCancel={(id) => void meeting.cancelTask(id)}
-            />
-            <FrameTimeline
-              frames={state.frames}
-              timeBase={timeBase}
-              sharing={state.sharing}
-              canShare={state.connection === "connected" && state.screen.enabled}
-              onStart={() => void meeting.startScreenShare()}
-              onStop={meeting.stopScreenShare}
-            />
-          </div>
-        </main>
+            </div>
+          </main>
+        )}
         {listOpen && (
           <SessionList
             sessions={state.sessions}
@@ -175,6 +180,8 @@ export function App({ onLogout }: Props = {}) {
               setListOpen(false);
             }}
             onRename={(id, title) => void meeting.renameSession(id, title)}
+            keepPending={meeting.keepPending}
+            onKeep={(id, keep) => void meeting.keepSession(id, keep)}
             onDelete={(id) => void meeting.deleteSession(id)}
             onClose={() => setListOpen(false)}
           />

@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -69,8 +70,10 @@ from agentic_meeting.pipeline.text_input import TextInputHandler, extract_text
 from agentic_meeting.pipeline.tools import realtime_tools
 from agentic_meeting.pipeline.wake import WakeWordUserTurnStartStrategy
 from agentic_meeting.screen.ingest import FrameIngestor
-from agentic_meeting.store.db import Store
+from agentic_meeting.store.db import SessionBusy, Store
 from agentic_meeting.store.embeddings import EmbeddingClient
+from agentic_meeting.store.retention import RetentionWorker
+from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import Session
 
 # 不用轮次结束模型时，停顿多久算说完（pipecat-notes.md §3.2）。
@@ -99,6 +102,7 @@ class AppResources:
     tasks: Any = None  # 后台任务：TaskManager；没有就不能委托
     reports: Any = None  # 会后报告：ReportWorker
     background_models: list[BackgroundModel] = field(default_factory=list)
+    retention: RetentionWorker | None = None
     captions: Any = None  # 画面摘要：要用到 submit(IngestedFrame)
 
 
@@ -479,11 +483,13 @@ async def run_bot(
         session_id = requested_session_id(request_data)
         try:
             live = await (manager.attach(session_id) if session_id else manager.begin())
-        except SessionNotFound:
+        except (SessionNotFound, SessionBusy):
             # 协商之前校验过，走到这里说明会议在这一瞬间被删掉了
             logger.warning("要继续的会议已经不存在，断开这次连接")
             await connection.disconnect()
             return
+    if live is not None:
+        live.owner = asyncio.current_task()
     diarizer: Diarizer | None = None
     text_input: TextInputHandler | None = None
     context_manager: ContextManager | None = None
@@ -580,11 +586,19 @@ async def run_bot(
             # 实时模型 / 语音合成出错：换成一句看得懂的提示（architecture.md §9）
             await errors.on_error(frame)
 
+        ready_sent = False
+
         @worker.rtvi.event_handler("on_client_ready")
         async def _on_client_ready(_rtvi: Any) -> None:
             # 页面就绪之后才发：这之前发出的数据通道消息可能丢。页面自己也会用 HTTP 拉当前会话，这里只是更及时。
+            nonlocal ready_sent
+            if ready_sent:
+                return
+            ready_sent = True
             if live is not None:
-                await send(session_message(live.session, live.resumed, live.base_secs))
+                if live.stop_requested or live.done.is_set() or manager.live is not live:
+                    return
+                await send_session_ready(resources, live, send)
             for level, text in pending_notices:
                 await send({"type": "notice", "level": level, "text": text})
             pending_notices.clear()
@@ -603,15 +617,43 @@ async def run_bot(
             context_manager.warm_soon("继续会议")  # 重建出来的上下文先算好，第一次应答就不慢
         await runner.run()
     finally:
-        if context_manager is not None:
-            await context_manager.stop()
-        await activity.close()  # 同时让后台模型恢复：不能因为连接断在应答中途就一直停着
-        if text_input is not None:
-            await text_input.close()
-        if diarizer is not None:
-            await diarizer.close()  # 会话管理器持有的流在这里不会真的关掉（diar/stream.py）
-        if manager is not None and live is not None:
-            await manager.finish(live)
+
+        async def close() -> None:
+            if context_manager is not None:
+                await context_manager.stop()
+            await activity.close()  # 同时让后台模型恢复：不能因为连接断在应答中途就一直停着
+            if text_input is not None:
+                await text_input.close()
+            if diarizer is not None:
+                await diarizer.close()  # 会话管理器持有的流在这里不会真的关掉（diar/stream.py）
+            if manager is not None and live is not None:
+                await manager.finish(live)
+
+        await drain_io(close())
+
+
+async def send_session_ready(
+    resources: AppResources,
+    live: LiveConnection,
+    send: Callable[[dict[str, Any]], Awaitable[None]],
+) -> None:
+    """真正就绪时读当前 keep，再发送会话及可选的保存提示。"""
+    current = (
+        await resources.store.get_session(live.session.id)
+        if resources.store is not None
+        else live.session
+    )
+    if current is None or current.deletion_pending:
+        return
+    await send(session_message(current, live.resumed, live.base_secs))
+    if resources.cfg.session.recording_notice:
+        await send(
+            {
+                "type": "notice",
+                "level": "info",
+                "text": "会议正在转录，发言和共享画面会保存在服务器上",
+            }
+        )
 
 
 def session_message(session: Session, resumed: bool = False, base_secs: float = 0.0) -> dict:
@@ -620,6 +662,7 @@ def session_message(session: Session, resumed: bool = False, base_secs: float = 
         "type": "session",
         "id": session.id,
         "title": session.title,
+        "keep": session.keep,
         "started_at": session.started_at,
         "resumed": resumed,
         "base_secs": base_secs,

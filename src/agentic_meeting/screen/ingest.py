@@ -24,6 +24,8 @@ from loguru import logger
 from PIL import Image, UnidentifiedImageError
 
 from agentic_meeting.store.db import Store
+from agentic_meeting.store.retention import OwnedFiles
+from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import ScreenFrame, Session
 
 MAX_IMAGE_BYTES = 4 * 1024 * 1024
@@ -129,6 +131,7 @@ class FrameIngestor:
     ) -> None:
         self._store = store
         self._data_dir = Path(data_dir)
+        self._files = OwnedFiles(data_dir)
         self._max_side = max_side_px
         self._threshold = change_threshold
         self._now = now
@@ -143,14 +146,19 @@ class FrameIngestor:
 
     def path_of(self, frame: ScreenFrame) -> Path | None:
         """截图文件的绝对路径；数据库里的路径跑出了数据目录（不该发生）时返回 ``None``。"""
-        root = self._data_dir.resolve()
-        full = (root / frame.path).resolve()
-        return full if full.is_relative_to(root) else None
+        try:
+            return self._files.write_path(frame.session_id, frame.path)
+        except ValueError:
+            return None
 
     def forget(self, session_id: str) -> None:
         self._last.pop(session_id, None)
 
     async def ingest(self, session: Session, data: bytes, captured_at: float) -> IngestedFrame:
+        async with self._store.session_work(session.id):
+            return await self._ingest(session, data, captured_at)
+
+    async def _ingest(self, session: Session, data: bytes, captured_at: float) -> IngestedFrame:
         if len(data) > self._max_bytes:
             raise IngestError(413, f"截图太大（最多 {self._max_bytes // (1024 * 1024)} MB）")
         if not data:
@@ -161,7 +169,7 @@ class FrameIngestor:
                 400,
                 f"截图的采集时间与服务端时间相差超过 {self._max_skew:.0f} 秒，请刷新页面重新对时",
             )
-        decoded = await asyncio.to_thread(decode_image, data, max_side_px=self._max_side)
+        decoded = await drain_io(asyncio.to_thread(decode_image, data, max_side_px=self._max_side))
 
         last = self._last.get(session.id)
         changed = last is None or thumb_difference(last[1], decoded.thumb) > self._threshold
@@ -175,10 +183,12 @@ class FrameIngestor:
         )
         assert frame.id is not None
         try:
-            await asyncio.to_thread(self._write, self._data_dir / frame.path, data)
-        except OSError as e:
-            logger.exception("截图落盘失败")
-            await self._store.delete_frame(frame.id)
+            await drain_io(asyncio.to_thread(self._write_owned, frame, data))
+        except (OSError, ValueError) as e:
+            logger.warning("截图落盘失败：{}", type(e).__name__)
+            await self._store.delete_frame(
+                frame.id, session_id=frame.session_id, write_token=frame.write_token
+            )
             raise IngestError(500, "截图保存失败（磁盘不可写？）") from e
         if changed:
             # 只和上一张「变了」的图比：画面缓慢漂移时，累计的变化迟早会超过阈值
@@ -186,6 +196,9 @@ class FrameIngestor:
             return IngestedFrame(frame, True)
         assert last is not None
         return IngestedFrame(frame, False, same_as=last[0])
+
+    def _write_owned(self, frame: ScreenFrame, data: bytes) -> None:
+        self._write(self._files.write_path(frame.session_id, frame.path), data)
 
     @staticmethod
     def _write(path: Path, data: bytes) -> None:

@@ -39,6 +39,7 @@ The source of truth is the pydantic model in
 | `transcript`   | Merging of adjacent segments into one caption                                                                                     |
 | `report`       | Report provider and input size per request                                                                                        |
 | `agent`        | Remote model endpoint, extra request fields, output budget, screenshot attachment, MCP servers, sandbox, concurrency and timeouts |
+| `retention`    | Independent retention periods and cleanup interval (§1.1)                                                                         |
 
 Rules:
 
@@ -70,6 +71,27 @@ Rules:
 - Model-specific strings stay out of the code. Chat template, prefix format and output markers of
   the ASR model live in `config/asr_profiles/*.toml` (loaded by `load_asr_profile()`); prompts live
   in `config/prompts/*.md`. A test scans `src/` for model names.
+
+### 1.1 Retention and recording notice
+
+`[retention]` is optional. Each category is disabled independently by default; omitted settings
+retain existing data indefinitely. Values are strict integers (booleans are not integers).
+
+| Key                     | Default | Range / meaning                                        |
+| ----------------------- | ------- | ------------------------------------------------------ |
+| `transcript_days`       | `0`     | 0–36500; 0 disables transcript cleanup                 |
+| `screenshots_days`      | `0`     | 0–36500; 0 disables screenshot cleanup                 |
+| `reports_days`          | `0`     | 0–36500; 0 disables report and running-summary cleanup |
+| `task_artifacts_days`   | `0`     | 0–36500; 0 disables task-file cleanup                  |
+| `cleanup_interval_secs` | `3600`  | 60–86400; interval between cleanup passes              |
+
+An enabled day is exactly 86400 seconds, compared against server UTC Unix timestamps (§8.4).
+Zero never means immediate deletion. Negative, fractional, non-finite and out-of-range values
+are rejected. No additional paths, endpoints or secrets are configurable here.
+
+`session.recording_notice` is a boolean, default `true`. It controls the informational notice
+sent after a recording connection becomes ready (§6.1); it never disables the visible recording
+status or transcription itself. It is not a consent gate or a pre-connection dialog.
 
 ## 2. Database
 
@@ -193,6 +215,42 @@ error`. A session may have several; the page shows the latest and exports use th
 
 Columns added after the first schema are created by `Store._migrate` when an older database is
 opened.
+
+### 2.6 Retention metadata and write identities
+
+Additive, idempotent `Store._migrate` changes preserve existing data and ids:
+
+| Table                  | New columns                                                                      |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| `sessions`             | `keep INTEGER NOT NULL DEFAULT 0`, `deletion_pending INTEGER NOT NULL DEFAULT 0` |
+| `utterances`, `frames` | `write_token TEXT NOT NULL DEFAULT ''`                                           |
+| `reports`              | `write_token TEXT NOT NULL DEFAULT ''`, `finished_at REAL`                       |
+
+`keep` and `deletion_pending` store only 0/1. New sessions are not kept or pending. Migration
+assigns a fresh opaque random token to every old row whose token is empty, and initializes `finished_at` to
+`created_at` for old terminal reports (running reports remain null until startup recovery).
+It does not purge old data or change vector dimensions. Reopening the database changes nothing.
+
+Every new utterance, frame and report receives a fresh token; changing utterance text rotates
+its token and invalidates its vector. An asynchronous callback retains the token read with its
+original work item. Writes, failure updates and rollback deletes compare the original
+`session_id`, row id and token under the Store write lock; a missing, pending or mismatched row
+is skipped. Checking only a numeric id is insufficient because SQLite can reuse it. A skipped
+write cannot emit an old caption, append old context or recreate a file/row. Tokens are internal
+and are never serialized in HTTP, data-channel messages or exports.
+
+Task ids continue to increase within a session. Artifact expiry retains task rows, so the existing
+maximum-label allocation cannot reuse an expired task's label or directory. Full session deletion
+removes all tasks; a new meeting receives a new session id.
+
+Utterance and frame ids are monotonically increasing across the whole database, including after
+category or full-session deletion. The existing `meta` table stores decimal high-water values
+under `utterances_id_high_water` and `frames_id_high_water`. Migration initializes each to at least
+the maximum existing id and any retained reference (`digests.last_utterance_id` or task frame ids).
+Allocation advances the high-water value and inserts the explicit id under the same Store lock
+and transaction; rollback and restart preserve a valid high-water value. Deletion never lowers it.
+This preserves HTTP `after_id`, digest watermarks and historical task outbound frame references;
+token checks alone cannot protect these persistent cursors/references.
 
 ## 3. Streaming ASR
 
@@ -534,18 +592,18 @@ routes in §5.8 are outside `/api` and remain anonymous.
 
 ### 5.1 Sessions and clock synchronization
 
-| Method and path                                      | Request            | Response                                                                                                                |
-| ---------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/time`                                      | —                  | `{"server_time": <Unix seconds, float>}`                                                                                |
-| `GET /api/sessions?limit=20&before=<last_active_at>` | —                  | `{"items": [session summary]}`, newest `last_active_at` first; `before` pages backwards. `limit` is 1–500               |
-| `GET /api/sessions/{id}`                             | —                  | Session summary plus `screen` (the `[screen]` configuration), `members` and `connections`. 404 if unknown               |
-| `GET /api/session`                                   | —                  | The _current session_: the one with the live connection, otherwise the most recent unfinished one. 404 if there is none |
-| `PATCH /api/sessions/{id}`                           | `{"title": "..."}` | Updated summary. The title is trimmed and limited to 200 characters                                                     |
-| `POST /api/sessions/{id}/end`                        | —                  | `{"id", "ended_at"}`. A live session is disconnected first; the final running summary is produced in the background     |
-| `POST /api/session/end`                              | —                  | Same, for the current session                                                                                           |
-| `DELETE /api/sessions/{id}`                          | —                  | `{"id"}`. Screenshot files and task directories are removed. 409 for a live session                                     |
+| Method and path                                      | Request               | Response                                                                                                                |
+| ---------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/time`                                      | —                     | `{"server_time": <Unix seconds, float>}`                                                                                |
+| `GET /api/sessions?limit=20&before=<last_active_at>` | —                     | `{"items": [session summary]}`, newest `last_active_at` first; `before` pages backwards. `limit` is 1–500               |
+| `GET /api/sessions/{id}`                             | —                     | Session summary plus `screen` (the `[screen]` configuration), `members` and `connections`. 404 if unknown               |
+| `GET /api/session`                                   | —                     | The _current session_: the one with the live connection, otherwise the most recent unfinished one. 404 if there is none |
+| `PATCH /api/sessions/{id}`                           | `{"title"?, "keep"?}` | Updated summary; title is trimmed and limited to 200 characters; keep is a boolean                                      |
+| `POST /api/sessions/{id}/end`                        | —                     | `{"id", "ended_at"}`. A live session is disconnected first; the final running summary is produced in the background     |
+| `POST /api/session/end`                              | —                     | Same, for the current session                                                                                           |
+| `DELETE /api/sessions/{id}`                          | —                     | `{"id"}` only after complete database/vector/file removal; 409 while busy, 500 on deletion failure (§8.4)               |
 
-**Session summary:** `{"id", "title", "started_at", "ended_at", "last_active_at",
+**Session summary:** `{"id", "title", "keep": <boolean>, "deletion_pending": <boolean>, "started_at", "ended_at", "last_active_at",
 "state": "live" | "interrupted" | "ended", "duration_secs", "utterance_count", "speakers": [...],
 "preview": [{"speaker", "text"}]}`. `duration_secs` is the sum of the connection spans, excluding
 gaps; `preview` holds the last two captions. `connections` is
@@ -553,6 +611,21 @@ gaps; `preview` holds the last two captions. `connections` is
 
 Ending a live session sends `session_closed(reason="ended")` to the page, cancels the pipeline, waits
 for it to finish and then writes `ended_at`.
+
+PATCH requires a JSON object containing at least one of `title` or `keep`, with no unknown fields.
+`keep` accepts only JSON `true`/`false`, never null, numbers or strings. A keep-only PATCH preserves
+the title, a title-only PATCH preserves keep, and a combined PATCH is atomic. Invalid bodies return
+400 without changes; an unknown session returns 404. Keep may change while a meeting is live.
+It exempts all four categories from automatic cleanup, but does not override explicit deletion.
+
+A pending session remains in list/detail responses so the page can show **待删除**. Detail and
+summary remain readable with `deletion_pending=true`; their content may already be partly removed.
+Content reads/downloads/exports, PATCH, end, new report/task work and resume return 409 for this
+session. The page disables those actions, preserves retry DELETE and refreshes list/detail after
+a failed deletion. Keep cannot undo pending deletion. Successful DELETE returns 200 `{"id"}`;
+retrying an already completely removed id returns 404. Concurrent deletion of the same id returns
+409 while one attempt owns it. Authentication/CSRF requirements remain those of §5.7.
+When no live session exists, current-session lookup skips pending sessions.
 
 Clock synchronization: the browser records its local time before and after the request, `t0` and
 `t1`; the offset "server time − local time" is approximately `server_time − (t0 + t1) / 2`. Three
@@ -1159,8 +1232,24 @@ The server pushes `RTVIServerMessageFrame(data=<object>)`; the browser receives 
 | `task`             | `id, label, goal, status, brief, error, modality, created_at`             | Task created or changed; `id` is the full id and `label` the short one (`t3`)                                                                                                                                             |
 | `task_event`       | `task_id, at, kind, summary`                                              | Task progress                                                                                                                                                                                                             |
 | `notice`           | `level`: `info` / `warn` / `error`, `text`                                | Something the user should know, such as a degraded service. Errors of the realtime LLM and TTS are translated into notices by `pipeline/errors.py`; of Pipecat's own RTVI `error` messages the page shows only fatal ones |
-| `session`          | `id, title, started_at, resumed, base_secs, state`                        | Sent once after connecting: which session the connection belongs to, whether it is a resume, and the timeline origin of this connection                                                                                   |
+| `session`          | `id, title, keep, started_at, resumed, base_secs, state`                  | Sent once after connecting: which session the connection belongs to, its current keep flag, whether it is a resume, and the timeline origin of this connection                                                            |
 | `session_closed`   | `reason`: `taken_over` / `ended` / `server_stopping`                      | Why the server is about to close the connection (best effort)                                                                                                                                                             |
+
+The `session.keep` flag is read from current persisted state when the ready message is sent.
+With `session.recording_notice=true`, send one existing `notice` with `level="info"` and
+`text="会议正在转录，发言和共享画面会保存在服务器上"` after the session message for each successful
+ready connection, including new meetings and manual resumes. Repeated ready
+callbacks for the same connection do not repeat it. Disabling this setting suppresses only this
+notice. The pinned client SDK does not repeat RTVI client-ready on automatic reconnect (§12 of
+[pipecat-notes.md](pipecat-notes.md)), so automatic reconnect restores status through existing
+transport/HTTP synchronization and does not repeat this notice. No new configuration HTTP endpoint is needed; failure to load meeting detail does not
+hide recording status.
+
+The client's recording status is always visible, independent of the assistant's wake/speech state.
+Only its own ready, registered recording connection is labelled **正在转录**; connecting/reconnecting,
+disconnected and read-only views of another live connection use distinct states. `session_closed`
+immediately clears the recording indication before the transport's disconnect callback. This
+indicates transcription, not storage of raw audio; raw microphone audio is not archived.
 
 `segment_id` is an increasing integer generated by the server; one speech span may produce several
 when the speaker changes.
@@ -1386,6 +1475,97 @@ give "正在检索「…」"; `url` gives "正在打开「…」"; anything else
 only characterized — returned a result of about N characters, returned an error, returned nothing —
 and never read out. `note` events report an unavailable sandbox or search service. Quoted queries
 are limited to 60 characters.
+
+### 8.4 Retention cleanup and complete deletion
+
+**Independent categories and clocks.** A pass samples `now` once in UTC. For each enabled category
+`cutoff = now - days * 86400`; only anchors strictly less than cutoff expire (equality is retained).
+`inactive_at = max(started_at, last_active_at, ended_at if present)` is the inactivity anchor.
+Live sessions and protected background work are never expired, even when wall time jumps forward.
+Interrupted sessions can expire without being explicitly ended; future anchors are retained.
+
+| Category       | Deletion set                                                                                            | Anchor                                                                               |
+| -------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Transcript     | Session utterances, their `utterances_vec` rows and FTS entries                                         | Session `inactive_at`                                                                |
+| Screenshots    | Frame rows including captions, and the application-owned `frames/` subtree                              | Session `inactive_at`                                                                |
+| Reports        | Terminal report rows and running-summary (`digests`) rows                                               | Each report's `finished_at`; each digest's `created_at`                              |
+| Task artifacts | Application-owned directories of terminal tasks and each task's `artifacts_json` list (cleared to `[]`) | Each task's `finished_at`; legacy terminal rows lacking it fall back to `created_at` |
+
+Task goals, results, sources, events and outbound metadata (which may contain original meeting
+text or image references) remain until full meeting deletion.
+Session title, speakers, connection history, keep flag and other session metadata likewise remain.
+Report and screenshot descriptions, task input copies/results and externally downloaded exports
+are separate copies of meeting content: expiring transcripts does not erase those other categories.
+New reports are aged from completion, new digests from creation and task files from task completion,
+not from the original meeting start. Retention never scans or deletes operators' exported files,
+logs, configuration, certificates, auth secrets, database root or model/runtime directories.
+
+**Scheduling and protection.** A single lifespan-owned worker runs after Store migrations and
+task/report startup recovery, then every `cleanup_interval_secs`. It runs even with all periods
+zero to retry pending manual deletions; zero periods perform no category cleanup. Passes never
+overlap. Each pass admits at most 50 candidate sessions and starts no new destructive unit after
+10 seconds; these are scheduling limits, not a promise that an already running filesystem call
+can be interrupted. Slow file work runs off the event loop and is drained before releasing its
+ownership. Failures in one candidate do not stop later candidates or ASR/captions; skipped/failed
+candidates are revisited on later passes without permanently starving other expired sessions.
+
+Selection alone grants no permission to delete. The final claim is serialized with begin/attach,
+keep PATCH, task submission, report start and background-write admission using the existing
+SessionManager lifecycle coordination and Store write lock (manager before Store, never reversed).
+Re-read current keep/pending, time anchors and task state at this point. Keep or attach that wins
+before an automatic claim prevents deletion; after a claim, conflicting operations return 409
+until it is released. No global lifecycle/Store lock is held across filesystem work or model calls.
+
+Offer validation checks pending before negotiation, but is not the final attachment check.
+`SessionManager.attach` rechecks under the same coordination before reopening or creating its
+connection record. If deletion wins after a validated offer but before attachment, refuse the
+attachment, send a safe notice/close the negotiated connection and never start its pipeline.
+
+Protect the whole session while live (including assembly before worker registration), taking
+over/stopping while an old worker still has not actually finished, queued/running tasks in the
+database, or admitted task-finalization/event writes, reports, digests, caption work/followers,
+frame ingestion/file writes and recorder retries/corrections. A SQL terminal state or cleared
+`_live` after takeover timeout does not prove all producers have finished. Busy automatic
+candidates are skipped; busy manual DELETE returns 409 without setting pending or cancelling
+productive work. Embedding requests may complete after a deletion only because token-checked
+writeback skips removed/changed rows (§2.6). Starts and late inserts into a claimed/pending
+session are refused; cached source ids and snapshots must not regenerate removed content.
+
+**Files and retry.** Automatic category cleanup removes its own files before committing deletion
+of corresponding rows or artifact lists. A real I/O failure retains their database ownership and
+is retried by later passes; absent files are successful no-ops. Database failures roll back.
+Different categories do not delete one another. This is not an atomic database/filesystem
+transaction: partial file removal remains possible. Keep enabled before the next claim prevents
+further automatic removal, but cannot restore files already removed.
+
+Manual DELETE ignores keep. After passing the busy checks it persistently sets `deletion_pending=1`
+before file removal. It then removes only that session's owned files and commits vector removal
+plus session deletion (foreign-key cascades cover utterances, frames, digests, reports,
+speakers, connections, tasks and task events); FTS delete triggers remove the deleted utterances'
+index entries. `deletion_pending` remains on any real filesystem or database failure and on
+cancellation after the claim: return 500 for a failed HTTP attempt,
+log it and retry through DELETE, later passes and process restart even with retention disabled.
+Never acknowledge complete success while files remain or a database commit failed. Release
+diarizer/frame/caption/task caches only when safe; no delayed producer may recreate deleted files
+or write content into a reused id. Multiple requests/worker attempts share exclusive ownership
+of this session, not parallel file deletion.
+
+**Path ownership.** Resolve the configured data root once; delete only fixed descendants
+`sessions/<uuid-hex>/frames` and `sessions/<uuid-hex>/tasks/<tN>`, or the single owned session
+subtree for full deletion. Validate session and task labels; never trust arbitrary persisted
+paths as deletion roots. Refuse a symlink/reparse point or path escape in intermediate components
+(including `sessions` and the session directory); do not recurse through a linked directory.
+A link inside the owned subtree is unlinked without following its target. Safety refusals count
+as real failures and retain ownership for retry after operator repair. Apply the same ownership
+rule at file-write admission and actual writes; cancelling `to_thread` is insufficient, so wait
+for the underlying write to finish before releasing the session's in-flight protection.
+
+**Logging and shutdown.** Log category, operation, opaque ids/counts, outcome and a safe error
+type; no transcript, caption, title, goal, credentials or exception text containing content/private
+paths. Log success only after both required file work and database commit; retries remain visible.
+Shutdown closes cleanup admission first, cancels/waits for its task and drains started file work,
+then closes/waits for existing producers before Store.close. A pending attempt survives shutdown.
+No inference calls, dependency additions or generic monitoring/job framework are required.
 
 ## 9. Command lines of the inference services
 

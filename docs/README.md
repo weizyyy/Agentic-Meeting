@@ -8,6 +8,7 @@
 | ------------------------------------- | -------------------------------------------------------------------- |
 | [Getting started](getting-started.md) | Installation, model files, first run, HTTPS                          |
 | [User guide](user-guide.md)           | Working with the web page during and after a meeting                 |
+| [Data governance](data-governance.md) | Stored data, destinations, retention, keep and deletion limits       |
 | [Configuration](configuration.md)     | Every section of `config.toml`                                       |
 | [Troubleshooting](troubleshooting.md) | Microphone level, wake word, degraded services                       |
 | [Deployment](deployment.md)           | Reverse proxy and HTTPS, TURN, checklist before exposing an instance |

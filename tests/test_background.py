@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from waiting import wait_until
 
 from agentic_meeting.pipeline.activity import AssistantActivity
 from agentic_meeting.pipeline.background import BackgroundModel, Preempted
@@ -193,8 +194,11 @@ async def test_wake_without_a_reply_ends_with_wake_window_or_watchdog():
 
     activity, seen = tracked(awaiting_timeout_secs=0.03)
     await activity.wake_detected()
-    await asyncio.sleep(0.1)
-    assert seen == [True, False]
+    try:
+        await wait_until(lambda: seen == [True, False], description="助理看门狗解除忙状态")
+        assert seen == [True, False]
+    finally:
+        await activity.close()
 
 
 async def test_watchdog_does_not_fire_once_generation_started():
@@ -219,8 +223,11 @@ async def test_short_gap_between_generation_and_speech_does_not_flap():
     assert seen == [True] and activity.busy
     await activity.set_speaking(False)
     assert activity.busy  # 还没过延迟
-    await asyncio.sleep(0.1)
-    assert seen == [True, False]
+    try:
+        await wait_until(lambda: seen == [True, False], description="助理看门狗解除忙状态")
+        assert seen == [True, False]
+    finally:
+        await activity.close()
 
 
 async def test_listener_errors_are_contained_and_async_listeners_are_awaited():

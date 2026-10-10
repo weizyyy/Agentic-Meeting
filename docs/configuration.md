@@ -10,7 +10,7 @@ once.
 Secrets are never stored in this file. Fields ending in `_env` hold the **name** of an environment
 variable; the value goes in `.env` (see [`.env.example`](../.env.example)).
 
-- [`[session]`](#session) · [`[server]`](#server) · [`[realtime_llm]`](#realtime_llm) ·
+- [`[session]`](#session) · [`[retention]`](#retention) · [`[server]`](#server) · [`[realtime_llm]`](#realtime_llm) ·
   [`[asr]`](#asr) · [`[diarization]`](#diarization) · [`[tts]`](#tts) · [`[embedding]`](#embedding)
 - [`[audio]`](#audio) · [`[turn]`](#turn) · [`[realtime]`](#realtime) · [`[screen]`](#screen) ·
   [`[transcript]`](#transcript) · [`[report]`](#report) · [`[agent]`](#agent)
@@ -25,6 +25,22 @@ variable; the value goes in `.env` (see [`.env.example`](../.env.example)).
 | `wake_aliases`   | `[]`     | Other spellings that also wake the assistant: English words, or strings of two or more Chinese characters. Useful when ASR keeps writing the name a certain way, e.g. `["Novel", "诺瓦"]` for `Nova` |
 | `hotwords`       | `[]`     | Terms passed to ASR as hints: member names, project jargon, abbreviations                                                                                                                            |
 | `members`        | `[]`     | Names offered as suggestions when renaming speakers                                                                                                                                                  |
+
+`recording_notice` defaults to `true` and controls the start notice after the connection is ready. Setting it to `false` does not hide the fixed transcription status or disable transcription. This is not a consent dialog. New meetings and manual resumes show it once when actually ready; SDK automatic reconnection does not repeat it.
+
+## `[retention]`
+
+Each category is independent and defaults to `0` (no automatic cleanup). Zero never means immediate deletion.
+
+| Key                     | Default | Range and meaning                                                             |
+| ----------------------- | ------- | ----------------------------------------------------------------------------- |
+| `transcript_days`       | `0`     | 0–36500; utterances, vectors and full-text index                              |
+| `screenshots_days`      | `0`     | 0–36500; screenshot files and rows, including captions                        |
+| `reports_days`          | `0`     | 0–36500; terminal reports and running summaries                               |
+| `task_artifacts_days`   | `0`     | 0–36500; terminal task directories and artifact lists, not task input/results |
+| `cleanup_interval_secs` | `3600`  | 60–86400; seconds between cleanup passes                                      |
+
+Periods must be integers, not booleans, negative/fractional or out-of-range values. A day is 86400 seconds, compared using server UTC timestamps; meetings, reports, digests and tasks have different anchors. Live meetings and protected background work are skipped. Keep exempts all four categories from automatic cleanup; explicit deletion still applies. Interrupted meetings can expire without being ended. See [Data governance](data-governance.md#3-retention-and-keep) for clocks, surviving copies and retries.
 
 ## `[server]`
 

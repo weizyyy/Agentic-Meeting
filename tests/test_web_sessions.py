@@ -118,7 +118,7 @@ async def test_session_list_shows_state_summary_and_orders_by_activity(env):
     ]
     assert set(row) == {
         "id", "title", "started_at", "ended_at", "last_active_at", "state",
-        "duration_secs", "utterance_count", "speakers", "preview",
+        "duration_secs", "utterance_count", "speakers", "preview", "keep", "deletion_pending",
     }  # fmt: skip
     assert by_id[ended.id]["ended_at"] == 1100.0 and row["ended_at"] is None
 
@@ -137,11 +137,14 @@ async def test_session_list_paging(env):
     assert (await env.client.get("/api/sessions", params={"limit": 0})).status_code == 422
 
 
-async def test_live_session_duration_counts_up_to_now(env):
+async def test_live_session_duration_counts_up_to_now(env, monkeypatch):
+    clock = [1000.0]
+    monkeypatch.setattr(env.manager, "_now", lambda: clock[0])
+    monkeypatch.setattr("agentic_meeting.web.sessions_api.time.time", lambda: clock[0])
     live, _, _ = await env.go_live()
-    await asyncio.sleep(0.05)
+    clock[0] += 5.0
     (row,) = (await env.client.get("/api/sessions")).json()["items"]
-    assert row["state"] == "live" and row["duration_secs"] > 0
+    assert row["state"] == "live" and row["duration_secs"] == 5.0
 
 
 async def test_session_detail_has_screen_settings_and_connections(env, cfg):
@@ -261,7 +264,7 @@ async def test_delete_removes_the_session_its_rows_and_its_files(env, cfg):
 async def test_a_live_session_cannot_be_deleted(env):
     live, _, _ = await env.go_live()
     response = await env.client.delete(f"/api/sessions/{live.session.id}")
-    assert response.status_code == 409 and "结束" in response.json()["error"]
+    assert response.status_code == 409 and "处理" in response.json()["error"]
     assert await env.store.get_session(live.session.id) is not None
 
 
@@ -637,3 +640,69 @@ async def test_reassign_endpoint_errors(env):
         "/api/utterances/speaker", json={**base, "ids": [9999], "speaker_idx": 1}
     )
     assert r.status_code == 200 and r.json()["ids"] == []
+
+
+async def test_keep_patch_preserves_title_and_supports_atomic_combined_update(env):
+    meeting = await env.meeting("保留原标题", [])
+    result = await env.client.patch(f"/api/sessions/{meeting.id}", json={"keep": True})
+    assert result.status_code == 200
+    assert result.json()["title"] == "保留原标题" and result.json()["keep"] is True
+    result = await env.client.patch(
+        f"/api/sessions/{meeting.id}", json={"keep": False, "title": "新标题"}
+    )
+    assert result.status_code == 200
+    assert result.json()["title"] == "新标题" and result.json()["keep"] is False
+    for body in ({}, {"keep": 1}, {"keep": "false"}, {"keep": None}, {"title": None}, {"other": 1}):
+        assert (await env.client.patch(f"/api/sessions/{meeting.id}", json=body)).status_code == 400
+    live, _, _ = await env.go_live()
+    assert (
+        await env.client.patch(f"/api/sessions/{live.session.id}", json={"keep": True})
+    ).status_code == 200
+
+
+async def test_delete_failure_is_visible_pending_only_metadata_and_retry_allowed(env, monkeypatch):
+    meeting = await env.meeting("虚构失败会议", [(1, "虚构文本")])
+    frame = await env.store.add_frame(meeting.id, t=1, width=1, height=1, suffix=".webp")
+    task = await env.store.create_task(meeting.id, goal="虚构任务")
+    await env.store.update_task(task.id, status="succeeded", finished_at=2)
+    cleaner = env.app.state.resources.retention
+    original = cleaner.files.remove_session
+
+    def broken(_sid):
+        raise OSError("PRIVATE_SENTINEL")
+
+    monkeypatch.setattr(cleaner.files, "remove_session", broken)
+    response = await env.client.delete(f"/api/sessions/{meeting.id}")
+    assert response.status_code == 500 and "PRIVATE_SENTINEL" not in response.text
+    detail = await env.client.get(f"/api/sessions/{meeting.id}")
+    assert detail.status_code == 200 and detail.json()["deletion_pending"] is True
+    assert (await env.client.get("/api/sessions")).json()["items"][0]["deletion_pending"] is True
+    assert (await env.client.get("/api/session")).status_code == 404
+    for path in (
+        f"/api/utterances?session_id={meeting.id}",
+        f"/api/speakers?session_id={meeting.id}",
+        f"/api/frames?session_id={meeting.id}",
+        f"/api/frames/{frame.id}/image",
+        f"/api/tasks?session_id={meeting.id}",
+        f"/api/tasks/{task.id}",
+        f"/api/tasks/{task.id}/artifacts/result.txt",
+        f"/api/sessions/{meeting.id}/report",
+        f"/api/sessions/{meeting.id}/report.md",
+        f"/api/export/{meeting.id}.json",
+    ):
+        assert (await env.client.get(path)).status_code == 409, path
+    assert (
+        await env.client.patch(f"/api/sessions/{meeting.id}", json={"keep": True})
+    ).status_code == 409
+    assert (await env.client.post(f"/api/sessions/{meeting.id}/end")).status_code == 409
+    assert (await env.client.post(f"/api/sessions/{meeting.id}/report")).status_code == 409
+    assert (
+        await env.client.post(
+            "/api/offer",
+            json={"sdp": "fake", "type": "offer", "requestData": {"session_id": meeting.id}},
+        )
+    ).status_code == 409
+    assert (await env.store.get_session(meeting.id)).deletion_pending
+    monkeypatch.setattr(cleaner.files, "remove_session", original)
+    assert (await env.client.delete(f"/api/sessions/{meeting.id}")).status_code == 200
+    assert (await env.client.delete(f"/api/sessions/{meeting.id}")).status_code == 404

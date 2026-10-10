@@ -44,6 +44,7 @@ export interface Notice {
 
 export interface MeetingState {
   connection: ConnectionState;
+  viewRequest: number;
   /** 字幕区的行：已落库的发言（定稿）和还在说的实时字幕 */
   captions: CaptionLine[];
   /** 助理这一轮应答的流式文字 */
@@ -91,6 +92,7 @@ export const PAGE_SIZE = 50;
 
 export const initialState: MeetingState = {
   connection: "disconnected",
+  viewRequest: 0,
   captions: [],
   assistantText: "",
   assistantState: "idle",
@@ -115,6 +117,7 @@ export const initialState: MeetingState = {
 
 export type Action =
   | { type: "connecting" }
+  | { type: "viewRequested"; requestId: number }
   | { type: "transport"; transport: string }
   | { type: "caption"; message: CaptionMessage }
   | { type: "utterance"; message: UtteranceMessage }
@@ -136,6 +139,7 @@ export type Action =
   | { type: "sessionsLoaded"; items: SessionSummary[] }
   | {
       type: "viewLoaded";
+      requestId?: number;
       detail: SessionDetail | null;
       items: HistoryItem[];
       speakers: SpeakerInfo[];
@@ -143,7 +147,7 @@ export type Action =
   | { type: "olderLoaded"; items: HistoryItem[] }
   | { type: "backfilled"; items: HistoryItem[] }
   | { type: "speakersLoaded"; speakers: SpeakerInfo[] }
-  | { type: "sessionRenamed"; summary: SessionSummary }
+  | { type: "sessionUpdated"; summary: SessionSummary }
   | { type: "sessionRemoved"; id: string }
   | { type: "frame"; frame: Omit<FrameItem, "caption"> }
   | { type: "frameCaption"; id: number; caption: string }
@@ -192,27 +196,44 @@ function withSpeaker(speakers: SpeakerInfo[], idx: number, name: string): Speake
   return [...speakers, { idx, display_name: name }].sort((a, b) => a.idx - b.idx);
 }
 
+function isPending(state: MeetingState, id: string): boolean {
+  return (
+    (state.viewing?.id === id && state.viewing.deletion_pending) ||
+    state.sessions.some((s) => s.id === id && s.deletion_pending)
+  );
+}
+
 export function reduce(state: MeetingState, action: Action): MeetingState {
   switch (action.type) {
+    case "viewRequested":
+      return { ...state, viewRequest: action.requestId };
     case "connecting":
       return { ...state, connection: "connecting", closedReason: null };
     case "reconnecting":
       return { ...state, reconnectAttempt: action.attempt };
     case "reportLoaded":
-      if (state.viewing?.id !== action.sessionId) return state; // 取回来时已经切到别的会议了
+      if (state.viewing?.id !== action.sessionId || state.viewing.deletion_pending) return state; // 取回来时已经切到别的会议了
       return { ...state, report: action.report };
     case "reconnectStopped":
       return { ...state, reconnectAttempt: 0 };
     case "detailRefreshed": {
       // 轮询或重连之后拿到的最新会话信息：只更新正在显示的这一场
-      if (state.viewing?.id !== action.detail.id) return state;
+      if (
+        state.viewing?.id !== action.detail.id ||
+        (!action.detail.deletion_pending && isPending(state, action.detail.id))
+      )
+        return state;
       return {
         ...state,
         viewing: action.detail,
+        captions: action.detail.deletion_pending ? [] : state.captions,
+        speakers: action.detail.deletion_pending ? [] : state.speakers,
+        frames: action.detail.deletion_pending ? [] : state.frames,
+        tasks: action.detail.deletion_pending ? [] : state.tasks,
+        report: action.detail.deletion_pending ? null : state.report,
+        hasOlder: action.detail.deletion_pending ? false : state.hasOlder,
         connections: action.detail.connections ?? state.connections,
-        sessions: state.sessions.map((s) =>
-          s.id === action.detail.id ? { ...s, state: action.detail.state } : s,
-        ),
+        sessions: state.sessions.map((s) => (s.id === action.detail.id ? action.detail : s)),
       };
     }
     case "speakersMerged": {
@@ -234,6 +255,11 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
       return {
         ...state,
         connection,
+        closedReason:
+          (connection !== "connected" && !reset) ||
+          (connection === "connected" && state.connection !== "connected")
+            ? null
+            : state.closedReason,
         assistantState: reset ? "idle" : state.assistantState,
         liveSessionId: reset ? null : state.liveSessionId,
         reconnectAttempt: connection === "connected" ? 0 : state.reconnectAttempt,
@@ -275,7 +301,11 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
       return {
         ...state,
         liveSessionId: action.message.id,
-        viewing: switching ? summaryFromSessionMessage(action.message) : state.viewing,
+        viewing: switching
+          ? summaryFromSessionMessage(action.message)
+          : state.viewing
+            ? { ...state.viewing, keep: action.message.keep }
+            : null,
         captions: switching ? [] : state.captions,
         speakers: switching ? [] : state.speakers,
         hasOlder: switching ? false : state.hasOlder,
@@ -289,6 +319,8 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
       return {
         ...pushNotice(state, "warn", SESSION_CLOSED_TEXT[action.message.reason]),
         closedReason: action.message.reason,
+        liveSessionId: null,
+        sharing: false,
       };
     case "assistantState":
       // 被叫到名字（在听）或开始朗读，说明这一轮是语音应答
@@ -308,9 +340,28 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
       return pushNotice(state, action.level, action.text);
     case "dismissNotice":
       return { ...state, notices: state.notices.filter((n) => n.id !== action.id) };
-    case "sessionsLoaded":
-      return { ...state, sessions: action.items };
+    case "sessionsLoaded": {
+      const sessions = action.items.map((s) =>
+        !s.deletion_pending && isPending(state, s.id) ? { ...s, deletion_pending: true } : s,
+      );
+      const current = sessions.find((s) => s.id === state.viewing?.id);
+      const viewing = current && state.viewing ? { ...state.viewing, ...current } : state.viewing;
+      return {
+        ...state,
+        sessions,
+        viewing,
+        captions: viewing?.deletion_pending ? [] : state.captions,
+        speakers: viewing?.deletion_pending ? [] : state.speakers,
+        frames: viewing?.deletion_pending ? [] : state.frames,
+        tasks: viewing?.deletion_pending ? [] : state.tasks,
+        report: viewing?.deletion_pending ? null : state.report,
+        hasOlder: viewing?.deletion_pending ? false : state.hasOlder,
+      };
+    }
     case "viewLoaded":
+      if (action.requestId !== undefined && action.requestId !== state.viewRequest) return state;
+      if (action.detail && !action.detail.deletion_pending && isPending(state, action.detail.id))
+        return state;
       return {
         ...state,
         viewing: action.detail,
@@ -319,23 +370,36 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
         members: action.detail?.members ?? state.members,
         hasOlder: action.items.length >= PAGE_SIZE,
         // 换了一场会议：时间线先清空，随后由 framesLoaded 填上
-        frames: action.detail?.id === state.viewing?.id ? state.frames : [],
-        tasks: action.detail?.id === state.viewing?.id ? state.tasks : [],
+        frames:
+          !action.detail?.deletion_pending && action.detail?.id === state.viewing?.id
+            ? state.frames
+            : [],
+        tasks:
+          !action.detail?.deletion_pending && action.detail?.id === state.viewing?.id
+            ? state.tasks
+            : [],
         screen: action.detail ? parseScreenConfig(action.detail.screen) : state.screen,
         connections: action.detail?.connections ?? [],
-        report: action.detail?.id === state.viewing?.id ? state.report : null,
+        report:
+          !action.detail?.deletion_pending && action.detail?.id === state.viewing?.id
+            ? state.report
+            : null,
       };
     case "olderLoaded":
+      if (state.viewing?.deletion_pending) return state;
       return {
         ...state,
         captions: prependHistory(state.captions, action.items),
         hasOlder: action.items.length >= PAGE_SIZE,
       };
     case "backfilled":
+      if (state.viewing?.deletion_pending) return state;
       return { ...state, captions: appendHistory(state.captions, action.items) };
     case "speakersLoaded":
+      if (state.viewing?.deletion_pending) return state;
       return { ...state, speakers: action.speakers };
-    case "sessionRenamed":
+    case "sessionUpdated":
+      if (!action.summary.deletion_pending && isPending(state, action.summary.id)) return state;
       return {
         ...state,
         viewing: state.viewing?.id === action.summary.id ? action.summary : state.viewing,
@@ -367,12 +431,12 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
     case "taskEvent":
       return { ...state, tasks: applyTaskEvent(state.tasks, action.taskId, action.summary) };
     case "tasksLoaded":
-      if (state.viewing?.id !== action.sessionId) return state; // 取回来时已经切到别的会议了
+      if (state.viewing?.id !== action.sessionId || state.viewing.deletion_pending) return state; // 取回来时已经切到别的会议了
       return { ...state, tasks: replaceTasks(state.tasks, action.items) };
     case "frameCaption":
       return { ...state, frames: applyFrameCaption(state.frames, action.id, action.caption) };
     case "framesLoaded":
-      if (state.viewing?.id !== action.sessionId) return state; // 取回来时已经切到别的会议了
+      if (state.viewing?.id !== action.sessionId || state.viewing.deletion_pending) return state; // 取回来时已经切到别的会议了
       return {
         ...state,
         frames: action.merge

@@ -8,6 +8,7 @@ from urllib.parse import unquote
 
 import httpx
 import pytest
+from waiting import wait_until
 
 from agentic_meeting.pipeline.background import Preempted
 from agentic_meeting.pipeline.prompts import load_prompt
@@ -346,8 +347,10 @@ async def test_stopping_and_restarting_marks_unfinished_reports_failed(store):
     model.gate.clear()
     worker = worker_for(store, model)
     await worker.start(session.id)
-    await asyncio.sleep(0.05)
-    await worker.stop()  # 服务停止
+    try:
+        await wait_until(lambda: bool(model.calls), description="报告模型请求开始")
+    finally:
+        await worker.stop()  # 服务停止
     report = await store.latest_report(session.id)
     assert (report.status, report.error) == ("failed", INTERRUPTED_REASON)
 

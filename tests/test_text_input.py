@@ -28,6 +28,7 @@ from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
 from pipecat.tests.utils import SleepFrame, run_test
 from test_bot import PCM, FakeTransport, completion_chunk, sse
 from test_meeting_recorder import CallSignal, Hook
+from waiting import wait_until
 
 from agentic_meeting.pipeline.bot import (
     build_parts,
@@ -194,9 +195,11 @@ async def test_a_silent_model_does_not_block_the_queue_forever():
     await rig.handler.handle("甲")
     await rig.handler.handle("乙")  # 排队
     assert rig.lines() == ["[00:00:05 文字输入] 甲"]
-    await asyncio.sleep(0.2)  # 一直没有「开始回答」的事件（比如模型出错了）
-    assert rig.lines() == ["[00:00:05 文字输入] 甲", "[00:00:05 文字输入] 乙"]
-    await rig.handler.close()
+    try:
+        await wait_until(lambda: len(rig.lines()) == 2, description="无响应看门狗处理下一条")
+        assert rig.lines() == ["[00:00:05 文字输入] 甲", "[00:00:05 文字输入] 乙"]
+    finally:
+        await rig.handler.close()
 
 
 async def test_the_watchdog_stands_down_once_the_answer_starts():
@@ -317,7 +320,9 @@ class MemoryStore:
     async def speaker_name(self, session_id: str, idx: int) -> str:
         return default_speaker_name(idx, "Nova")
 
-    async def update_utterance_speaker(self, utterance_id: int, speaker_idx: int) -> bool:
+    async def update_utterance_speaker(
+        self, utterance_id: int, speaker_idx: int, **identity
+    ) -> bool:
         return True
 
 

@@ -336,7 +336,7 @@ class FakeSandbox:
     async def put_inputs(self, files):
         self.inputs.update(files)
 
-    async def fetch(self, names, dest: Path):
+    async def fetch(self, names, dest: Path, *, write=None):
         got = []
         for name in names:
             if name in self.files:

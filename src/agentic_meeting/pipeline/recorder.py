@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import uuid
 from collections.abc import Awaitable, Callable
 from time import monotonic
 from typing import Any, Protocol
@@ -85,7 +86,9 @@ class RecorderStore(Protocol):
 
     async def speaker_name(self, session_id: str, idx: int) -> str: ...
 
-    async def update_utterance_speaker(self, utterance_id: int, speaker_idx: int) -> bool: ...
+    async def update_utterance_speaker(
+        self, utterance_id: int, speaker_idx: int, *, session_id: str, write_token: str
+    ) -> bool: ...
 
 
 class MeetingRecorder(FrameProcessor):
@@ -577,18 +580,31 @@ class MeetingRecorder(FrameProcessor):
         text = join_fragments(prev.text, final.text)
         t_end = max(prev.t_end, final.t_end)
         try:
-            if not await extend(prev.id, text=text, t_end=t_end):
+            next_token = uuid.uuid4().hex
+            if not await extend(
+                prev.id,
+                text=text,
+                t_end=t_end,
+                session_id=prev.session_id,
+                write_token=prev.write_token,
+                next_token=next_token,
+            ):
                 return None
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("把片段并进上一条发言失败，改为另存一条")
             return None
-        prev.text, prev.t_end = text, t_end
+        prev.text, prev.t_end, prev.write_token = text, t_end, next_token
         if prev.speaker_idx == SPEAKER_UNKNOWN and final.speaker_idx != SPEAKER_UNKNOWN:
             # 上一段太短，当时说话人还没有结论；这一段有了
             try:
-                if await self._store.update_utterance_speaker(prev.id, final.speaker_idx):
+                if await self._store.update_utterance_speaker(
+                    prev.id,
+                    final.speaker_idx,
+                    session_id=prev.session_id,
+                    write_token=prev.write_token,
+                ):
                     prev.speaker_idx = final.speaker_idx
             except Exception:
                 logger.exception("补上发言的说话人失败")
@@ -662,15 +678,21 @@ class MeetingRecorder(FrameProcessor):
         """
         for _ in range(self._recheck_attempts):
             await asyncio.sleep(self._recheck_interval)
-            segments = await self._segments(utterance.t_start - 1.0)
+            token = utterance.write_token
             current = UtteranceFinal(
                 0, utterance.speaker_idx, utterance.t_start, utterance.t_end, utterance.text
             )
+            segments = await self._segments(current.t_start - 1.0)
             new_idx = self._assembler.recheck(current, segments)
             if new_idx is None or utterance.id is None or self._store is None:
                 continue
             try:
-                updated = await self._store.update_utterance_speaker(utterance.id, new_idx)
+                updated = await self._store.update_utterance_speaker(
+                    utterance.id,
+                    new_idx,
+                    session_id=utterance.session_id,
+                    write_token=token,
+                )
             except Exception:
                 logger.exception("更正发言的说话人失败")
                 continue

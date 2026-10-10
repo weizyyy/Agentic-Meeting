@@ -39,6 +39,8 @@ from agentic_meeting.config import AppConfig, MCPServerConfig, SandboxConfig, se
 from agentic_meeting.pipeline.clock import context_line, format_hms
 from agentic_meeting.screen.ingest import media_type_of
 from agentic_meeting.store.db import Store
+from agentic_meeting.store.retention import OwnedFiles
+from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import NamedUtterance, TaskRecord, TaskResult
 
 AGENT_NAME = "研究助理"
@@ -298,11 +300,29 @@ class AgentRunner:
             raise RunnerError("没有安装后台 agent 的依赖（uv sync --extra agent）") from e
         import openai
 
-        workdir = task_dir(self._data_dir, task)
-        await asyncio.to_thread(workdir.mkdir, parents=True, exist_ok=True)
+        owned = OwnedFiles(self._data_dir)
+        workdir = task_dir(owned.root, task)
+
+        def write_owned(path: Path, data: bytes) -> None:
+            safe = owned.write_path(task.session_id, str(path.relative_to(owned.root)))
+            safe.parent.mkdir(parents=True, exist_ok=True)
+            safe.write_bytes(data)
+
+        def prepare() -> None:
+            owned.write_path(task.session_id, str((workdir / "input").relative_to(owned.root)))
+            workdir.mkdir(parents=True, exist_ok=True)
+
+        await drain_io(asyncio.to_thread(prepare))
         files = await self._screenshots(task)
         if files:
-            await asyncio.to_thread(_write_inputs, workdir / INPUT_DIR, files)
+            await drain_io(
+                asyncio.to_thread(
+                    lambda: [
+                        write_owned(workdir / INPUT_DIR / name, data)
+                        for name, data in files.items()
+                    ]
+                )
+            )
         utterances = await self._store.recall(
             task.session_id, t_from=task.t_from, t_to=task.t_to, limit=MAX_TRANSCRIPT_LINES
         )
@@ -377,7 +397,7 @@ class AgentRunner:
 
             parsed = parse_result(result.final_output)
             if parsed.artifacts and sandbox is not None:
-                parsed.artifacts = await sandbox.fetch(parsed.artifacts, workdir)
+                parsed.artifacts = await sandbox.fetch(parsed.artifacts, workdir, write=write_owned)
             else:
                 parsed.artifacts = []  # 没有代码执行环境就不可能有产物文件
             return parsed
@@ -404,18 +424,16 @@ class AgentRunner:
     async def _screenshots(self, task: TaskRecord) -> dict[str, bytes]:
         """任务带的截图：``{文件名: 内容}``，按编号顺序。读不到的跳过。"""
         files: dict[str, bytes] = {}
-        root = self._data_dir.resolve()
+        owned = OwnedFiles(self._data_dir)
         for frame_id in task.frame_ids:
             frame = await self._store.get_frame(frame_id)
             if frame is None or frame.session_id != task.session_id:
                 continue
-            path = (root / frame.path).resolve()
-            if not path.is_relative_to(root):
-                continue
             try:
-                data = await asyncio.to_thread(path.read_bytes)
-            except OSError:
-                logger.warning(f"任务 {task.label} 的截图读不到：{frame.path}")
+                path = owned.write_path(frame.session_id, frame.path)
+                data = await drain_io(asyncio.to_thread(path.read_bytes))
+            except (OSError, ValueError):
+                logger.warning("任务 {} 的截图读不到：{}", task.label, frame_id)
                 continue
             files[f"screen_{format_hms(frame.t).replace(':', '')}_{frame_id}{path.suffix}"] = data
         return files

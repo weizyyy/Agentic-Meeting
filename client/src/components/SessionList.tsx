@@ -18,6 +18,8 @@ interface Props {
   onSelect: (id: string) => void;
   onResume: (id: string) => void;
   onRename: (id: string, title: string) => void;
+  keepPending: ReadonlySet<string>;
+  onKeep: (id: string, keep: boolean) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
 }
@@ -31,6 +33,8 @@ export function SessionList({
   onResume,
   onRename,
   onDelete,
+  onKeep,
+  keepPending,
   onClose,
 }: Props) {
   const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
@@ -80,16 +84,31 @@ export function SessionList({
                   onClick={() => onSelect(s.id)}
                 >
                   <span className="session-title">{sessionTitle(s)}</span>
-                  <span className={`badge badge-session-${s.state}`}>{STATE_LABELS[s.state]}</span>
+                  <span className={`badge badge-session-${s.state}`}>
+                    {s.deletion_pending ? "待删除" : STATE_LABELS[s.state]}
+                  </span>
                   <span className="session-meta">
                     {formatStartedAt(s.started_at)} · {formatDuration(s.duration_secs)} ·{" "}
                     {s.utterance_count} 条
                   </span>
-                  {previewLine(s) && <span className="session-preview">{previewLine(s)}</span>}
+                  {!s.deletion_pending && previewLine(s) && (
+                    <span className="session-preview">{previewLine(s)}</span>
+                  )}
                 </button>
               )}
               <span className="session-actions">
-                {!locked && (
+                <button
+                  type="button"
+                  className="link"
+                  aria-pressed={s.keep}
+                  aria-label={`保留：${sessionTitle(s)}`}
+                  disabled={s.deletion_pending || keepPending.has(s.id)}
+                  title="免于自动清理；仍可人工删除"
+                  onClick={() => onKeep(s.id, !s.keep)}
+                >
+                  {keepPending.has(s.id) ? "保存中…" : s.keep ? "已保留" : "保留"}
+                </button>
+                {!locked && !s.deletion_pending && (
                   <button
                     type="button"
                     className="link"
@@ -107,6 +126,7 @@ export function SessionList({
                 <button
                   type="button"
                   className="link"
+                  disabled={s.deletion_pending}
                   aria-label={`重命名：${sessionTitle(s)}`}
                   onClick={() => setEditing({ id: s.id, title: s.title })}
                 >
@@ -128,7 +148,7 @@ export function SessionList({
                     }
                   }}
                 >
-                  删除
+                  {s.deletion_pending ? "重试删除" : "删除"}
                 </button>
               </span>
             </li>
