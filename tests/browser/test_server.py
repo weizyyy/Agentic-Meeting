@@ -6,7 +6,8 @@ import httpx
 
 from agentic_meeting.store.db import Store
 from agentic_meeting.web.app import create_app
-from tests.browser.server import application, configuration, seed
+
+from .server import application, configuration, seed
 
 
 async def test_seed_isolation_and_injected_services(tmp_path: Path, monkeypatch) -> None:
