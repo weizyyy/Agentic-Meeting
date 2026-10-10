@@ -200,8 +200,7 @@ The ASR service guarantees two things for this to work (interfaces.md §3.2, §3
   space between frames;
 - blank transcription frames are never pushed.
 
-**Wake window and interruption** (verified with the real aggregator and strategy in
-`tests/test_bot.py`):
+**Wake window and interruption** (verified with the real aggregator and strategy):
 
 - Speech without the name does not produce `UserStartedSpeakingFrame`, does not interrupt and does
   not reach the model.
@@ -335,7 +334,7 @@ LLM service:
 - `run_inference(context, max_tokens=N)` sends `max_completion_tokens: N`, not `max_tokens`. If
   `Settings.max_tokens` is also set, both are sent, so the background instance omits the configured
   `max_tokens`. llama.cpp treats `max_completion_tokens` as an alias of `max_tokens`; other servers
-  may not accept it. A request-body regression test is in `tests/test_caption_wiring.py`.
+  may not accept it.
 - `system_instruction=None`, or an empty string on the service, adds no empty system message.
 - `run_inference` is a plain coroutine: cancelling the task that awaits it aborts the HTTP request.
   This is how background requests are preempted.
@@ -361,7 +360,7 @@ TTS service:
 - Text is aggregated into sentences before synthesis (`text_aggregation_mode`, default `SENTENCE`).
   The default `SimpleTextAggregator` splits Chinese correctly at `。！？；` and not at commas or
   colons; `Dr.`, `v2.0` and `3.5` in mixed text are not split; feeding one character at a time or
-  several gives the same result (regression test in `tests/test_local_services.py`). A sentence is
+  several gives the same result. A sentence is
   released when the next character arrives or the response ends, so a short first sentence gives
   faster first audio — a matter for the prompt.
 - `tts-server` streams 24 kHz, 16-bit mono PCM; see the end of interfaces.md §9.
@@ -415,8 +414,6 @@ context = LLMContext(tools=[recall, delegate_task, ...])   # listing them regist
   and the transport first. A tool that adds its own message with `params.context.add_message(...)`
   and wants it after the call record waits until `tool_call_id` appears in the context, as
   `look_at_screen` does.
-- In tests, `run_test` creates its own `PipelineWorker` and takes no `app_resources`; set
-  `llm.pipeline_worker._app_resources` once the pipeline is running (`tests/test_tools.py`).
 - **`skip_tts` and tools.** `LLMConfigureOutputFrame` sets persistent state on the LLM service, not
   a one-shot flag. A request with a tool call generates twice — the call, then the answer — and a
   configuration frame arriving in between affects the second generation. Modality is therefore set
@@ -484,7 +481,7 @@ framework.
   yields messages, tools and `tool_choice`, and `build_chat_completion_params` adds sampling
   parameters and `Settings.extra`. Warm-up requests take the same path
   (`RealtimeLLMService.request_params`), so their messages and tools are identical to a real
-  request; `tests/test_context.py` compares the two request bodies.
+  request.
 - Messages are OpenAI-format dictionaries. Append frames are handled by the user aggregator and must
   be pushed **upstream** of it, where the meeting recorder is. From outside the pipeline use
   `await worker.queue_frame(frame)`.
@@ -542,8 +539,7 @@ class MeetingRecorder(FrameProcessor):
   `LatencyBreakdown` whose `turn_contribution_lines()` splits "user stopped → assistant started" by
   stage; `pipeline/bot.py` logs it.
 - `PipelineWorker.cancel()` cancels the pipeline immediately (used when the client disconnects);
-  `stop_when_done()` queues an `EndFrame`. `run_test` accepts a whole `Pipeline`, which is how the
-  end-to-end tests run.
+  `stop_when_done()` queues an `EndFrame`.
 
 ## 11. Multiple workers (not used)
 
@@ -626,8 +622,7 @@ await client.disconnect();
   SDK reconnects included. The page sets it from `GET /api/ice` before each `connect()`
   (`useMeetingClient.ts`).
 - `tsconfig` uses `verbatimModuleSyntax` and `allowImportingTsExtensions`: relative imports carry
-  the `.ts` extension so that pure-logic modules can be run directly by Node's test runner
-  (`npm test`). `*.test.ts` files are excluded from `tsc` and the bundle.
+  the `.ts` extension, so pure-logic modules can also be run directly by Node.
 - Screenshots do not use the SDK's `enableScreenShare`, which would create a WebRTC video track. The
   page calls `navigator.mediaDevices.getDisplayMedia()`, draws the picture onto a `<canvas>` and
   uploads still images.

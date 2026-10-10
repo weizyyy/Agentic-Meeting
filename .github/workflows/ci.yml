@@ -47,9 +47,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Two tests read sample files from these submodules; the large runtime sources are not needed.
+      # The end-to-end tests speak a recording from Confucius4-R2T2, and a rule test compares its
+      # chat template; the large runtime sources are not needed.
       - name: Check out test fixtures from submodules
-        run: git submodule update --init --depth 1 third_party/NeMo-Speech.cpp third_party/Confucius4-R2T2
+        run: git submodule update --init --depth 1 third_party/Confucius4-R2T2
 
       - uses: astral-sh/setup-uv@v7
         with:
@@ -84,9 +85,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Test
-        run: npm test
 
       - name: Type-check and build
         run: npm run build

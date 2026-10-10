@@ -485,7 +485,7 @@ Agentic-Meeting/
 │   ├── agent/                 Task manager, agent runner, sandbox
 │   └── web/                   HTTP API and static site
 ├── client/                    Web client (Vite, React, TypeScript)
-├── tests/                     Automated tests (no GPU required)
+├── tests/                     End-to-end tests (no GPU required)
 ├── third_party/               Runtime sources (Git submodules, read-only)
 ├── runtimes/                  Downloaded runtime binaries (not tracked)
 ├── models/                    Model weights (not tracked)

@@ -22,7 +22,7 @@ The English and Chinese documents share file names and section numbers, so a ref
 
 ```bash
 uv sync --extra agent                 # install or update Python dependencies
-uv run pytest                         # tests; those needing a GPU or external services are skipped
+uv run pytest                         # end-to-end tests; those needing a GPU or real models are skipped
 uv run ruff check src tests scripts   # lint
 uv run ruff format src tests scripts  # format
 uv run agentic-meeting check          # validate config/config.toml
@@ -33,12 +33,11 @@ npm run format:check                 # check formatting without writing files
 
 cd client
 npm ci
-npm test                              # unit tests of the client's pure logic
 npm run build                         # type-check and build
 ```
 
-CI runs the Python suite on Windows and Linux with Python 3.12, 3.13 and 3.14, and the client tests
-on Linux. To run the suite locally under another version without touching `.venv`:
+CI runs the Python suite on Windows and Linux with Python 3.12, 3.13 and 3.14, and type-checks and
+builds the client on Linux. To run the suite locally under another version without touching `.venv`:
 
 ```bash
 UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
@@ -52,7 +51,8 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
 2. **No model names in source code.** `src/`, `client/src/` and `scripts/` contain no model names
    or weight file names; tests use made-up names such as `fake-model`. Models, endpoints, voices and
    sampling parameters come from `config/config.toml`; model-specific prompt formats live in
-   `config/asr_profiles/` and `config/prompts/`. A test in `tests/test_config.py` enforces this.
+   `config/asr_profiles/` and `config/prompts/`. A test in `tests/test_repository_rules.py` enforces
+   this.
 3. **Pipecat APIs are verified against the pinned version.** Pipecat is pinned to 1.12.0, and its
    1.x APIs differ substantially from older examples. Check pipecat-notes.md first; otherwise read
    the installed source under `.venv/`, and add what you confirm to the notes.
@@ -95,34 +95,36 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
 
 ## Testing
 
-Automated tests run without a GPU, model weights or network access.
+The test suite is end-to-end. It runs without a GPU, model weights or network access.
 
-- **External dependencies are injected.** ASR backends, diarization, model services and the task
-  runner are passed in as parameters and replaced with fakes (`tests/fakes.py`).
-- HTTP calls are answered by `httpx.MockTransport`.
-- Pipecat processors are exercised with Pipecat's own test helper:
-
-  ```python
-  from pipecat.tests.utils import SleepFrame, run_test
-
-  down, up = await run_test(
-      processor,
-      frames_to_send=[frame_a, SleepFrame(sleep=0.1), frame_b],
-      expected_down_frames=[TypeA, TypeB],
-  )
-  ```
-
-- Tests that need real weights, a GPU or external services are marked `@pytest.mark.gpu` and are
-  deselected by default:
+- **`tests/e2e/`** starts the real application with `agentic-meeting --config <temporary file> serve`,
+  exactly as a user does, with its data directory in a temporary folder. The inference services are
+  replaced by small HTTP servers in the test process (`tests/e2e/inference.py`) that speak the same
+  protocols: llama-server audio input and `/tokenize` for ASR, OpenAI-compatible chat completions
+  for the realtime and agent models, `/v1/audio/speech` and `/v1/embeddings`. Each can be switched
+  off to test degradation. Tests talk to the application only through HTTP and WebRTC:
+  `tests/e2e/meeting_client.py` plays the meeting page with aiortc, sends a real speech recording
+  over the microphone track (from the `third_party/Confucius4-R2T2` submodule) and speaks RTVI on
+  the data channel.
+- **`tests/test_repository_rules.py`** guards rules that a running system would not reveal at once:
+  no model names in source, the ASR profile matching the upstream chat template, and the
+  evaluation cases of `scripts/eval_realtime_model.py` covering exactly the realtime tools.
+- **`tests/test_real_services.py`** checks real models and services from `config/config.toml`.
+  These tests are marked `@pytest.mark.gpu` and are deselected by default:
 
   ```bash
-  AGENTIC_MEETING_TEST_WAV=dialogue.wav uv run pytest -m gpu tests/test_diar_nemo.py
-  uv run pytest -m gpu tests/test_agent_runner.py -s
+  AGENTIC_MEETING_TEST_WAV=dialogue.wav uv run pytest -m gpu tests/test_real_services.py
   ```
 
-End-to-end checks use the scripts described in [runtimes.md §6](runtimes.md): `scripts/soak.py`
-replays a recording through a running server, and `scripts/eval_realtime_model.py` checks tool
-selection and latency of the configured realtime LLM. Run the latter after changing
+Write a new test as a scenario a user would recognize: what they do in the meeting page or on the
+command line, and what they then see through the API, the data channel or the files. Avoid tests of
+single functions or classes; they bind the code's current shape without proving that the system
+works. The web client has no tests of its own yet: `npm run build` type-checks it, and the server
+side of every message it exchanges is covered by `tests/e2e/`.
+
+Other end-to-end checks use the scripts described in [runtimes.md §6](runtimes.md):
+`scripts/soak.py` replays a recording through a running server, and `scripts/eval_realtime_model.py`
+checks tool selection and latency of the configured realtime LLM. Run the latter after changing
 `config/prompts/realtime_system.md` or switching models.
 
 ## Repository layout

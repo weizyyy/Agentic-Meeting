@@ -3,9 +3,10 @@
 **English** · [简体中文](zh-CN/agents-sdk-notes.md)
 
 How the background agent (`src/agentic_meeting/agent/`) uses the OpenAI Agents SDK **0.23.1**. The
-behavior described here was checked against the installed source and is covered by
-`tests/test_agent_runner.py`, which simulates the remote model with `httpx.MockTransport`. Two tests
-marked `gpu` exercise a real remote model, an MCP server and the Docker sandbox.
+behavior described here was checked against the installed source. `tests/e2e/test_assistant.py`
+runs delegated tasks end to end against a simulated OpenAI-compatible endpoint, and two tests in
+`tests/test_real_services.py` marked `gpu` exercise a real remote model, an MCP server and the
+sandbox.
 
 Install with `uv sync --extra agent` (`openai-agents[docker]`). Without it the application still
 starts; delegated tasks fail with an explanation, because SDK objects are imported inside functions.
@@ -158,6 +159,6 @@ await client.delete(session)    # removes the container; aclose() does not
   does not fail the task. The runner falls back to a plain `Agent`, records a progress note and
   tells the agent that it cannot run code (architecture.md §9).
 
-The `gpu` tests (`uv run pytest -m gpu tests/test_agent_runner.py -s`) verify that the container
+The `gpu` tests (`uv run pytest -m gpu tests/test_real_services.py -s`) verify that the container
 starts, that `exec_command` runs Python, that artifacts are retrieved and that the container is
 removed afterwards.
