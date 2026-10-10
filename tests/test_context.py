@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import nullcontext
 
 import httpx
 import pytest
@@ -659,7 +660,10 @@ async def test_recorder_rebuild_pushes_an_update_frame_that_does_not_run_the_llm
     assert append.messages == [{"role": "user", "content": "[画面 00:00:01] 一页"}]
 
 
-async def test_lines_finalized_during_a_rebuild_are_appended_after_the_update_frame(monkeypatch):
+@pytest.mark.parametrize("signal_finalizing", [True, False])
+async def test_lines_finalized_during_a_rebuild_are_appended_after_the_update_frame(
+    monkeypatch, signal_finalizing
+):
     """重建读完数据库之后才落库的发言，必须排在替换帧后面——否则它会被替换掉，从上下文里消失。"""
     store = FakeStore()
     rec = MeetingRecorder(store=store, session_id="s1")
@@ -669,11 +673,13 @@ async def test_lines_finalized_during_a_rebuild_are_appended_after_the_update_fr
     on_final = rec._on_final
 
     async def entered_final(final):
-        finalizing.set()
+        if signal_finalizing:
+            finalizing.set()
         await on_final(final)
 
     monkeypatch.setattr(rec, "_on_final", entered_final)
     tasks: list[asyncio.Task] = []
+    callback_errors: list[Exception] = []
 
     async def slow_build():
         snapshot = [u.text for u in store.utterances]  # 读数据库：这时还没有「你好」
@@ -686,25 +692,37 @@ async def test_lines_finalized_during_a_rebuild_are_appended_after_the_update_fr
         await reading.wait()
 
     async def finish_rebuild():
-        await asyncio.wait_for(finalizing.wait(), 2.0)  # 发言确实进入了重建锁的竞争
-        release.set()
-        await tasks[0]
+        try:
+            try:
+                await asyncio.wait_for(finalizing.wait(), 2.0)  # 发言确实进入了重建锁的竞争
+            finally:
+                release.set()  # 管线会捕获回调异常；超时也必须先释放重建锁
+            await tasks[0]
+        except Exception as error:
+            callback_errors.append(error)
+            raise
 
     try:
-        down, _ = await run_test(
-            Pipeline([Hook(), rec]),
-            frames_to_send=[
-                CallSignal(start_rebuild),
-                *one_utterance_frames("你好"),
-                CallSignal(finish_rebuild),
-                SleepFrame(sleep=0.1),
-            ],
-        )
+        async with asyncio.timeout(5.0):
+            with nullcontext() if signal_finalizing else pytest.raises(TimeoutError):
+                down, _ = await run_test(
+                    Pipeline([Hook(), rec]),
+                    frames_to_send=[
+                        CallSignal(start_rebuild),
+                        *one_utterance_frames("你好"),
+                        CallSignal(finish_rebuild),
+                        SleepFrame(sleep=0.1),
+                    ],
+                )
+                if callback_errors:
+                    raise callback_errors[0]  # 不能只让 Pipecat 记日志而把测试判为成功
     finally:
         release.set()
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+    if not signal_finalizing:
+        assert len(callback_errors) == 1 and isinstance(callback_errors[0], TimeoutError)
     kinds = [type(f).__name__ for f in context_frames(down)]
     assert kinds == ["LLMMessagesUpdateFrame", "LLMMessagesAppendFrame"]
     update, append = context_frames(down)
