@@ -78,6 +78,17 @@ async def ice_candidate(request: SmallWebRTCPatchRequest):
   `app.state.bots`, and after disconnecting waits for them in the lifespan shutdown (cancelling any
   that do not end within a few seconds).
 
+- **Keep the event loop free while the bot builds the pipeline.** `SmallWebRTCConnection.connect()`
+  (called when the transport starts) emits `connected` only if `is_connected()` holds at that
+  moment, and once the browser has sent anything on the data channel that means a message within
+  the last 3 seconds. The browser pings every second, but those pings are only processed when the
+  loop runs. A blocking step of more than 3 seconds between the data channel opening and the
+  pipeline starting therefore loses the event for good: `on_client_connected` never fires,
+  `client-ready` stays queued and the page never receives its `session` message. Loading the Silero
+  and smart-turn ONNX models took about 2 seconds each on a busy Windows CI runner, so
+  `load_audio_models()` loads them, and runs Silero once on silence, in a worker thread
+  (`asyncio.to_thread`) before `build_parts()`.
+
 - `request.request_data` is the object the browser passes as `requestData`. The client SDK sends
   the camel-case key, while the `SmallWebRTCRequest` field is `request_data`: letting FastAPI parse
   the body as in the skeleton above silently drops it. Read the raw JSON and use
@@ -117,9 +128,13 @@ min_volume` (`_run_analyzer` in `vad_analyzer.py`). The volume is the BS.1770 lo
 0.4 s, mapped linearly from −110…−10 LUFS to 0…1 (`calculate_audio_volume` in `audio/utils.py`) and
 smoothed exponentially with a factor of 0.2. Hence **0.6 is about −50 LUFS, and each 6 dB lowers
 the value by about 0.06**. With a quiet microphone only the loudest syllables pass and speech is cut
-into fragments ([benchmarks.md](benchmarks.md#low-microphone-level)). `build_parts()` maps
+into fragments ([benchmarks.md](benchmarks.md#low-microphone-level)). `load_audio_models()` maps
 `stop_secs` and `min_volume` to `turn.vad_stop_secs` and `turn.vad_min_volume`; `min_volume=0`
-disables the gate.
+disables the gate. The first inference of a freshly loaded model can take as long as the load
+itself; since `VADProcessor` analyzes every frame in order before passing it on, a slow first call
+holds back the first words and then releases them, and the ASR service, at once. Running Silero on
+one frame of silence while loading moves that cost before the meeting starts; the first call resets
+the model state afterwards (`voice_confidence` resets every 5 seconds, counted from 0).
 
 ### 3.1.1 Input audio filter
 

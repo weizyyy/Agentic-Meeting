@@ -74,6 +74,14 @@ async def ice_candidate(request: SmallWebRTCPatchRequest):
   `web/app.py` 用 `asyncio.create_task` 启动 bot，任务登记在 `app.state.bots`，lifespan 收尾时断开连接后等它们结束
   （几秒内没结束的取消）。
 
+- **bot 组装管线时不要卡住事件循环。** 传输启动时调用的 `SmallWebRTCConnection.connect()` 只在
+  `is_connected()` 当时成立才发出 `connected` 事件；浏览器在数据通道上发过消息之后，这个判断的意思是「最近
+  3 秒内收到过消息」。浏览器每秒发一次 ping，但要事件循环转起来才处理得到。所以数据通道打开之后、管线启动之前，
+  只要有一步阻塞超过 3 秒，这个事件就永远丢了：`on_client_connected` 不触发，`client-ready` 一直排在队列里，
+  页面永远等不到 `session` 消息。在繁忙的 Windows CI 机器上，加载 Silero 和智能轮次判定的 ONNX 模型各花过约 2 秒，
+  所以 `load_audio_models()` 在工作线程里（`asyncio.to_thread`）加载它们，并让 Silero 对静音先推理一次，再交给
+  `build_parts()`。
+
 - `request.request_data` 是浏览器在连接参数 `requestData` 中传入的对象。浏览器端 SDK 在请求体里用的是
   驼峰的 `requestData`，而 `SmallWebRTCRequest` 的字段是 `request_data`——像上面骨架那样让 FastAPI 直接按
   `SmallWebRTCRequest` 解析请求体，驼峰那个键会被忽略（`request_data` 恒为 `None`）。要拿到它，读原始 JSON 后用
@@ -110,8 +118,11 @@ vad = VADProcessor(vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2
 线性映射到 0…1（`audio/utils.py` 的 `calculate_audio_volume`），再以系数 0.2 指数平滑；所以
 **0.6 ≈ −50 LUFS，每低 6 dB 约少 0.06**。麦克风电平偏低时，只有最响的音节过得了门限，
 语音被切成碎片（见 [benchmarks.md](benchmarks.md#麦克风电平偏低)）。
-`build_parts()` 把 `stop_secs` 和 `min_volume` 都接到配置上（`turn.vad_stop_secs`、`turn.vad_min_volume`，默认 0.6）。
-`min_volume=0` 即关闭这道门限，只剩模型置信度。
+`load_audio_models()` 把 `stop_secs` 和 `min_volume` 都接到配置上（`turn.vad_stop_secs`、`turn.vad_min_volume`，默认 0.6）。
+`min_volume=0` 即关闭这道门限，只剩模型置信度。刚加载的模型第一次推理可能和加载一样慢；`VADProcessor` 按顺序
+分析完每一帧才往下传，第一次调用一慢，开头的几个字就被压住，随后连同识别服务一起被一次性放出。加载时先对一帧静音
+推理一次，就把这段开销挪到了会议开始之前；第一次调用之后模型状态会被重置（`voice_confidence` 每 5 秒重置一次，
+从 0 开始计时）。
 
 ### 3.1.1 输入音频滤波器
 

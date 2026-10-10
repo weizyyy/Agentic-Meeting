@@ -107,6 +107,31 @@ class AppResources:
 
 
 @dataclass
+class AudioModels:
+    """一次连接用到的本地 ONNX 模型：语音活动检测，以及（开启时）智能轮次判定。"""
+
+    vad_analyzer: SileroVADAnalyzer
+    turn_analyzer: LocalSmartTurnAnalyzerV3 | None
+
+
+def load_audio_models(cfg: AppConfig) -> AudioModels:
+    """加载并预热本地的语音模型。阻塞调用，要放在工作线程里跑（``asyncio.to_thread``）。
+
+    慢机器上加载一个模型、第一次推理都可能要一两秒。放在事件循环上，连接建立期间收不到页面的心跳，
+    Pipecat 会把已经连上的连接当成断开、永远不发「已连接」事件，页面就一直等不到会话；第一次推理拖在
+    开口之后，开头那几秒的音频会被积压、一口气处理，轮次判定先于识别结果结束，问题只剩前半句。
+    """
+    vad_analyzer = SileroVADAnalyzer(
+        params=VADParams(stop_secs=cfg.turn.vad_stop_secs, min_volume=cfg.turn.vad_min_volume)
+    )
+    vad_analyzer.set_sample_rate(ASR_SAMPLE_RATE)
+    # 先对一帧静音推理一次；第一次调用之后模型状态会被重置，不影响真正的音频
+    vad_analyzer.voice_confidence(bytes(vad_analyzer.num_frames_required() * 2))
+    turn_analyzer = LocalSmartTurnAnalyzerV3() if cfg.turn.smart_turn else None
+    return AudioModels(vad_analyzer=vad_analyzer, turn_analyzer=turn_analyzer)
+
+
+@dataclass
 class BotParts:
     """一次连接用到的全部处理器。"""
 
@@ -126,6 +151,7 @@ class BotParts:
 def build_parts(
     cfg: AppConfig,
     *,
+    audio: AudioModels,
     asr_backend: StreamingASR | None = None,
     llm: RealtimeLLMService | None = None,
     tts: LocalTTSService | None = None,
@@ -136,17 +162,14 @@ def build_parts(
     messages: list[dict[str, Any]] | None = None,
     first_segment_id: int = 1,
 ) -> BotParts:
-    """按配置造出各个处理器。``asr_backend``、``llm``、``tts``、``store``、``diarizer`` 可注入，测试时换成假的。
+    """按配置造出各个处理器。``audio`` 是 ``load_audio_models`` 在工作线程里加载好的模型。
+    ``asr_backend``、``llm``、``tts``、``store``、``diarizer`` 可注入，测试时换成假的。
 
     ``store`` / ``session_id`` / ``diarizer`` 交给会议记录器（落库、说话人归属）；都不给时记录器只发字幕。
     继续一场会议时：``clock`` 带着本次连接在会话时间轴上的起点，记录器和识别服务都用它；
     ``messages`` 是从数据库重建的上下文，实时模型一开始就带着它；``first_segment_id`` 是字幕行编号的起点
     （每次连接各占一段，页面上留着的旧字幕行才不会和新连接的撞号）。
     """
-    vad_analyzer = SileroVADAnalyzer(
-        params=VADParams(stop_secs=cfg.turn.vad_stop_secs, min_volume=cfg.turn.vad_min_volume)
-    )
-
     # 唤醒策略放在 start 列表的第一个：它在未唤醒时返回 STOP，后面的策略就不会执行。
     wake = WakeWordUserTurnStartStrategy(
         phrases=cfg.session.wake_phrases,
@@ -154,8 +177,8 @@ def build_parts(
         timeout=cfg.turn.wake_timeout_secs,
     )
     stop_strategy = (
-        TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())
-        if cfg.turn.smart_turn
+        TurnAnalyzerUserTurnStopStrategy(turn_analyzer=audio.turn_analyzer)
+        if audio.turn_analyzer is not None
         else SpeechTimeoutUserTurnStopStrategy(user_speech_timeout=SPEECH_TIMEOUT_SECS)
     )
     # 放进 tools 的直接函数会自动注册到模型服务上（pipecat-notes.md §6）
@@ -178,8 +201,8 @@ def build_parts(
     if tts is None and cfg.tts.enabled:
         tts = build_tts(cfg)
     return BotParts(
-        vad_analyzer=vad_analyzer,
-        vad=VADProcessor(vad_analyzer=vad_analyzer),
+        vad_analyzer=audio.vad_analyzer,
+        vad=VADProcessor(vad_analyzer=audio.vad_analyzer),
         asr=StreamingASRService(
             backend=asr_backend or build_asr_backend(cfg),
             preroll_ms=cfg.asr.preroll_ms,
@@ -527,6 +550,7 @@ async def run_bot(
         )
         parts = build_parts(
             cfg,
+            audio=await asyncio.to_thread(load_audio_models, cfg),
             store=resources.store,
             session_id=live.session.id if live is not None else "",
             diarizer=diarizer,

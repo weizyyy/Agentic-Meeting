@@ -68,6 +68,12 @@ you!
 
 ### Fixed
 
+- On a slow or busy machine, a meeting connection could stay stuck without the page ever receiving
+  its session, and the first words after connecting could be held back until the assistant
+  answered only the start of a question. Loading the voice activity and turn-detection models
+  blocked the server for a few seconds while the connection was being set up, and their first
+  inference delayed the start of the audio. Both now happen in a worker thread before the meeting
+  starts.
 - `/readyz` no longer briefly reports `not_ready` with a storage `timeout` while service probes
   refresh. Each probe used to reload the CA certificates on the event loop, which on slower machines
   stalled it past the 0.5-second storage budget; the certificates are now loaded once per process.

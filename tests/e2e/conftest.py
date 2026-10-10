@@ -56,8 +56,15 @@ class App:
     process: subprocess.Popen
 
     def http(self, **kwargs: Any) -> httpx.AsyncClient:
-        # 不读环境里的代理设置：应用在本机
-        return httpx.AsyncClient(base_url=self.base_url, trust_env=False, timeout=30, **kwargs)
+        # 不读环境里的代理设置：应用在本机。空闲连接比服务端的 keep-alive（uvicorn 默认 5 秒）先过期：
+        # 否则服务端恰好在关闭空闲连接时，复用它的请求会被重置（httpx.ReadError），Windows 上尤其常见。
+        return httpx.AsyncClient(
+            base_url=self.base_url,
+            trust_env=False,
+            timeout=30,
+            limits=httpx.Limits(keepalive_expiry=2),
+            **kwargs,
+        )
 
     def log_text(self) -> str:
         return self.log.read_text(encoding="utf-8", errors="replace")
