@@ -6,6 +6,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- Anonymous JSON `GET /healthz`, `/readyz` and `/metrics` endpoints for process liveness,
+  transcription readiness and basic connection, caption-lag, queue, retained-task and HTTP-service
+  gauges. Optional service failures allow degraded readiness; incomplete metrics preserve available
+  observations. Responses exclude meeting content and credentials, while numeric gauges expose load.
+- English and Chinese guidance for requesting and interpreting health checks and metrics.
+
 ## [0.1.1] - 2026-10-09
 
 ### Added

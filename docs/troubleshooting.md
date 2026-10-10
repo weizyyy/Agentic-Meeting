@@ -3,6 +3,7 @@
 **English** · [简体中文](zh-CN/troubleshooting.md)
 
 - [Startup](#startup)
+- [Health and metrics](#health-and-metrics)
 - [Captions are fragmentary or missing](#captions-are-fragmentary-or-missing)
 - [The assistant does not respond to its name](#the-assistant-does-not-respond-to-its-name)
 - [Answers are slow](#answers-are-slow)
@@ -26,6 +27,66 @@ See [Access from other devices](getting-started.md#access-from-other-devices).
 **Inference processes are left running after a crash.** On Windows and Linux the operating system
 ends them when the application process disappears. macOS has no equivalent mechanism; stop
 `llama-server` and `tts-server` manually.
+
+## Health and metrics
+
+Request the [backend application port](getting-started.md#check-health-and-metrics), not the Vite
+port. `/metrics` is JSON, not Prometheus exposition text. Field and response definitions are in
+[interfaces.md §5.8](interfaces.md#58-health-checks-and-basic-metrics).
+
+**Health is 200 but readiness is 503.** `/healthz` only proves that the HTTP process can answer;
+it does not check the DB or models. Inspect readiness `lifecycle`, `storage` and `services.asr`.
+`starting`/`stopping`, an unavailable Store or unhealthy ASR prevents readiness. `SELECT 1`
+proves the existing DB connection can read, not disk capacity or future write durability.
+An enabled optional realtime, TTS, embedding or agent endpoint failing or unknown instead gives
+HTTP 200 with `degraded`. Disabled services are normal.
+
+**Metrics are partial or slow on a cold cache.** Local gauges are read on each request; service
+and successful task-count snapshots are refreshed on demand and cached for less than 5 seconds.
+Concurrent requests share collection work. Storage readiness and task counting each have a
+0.5-second wait budget; concurrent HTTP service probes have a 2-second round budget; the entire
+readiness/metrics collector has a 2.5-second budget, including shared-work and DB waits. These are
+collection budgets, not a network response SLA: scheduling and HTTP transmission can add time.
+Missing observations return `null`/`unknown` and metrics `partial`, without discarding other data.
+Expired successful values are not served as fresh. A service round containing unknown results may
+also be reused for 5 seconds, with age `null`; task counts recover only after a new successful
+query. An observed storage failure immediately invalidates cached counts. Downstream recovery
+appears on subsequent refreshes; there is no permanent polling loop.
+
+Numeric fields in the five metric groups use finite nonnegative counts or seconds. `null` means no sample or an
+unavailable observation, never zero; normal idle zeros and no-caption nulls do not imply `partial`.
+
+| Group | Interpretation |
+|---|---|
+| Live connections | `live_connections` is 0 or 1 for the current registered active media connection, not browser visits or historical rows; assembly/takeover gaps can show 0 |
+| Caption lag | `caption_lag_seconds` is sampled after the first successful nonempty server push for each ASR delta. `caption_sample_age_seconds` is the sample's monotonic age in seconds |
+| Queues | `transcript_retry` counts unsaved utterances; `screen_caption.depth` is 0 or 1 pending new-screen slot, excluding work in progress and summary-reuse followers (disabled is 0); `agent_tasks` is the DB `queued` count |
+| Retained tasks | `task_counts` covers all retained DB tasks in the five named states, even with the agent disabled. These are gauges, not totals since startup; deletion can lower them. Empty DB means five zeros; query failure makes the whole group null |
+| HTTP services | Fixed names `asr`, `realtime`, `tts`, `embedding`, `agent`; state and reason semantics match readiness. `unavailable` is a complete observation and alone does not make metrics partial |
+
+Caption lag estimates backlog on the shared session audio timeline. It excludes network delivery,
+browser rendering and final word stabilization, and cannot verify the 1.5-second finalized-caption
+target. During silence, lag stays at the last sample while age grows: check age before interpreting
+an old low value. A new connection starts with no sample; disconnect/takeover clears the old one.
+Resume uses the shared timeline without adding the resume base twice. Failed or invalid samples
+leave the previous sample and its increasing age intact.
+
+`task_counts_age_seconds` and `service_snapshot_age_seconds` describe separate snapshots, so their
+ages may differ. Counts age is null when unavailable; service age is null when any enabled service
+is unknown. The grouped task query scans retained tasks, so its cost grows with history; exceeding
+the budget yields null. A SQLite query already queued may finish after its awaiting coroutine is
+cancelled; collection does not interrupt other business queries.
+
+**A service is reachable but inference fails.** Generic OpenAI-compatible `/models` probes treat
+any HTTP response, including 401/403/404/503, as `reachable`: they do not prove authentication,
+model access, inference success or model quality. Dedicated `/health` needs HTTP 200 for `ok`.
+Only configured HTTP inference endpoints are probed, including externally managed ones;
+in-process diarization, MCP, Docker, browser ICE and bandwidth are outside coverage.
+
+**Startup or shutdown checks do not connect.** The server may not listen before lifespan startup
+completes or after shutdown begins. If a request reaches an app in `starting`/`stopping`, readiness
+is 503 and metrics partial, with unavailable observations null/unknown; disabled screen depth is
+still 0. This does not guarantee network access during those phases.
 
 ## Captions are fragmentary or missing
 

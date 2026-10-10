@@ -9,6 +9,7 @@ This guide takes you from a fresh clone to a running meeting.
 - [Prepare model files](#prepare-model-files)
 - [Configure](#configure)
 - [Run](#run)
+- [Check health and metrics](#check-health-and-metrics)
 - [Access from other devices](#access-from-other-devices)
 - [Enable the code sandbox](#enable-the-code-sandbox)
 - [Verify without a microphone](#verify-without-a-microphone)
@@ -128,7 +129,45 @@ uv run agentic-meeting serve              # application only
 
 Logs are written to `data/logs/<service>.log`; meeting data lives in `data/`.
 
+Global CLI options go before the subcommand, for example:
+
+```bash
+uv run agentic-meeting --config config/config.example.toml check
+```
+
 Continue with the [user guide](user-guide.md).
+
+## Check health and metrics
+
+Once the backend is listening, request its application port directly (7860 by default):
+
+```bash
+curl -i http://localhost:7860/healthz
+curl -i http://localhost:7860/readyz
+curl -i http://localhost:7860/metrics
+```
+
+These three exact GET routes require no login and return `Content-Type: application/json`.
+They live at the backend root, without `/api`. The Vite development server on port 5173 currently
+proxies only `/api`; request port 7860 for these checks, or your configured backend port.
+
+| Endpoint | Use and response |
+|---|---|
+| `/healthz` | Process liveness: HTTP 200, exactly `{"status":"ok"}`. Performs no external I/O; model failure does not fail liveness |
+| `/readyz` | Readiness: running lifecycle, open Store `SELECT 1` succeeds, and required ASR `/health` is healthy. HTTP 200 with `ok` or `degraded`; 503 with `not_ready` |
+| `/metrics` | JSON gauges and service observations, always HTTP 200. `ok` means observations are complete; `partial` preserves available fields and uses `null`/`unknown` for missing observations |
+
+Only enabled optional services failing or remaining unknown yield readiness `degraded`; ASR,
+storage or lifecycle failure yields `not_ready`. Use readiness to gate transcription traffic,
+and liveness to check whether the HTTP process answers. A complete observation of a failed service
+can still yield metrics `ok`. Full response examples and the closed schema are in
+[interfaces.md §5.8](interfaces.md#58-health-checks-and-basic-metrics); interpretation and recovery
+are in [troubleshooting.md](troubleshooting.md#health-and-metrics).
+
+The responses exclude meeting content, identifiers, URLs and credentials. Anonymous numeric gauges
+still reveal load and activity. Future password authentication must keep only GET on these three
+exact paths anonymous; that integration has not been verified here. This feature does not establish
+that the instance is safe to expose publicly.
 
 ## Access from other devices
 

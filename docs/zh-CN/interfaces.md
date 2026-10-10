@@ -659,9 +659,11 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 ### 5.8 健康检查与基础指标
 
-这些运维 GET 接口实现 [#10](https://github.com/weizyyy/Agentic-Meeting/issues/10)，返回 JSON，
-不接收请求体或探测目标参数，保持匿名访问。未来鉴权中间件须保留**这三个精确路径**的公开例外，
-其他 API 不因此免除鉴权。5.7 节留给独立的访问密码工作。
+这些运维 GET 接口实现 [#10](https://github.com/weizyyy/Agentic-Meeting/issues/10)，
+返回 `Content-Type: application/json`，不接收请求体或探测目标参数，保持匿名访问。
+未来鉴权中间件须保留**这三个精确路径的 GET** 公开例外，其他 API 或方法不因此免除鉴权。
+5.7 节留给独立的访问密码工作；此处尚未集成或验证该鉴权。响应不含会议内容或凭据，
+但匿名数值会体现负载和活动程度；这些端点不代表实例可以安全地暴露到公网。
 
 | 方法与路径 | HTTP 状态及含义 |
 |---|---|
@@ -827,7 +829,7 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 | `queues.screen_caption.enabled` | 画面摘要 worker 是否启用，启动前按上文的配置后备规则给出 |
 | `queues.screen_caption.depth` | 等待处理的新画面槽位数，取 0 或 1，不含正在处理的画面及复用摘要的 followers。关闭为 0；启用但 worker 不可用/不可读时为 `null` |
 | `queues.agent_tasks` | 与 `task_counts` 同一数据库聚合快照的 `queued` 数；聚合不可用时为 `null` |
-| `task_counts` | 对**数据库全部保留任务**按 `queued/running/succeeded/failed/cancelled` 分组计数。空库为五个零；删除任务可降低计数；重启恢复结果体现在下次快照。查询失败时整组为 `null`，不能使用 `TaskManager._running` |
+| `task_counts` | 对**数据库全部保留任务**按 `queued/running/succeeded/failed/cancelled` 分组计数。空库为五个零；关闭 agent 不会隐藏保留任务；删除任务可降低计数；重启恢复结果体现在下次快照。查询失败时整组为 `null`，不能使用 `TaskManager._running` |
 | `task_counts_age_seconds` | 成功计数快照的单调时钟 age，有效期严格小于 5 秒；计数不可用时为 `null` |
 | `services` | 与就绪接口共用的固定名称快照及状态语义 |
 | `service_snapshot_age_seconds` | 自该轮服务刷新完成后的单调时钟 age，有效期严格小于 5 秒；当前快照中任一启用服务为 `unknown`，或尚无完成的刷新时为 `null` |
@@ -840,7 +842,8 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 该容差仅处理舍入误差，不能掩盖时钟不一致。新 recorder/连接初始没有样本；当前连接消失时，
 指标中的字幕字段清空，即使是同一会议的重连。静音期间 lag 保留上次值，样本 age 增长。
 它估计字幕输出时服务端的音频积压，不是浏览器显示延迟或逐词最终定稿延迟，
-不能据此证明达到 architecture 中的 1.5 秒最终字幕目标。禁止用 Unix 时间减会话相对秒数。
+不能据此证明达到 architecture 中的 1.5 秒最终字幕目标，也不包括网络传送和浏览器绘制。
+恢复后的音频沿用共享会话时间轴，不会再次叠加恢复 base。禁止用 Unix 时间减会话相对秒数。
 
 `partial` 表示所需指标采集失败、资源不可用，或启用服务的状态为 `unknown`。
 已经观测到 `unavailable` 本身是有效服务数据，不会单独触发 partial。

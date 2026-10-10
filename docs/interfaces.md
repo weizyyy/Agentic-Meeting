@@ -738,9 +738,12 @@ assistant's name and `-2` the name "文字输入".
 ### 5.8 Health checks and basic metrics
 
 These operational GET endpoints implement [#10](https://github.com/weizyyy/Agentic-Meeting/issues/10).
-They return JSON, take no request body or probe-target parameter, and remain anonymous. Any future
-authentication middleware must preserve these **three exact paths** as public exceptions; this
-does not exempt other API routes. Section 5.7 is reserved for the separate access-password work.
+They return `Content-Type: application/json`, take no request body or probe-target parameter, and
+remain anonymous. Any future authentication middleware must preserve **GET on these three exact
+paths** as public exceptions; this does not exempt other API routes or methods. Section 5.7 is
+reserved for the separate access-password work. That integration is not present or verified here.
+The bodies contain no meeting content or credentials, but anonymous numeric gauges reveal load
+and activity; these endpoints do not establish that an instance is safe to expose publicly.
 
 | Method and path | HTTP status and meaning |
 |---|---|
@@ -914,7 +917,7 @@ their own age.
 | `queues.screen_caption.enabled` | Whether the screen-caption worker is enabled, with the pre-start configuration fallback described above |
 | `queues.screen_caption.depth` | Pending new-screen slot count: 0 or 1, excluding the currently processed screen and summary-reuse followers. Disabled is 0; enabled but unavailable/unreadable worker is `null` |
 | `queues.agent_tasks` | The `queued` count from the same DB aggregate as `task_counts`; `null` whenever that aggregate is unavailable |
-| `task_counts` | Counts over **all retained DB tasks**, grouped by `queued/running/succeeded/failed/cancelled`. Empty DB gives five zeros; deletion can reduce counts; restart recovery is reflected in the next snapshot. Query failure makes the whole group `null`; do not use `TaskManager._running` |
+| `task_counts` | Counts over **all retained DB tasks**, grouped by `queued/running/succeeded/failed/cancelled`. Empty DB gives five zeros; disabling the agent does not hide retained tasks; deletion can reduce counts; restart recovery is reflected in the next snapshot. Query failure makes the whole group `null`; do not use `TaskManager._running` |
 | `task_counts_age_seconds` | Monotonic age of the successful count snapshot. Valid for less than 5 seconds; `null` with unavailable counts |
 | `services` | The same fixed-name snapshot and state semantics used by readiness |
 | `service_snapshot_age_seconds` | Monotonic age since the completed service refresh. Valid for less than 5 seconds; `null` when the current snapshot has any enabled `unknown` service or no refresh has completed |
@@ -931,7 +934,9 @@ A new recorder/connection starts without a sample; metrics clear caption values 
 connection disappears, including same-session reconnects. During silence the last lag stays
 unchanged and sample age increases. This estimates server-side audio backlog at caption emission,
 not browser display latency or final word stabilization, so it cannot prove the architecture's
-1.5-second finalized-caption target. Never subtract session-relative seconds from Unix time.
+1.5-second finalized-caption target. Network delivery and browser rendering are not included.
+Resumed audio uses the shared session timeline; its resume base is not added a second time.
+Never subtract session-relative seconds from Unix time.
 
 `partial` means required metric collection failed, resources are unavailable, or an enabled
 service has `unknown` status. A completed observation of `unavailable` is useful service data and
