@@ -436,3 +436,55 @@ def test_listening_beyond_this_machine_without_a_password_is_warned(host, passwo
         assert host in warnings[0] and "password_env" in warnings[0]
     # 这条只在命令行打印，不混进发给浏览器的那组提醒
     assert not any("口令" in w for w in check_warnings(AppConfig.model_validate(data)))
+
+
+def test_ice_servers_accept_plain_urls_and_turn_entries_with_credentials(monkeypatch):
+    data = example_dict()
+    data["server"]["ice_servers"] = [
+        "stun:stun.example.org:3478",
+        {
+            "urls": ["turn:turn.example.org:3478?transport=udp", "turns:turn.example.org:5349"],
+            "username": "meeting",
+            "credential_env": "FAKE_TURN_PASSWORD",
+        },
+        {"urls": "turn:relay.example.org:3478", "username": "u", "credential_env": "FAKE_TURN_2"},
+    ]
+    cfg = AppConfig.model_validate(data)
+    stun, turn, single = cfg.server.ice_servers
+    assert (stun.urls, stun.username, stun.has_turn) == (["stun:stun.example.org:3478"], "", False)
+    assert turn.has_turn and turn.credential_env == "FAKE_TURN_PASSWORD"
+    assert single.urls == ["turn:relay.example.org:3478"]
+    monkeypatch.delenv("FAKE_TURN_PASSWORD", raising=False)
+    monkeypatch.setenv("FAKE_TURN_2", "x")
+    problems = check_ready(cfg)
+    assert any("server.ice_servers[1].credential_env" in p for p in problems)
+    assert not any("ice_servers[2]" in p for p in problems)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "http://turn.example.org",  # 不认识的协议
+        {"urls": []},
+        {"urls": "turn:turn.example.org:3478"},  # TURN 没有凭据，浏览器会拒绝
+        {"urls": "stun:stun.example.org", "username": "u"},  # 只填了一半
+        {"urls": "stun:stun.example.org", "credential": "明文"},  # 凭据只能写变量名
+    ],
+)
+def test_bad_ice_servers_are_rejected(entry):
+    data = example_dict()
+    data["server"]["ice_servers"] = [entry]
+    with pytest.raises(ValidationError):
+        AppConfig.model_validate(data)
+
+
+def test_turn_without_a_password_is_warned():
+    data = example_dict()
+    data["server"].update(host="127.0.0.1", password_env="")
+    data["server"]["ice_servers"] = [
+        {"urls": "turn:turn.example.org", "username": "u", "credential_env": "FAKE_TURN"}
+    ]
+    warnings = server_warnings(AppConfig.model_validate(data))
+    assert len(warnings) == 1 and "TURN" in warnings[0]
+    data["server"]["password_env"] = "FAKE_MEETING_PASSWORD"
+    assert server_warnings(AppConfig.model_validate(data)) == []

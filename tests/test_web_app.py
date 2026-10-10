@@ -14,6 +14,7 @@ import httpx
 import pytest
 from pipecat.transports.smallwebrtc.request_handler import SmallWebRTCPatchRequest
 
+from agentic_meeting.config import IceServerConfig
 from agentic_meeting.web import app as web_app
 from agentic_meeting.web.app import create_app
 
@@ -37,6 +38,12 @@ def dist(tmp_path: Path) -> Path:
     )
     (root / "assets" / "app.js").write_text("console.log('ok')", "utf-8")
     return root
+
+
+def ice_config(*entries) -> list[IceServerConfig]:
+    return [
+        IceServerConfig.model_validate({"urls": [e]} if isinstance(e, str) else e) for e in entries
+    ]
 
 
 class FakeConnection:
@@ -203,7 +210,15 @@ async def test_lifespan_creates_and_closes_the_default_handler(cfg, tmp_path, mo
             created.append(ice_servers)
 
     monkeypatch.setattr(web_app, "SmallWebRTCRequestHandler", Recording)
-    cfg.server.ice_servers = ["stun:stun.example.com:3478"]
+    monkeypatch.setenv("FAKE_TURN_PASSWORD", "turn-secret")
+    cfg.server.ice_servers = ice_config(
+        "stun:stun.example.com:3478",
+        {
+            "urls": ["turn:turn.example.com:3478", "turns:turn.example.com:5349"],
+            "username": "meeting",
+            "credential_env": "FAKE_TURN_PASSWORD",
+        },
+    )
     app = create_app(cfg, static_dir=tmp_path / "nope")
     async with app.router.lifespan_context(app):
         handler = app.state.handler
@@ -211,7 +226,10 @@ async def test_lifespan_creates_and_closes_the_default_handler(cfg, tmp_path, mo
     assert handler.closed  # 应用关闭时断开全部连接
 
     (ice_servers,) = created
-    assert [server.urls for server in ice_servers] == ["stun:stun.example.com:3478"]
+    assert [(s.urls, s.username, s.credential) for s in ice_servers] == [
+        (["stun:stun.example.com:3478"], None, None),
+        (["turn:turn.example.com:3478", "turns:turn.example.com:5349"], "meeting", "turn-secret"),
+    ]
 
 
 async def test_no_ice_servers_are_passed_when_none_are_configured(cfg, tmp_path, monkeypatch):
@@ -228,3 +246,33 @@ async def test_no_ice_servers_are_passed_when_none_are_configured(cfg, tmp_path,
     async with app.router.lifespan_context(app):
         pass
     assert created == [None]  # 同一局域网内留空即可
+
+
+async def test_browser_gets_the_same_ice_servers_with_credentials(cfg, tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_TURN_PASSWORD", "turn-secret")
+    cfg.server.ice_servers = ice_config(
+        "stun:stun.example.com:3478",
+        {
+            "urls": "turn:turn.example.com:3478",
+            "username": "u",
+            "credential_env": "FAKE_TURN_PASSWORD",
+        },
+    )
+    app = create_app(cfg, handler=FakeHandler(), static_dir=tmp_path / "nope")
+    monkeypatch.setenv("FAKE_TURN_PASSWORD", "changed")  # 凭据在建应用时读出，之后改环境变量不影响
+    async with client_for(app) as client:
+        response = await client.get("/api/ice")
+    assert response.status_code == 200
+    assert response.json() == {
+        "ice_servers": [
+            {"urls": ["stun:stun.example.com:3478"]},
+            {"urls": ["turn:turn.example.com:3478"], "username": "u", "credential": "turn-secret"},
+        ]
+    }
+
+
+async def test_browser_gets_an_empty_ice_list_by_default(cfg, tmp_path):
+    app = create_app(cfg, handler=FakeHandler(), static_dir=tmp_path / "nope")
+    async with client_for(app) as client:
+        response = await client.get("/api/ice")
+    assert response.json() == {"ice_servers": []}

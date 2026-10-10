@@ -89,6 +89,8 @@ export interface Api {
   ): Promise<{ speaker: SpeakerInfo; ids: number[] }>;
   /** 服务端时钟（Unix 秒），对时用 */
   serverTime(): Promise<number>;
+  /** 建立 WebRTC 连接时用的 ICE 服务器（docs/interfaces.md §5.2），原样交给 SDK */
+  iceServers(): Promise<RTCIceServer[]>;
   listFrames(sessionId: string): Promise<FrameItem[]>;
   /** 上传一张截图；capturedAt 是已经换算成服务端时钟的采集时刻（Unix 秒） */
   uploadFrame(image: Blob, capturedAt: number): Promise<{ id: number; t: number }>;
@@ -212,6 +214,10 @@ export function createApi(
     async serverTime() {
       const body = await request<{ server_time: number }>("/api/time");
       return body.server_time;
+    },
+    async iceServers() {
+      const body = await request<{ ice_servers: RTCIceServer[] }>("/api/ice");
+      return body.ice_servers;
     },
     async listFrames(sessionId) {
       const body = await request<{ items: FrameItem[] }>(

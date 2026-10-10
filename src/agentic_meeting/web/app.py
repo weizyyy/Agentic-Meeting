@@ -29,7 +29,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agentic_meeting.agent.runner import build_runner
 from agentic_meeting.agent.tasks import Runner, TaskManager
-from agentic_meeting.config import REPO_ROOT, AppConfig
+from agentic_meeting.config import REPO_ROOT, AppConfig, secret
 from agentic_meeting.pipeline.background import BackgroundModel, InferenceLLM
 from agentic_meeting.pipeline.bot import AppResources, run_bot
 from agentic_meeting.pipeline.digest import DigestWorker
@@ -64,6 +64,18 @@ NOT_BUILT_HTML = """<!doctype html>
 """
 
 
+def ice_servers_for_browser(cfg: AppConfig) -> list[dict[str, Any]]:
+    """``server.ice_servers`` 写成浏览器 ``RTCIceServer`` 的形状；凭据此时从环境变量读出（interfaces.md §5.2）。"""
+    servers: list[dict[str, Any]] = []
+    for ice in cfg.server.ice_servers:
+        entry: dict[str, Any] = {"urls": list(ice.urls)}
+        if ice.username:
+            entry["username"] = ice.username
+            entry["credential"] = secret(ice.credential_env) or ""
+        servers.append(entry)
+    return servers
+
+
 def create_app(
     cfg: AppConfig,
     *,
@@ -86,6 +98,8 @@ def create_app(
     也没注入时按配置创建；只注入了 ``store`` 时没有后台模型，截图的摘要状态记为 ``skipped``。
     后台任务：``agent.enabled`` 为真时有任务管理器；运行器注入了就用注入的（测试），否则是正式的 agent 运行器。
     """
+
+    browser_ice_servers = ice_servers_for_browser(cfg)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -225,8 +239,8 @@ def create_app(
             digests=digests,
         )
         app.state.bot = bot
-        # 同一局域网内不需要 ICE 服务器，留空即可。
-        ice_servers = [IceServer(urls=url) for url in cfg.server.ice_servers]
+        # 同一局域网内不需要 ICE 服务器，留空即可。浏览器那一端用的是同一份（GET /api/ice）。
+        ice_servers = [IceServer(**entry) for entry in browser_ice_servers]
         app.state.handler = handler or SmallWebRTCRequestHandler(ice_servers=ice_servers or None)
         try:
             yield
@@ -324,6 +338,10 @@ def create_app(
     async def ice_candidate(request: SmallWebRTCPatchRequest, http_request: Request):
         await http_request.app.state.handler.handle_patch_request(request)
         return {"status": "success"}
+
+    @app.get("/api/ice")
+    async def ice_config() -> dict[str, list[dict[str, Any]]]:
+        return {"ice_servers": browser_ice_servers}
 
     # ---- 静态站点：放在最后，不盖住上面的接口 ----
 

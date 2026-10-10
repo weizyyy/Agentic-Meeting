@@ -14,6 +14,11 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   limit of 5 failed logins per address in 5 minutes. Every `/api` endpoint is covered; without a
   password nothing changes. `check` and `serve` warn when the server listens beyond the local
   machine without a password. `scripts/soak.py` logs in when a password is configured.
+- TURN servers with credentials in `server.ice_servers`: an entry can be a table with `urls`,
+  `username` and `credential_env` (the TURN password stays in the environment). The browser now
+  receives the same ICE servers from the new `GET /api/ice` endpoint; before, `server.ice_servers`
+  applied to the server side only and the browser connected without any. `check` and `serve` warn
+  when TURN is configured without an access password.
 - A pinned repository-wide Prettier formatter for client code, JSON, YAML and Markdown, with
   shared configuration, `npm run format` / `npm run format:check`, pre-commit and CI checks.
 

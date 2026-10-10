@@ -73,7 +73,8 @@ async def ice_candidate(request: SmallWebRTCPatchRequest):
   `SmallWebRTCRequest` 解析请求体，驼峰那个键会被忽略（`request_data` 恒为 `None`）。要拿到它，读原始 JSON 后用
   `SmallWebRTCRequest.from_dict(payload)`（它同时接受两种写法）。`web/app.py` 就是这么做的。
 - `IceServer` 就是 aiortc 的 `RTCIceServer(urls, username, credential, credentialType)`；
-  `SmallWebRTCRequestHandler(ice_servers=None)` 只提供 host 候选，同一局域网内够用。
+  `SmallWebRTCRequestHandler(ice_servers=None)` 只提供 host 候选，同一局域网内够用。处理器里的 ICE 服务器
+  只作用于服务端这一端的连接，浏览器那一端要另外给（§12）。
 - 程序化启动：`uvicorn.Server(uvicorn.Config(app, host=..., port=..., ssl_certfile=..., ssl_keyfile=...)).serve()`
   在已有的事件循环里运行；它自己接管 SIGINT，收到 Ctrl+C 后优雅关闭并返回（或再抛 `KeyboardInterrupt`），
   所以 `serve --with-services` 把「停推理服务」放在 `finally` 里。`fastapi`、`uvicorn` 由 `pipecat-ai[runner]`
@@ -574,6 +575,9 @@ await client.disconnect();
   `requestData`——SDK 自己重连（ICE 断开 5 秒后新建 PeerConnection，最多 3 次）发的 offer 就带着 `session_id`，
   服务端会继续同一场会议，而不是新建一场。
   SDK 放弃之后传输层状态变成断开，页面自己的重连（退避 1、2、4、8、8 秒）才接手。
+- **ICE 服务器设在传输层上。** `new SmallWebRTCTransport()` 不带任何 ICE 服务器，服务端 `SmallWebRTCRequestHandler`
+  里的设置也传不过来。传输层有一个 `iceServers` 的 setter（`RTCIceServer[]`），每次新建 `RTCPeerConnection` 时读取，
+  SDK 自己重连时也一样。页面在每次 `connect()` 之前用 `GET /api/ice` 的结果设置它（`useMeetingClient.ts`）。
 - `tsconfig` 里 `verbatimModuleSyntax` + `allowImportingTsExtensions`：源码里的相对导入写 `.ts` 扩展名，
   纯逻辑文件（协议解析、字幕合并、状态归约）才能被 Node 自带的测试运行器直接跑（`npm test`，不需要测试框架）；
   `*.test.ts` 不参与 `tsc` 与打包。

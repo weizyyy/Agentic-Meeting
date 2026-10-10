@@ -355,6 +355,14 @@ export function useMeetingClient(): MeetingClient {
       if (sessionId) data.session_id = sessionId;
       dispatch({ type: "connecting" });
       try {
+        // 每次自己发起连接前取一次 ICE 服务器（TURN 凭据可能换过）。取不到就不带：同一局域网内照样能连上，
+        // 跨网段时连不上会在下面报「连接失败」。SDK 自己重连时沿用这次设下的。
+        (client.transport as SmallWebRTCTransport).iceServers = await api
+          .iceServers()
+          .catch((error: unknown) => {
+            console.warn("取 ICE 服务器失败，不带 ICE 服务器连接：", error);
+            return [];
+          });
         await client.connect({ webrtcRequestParams: request.current });
         return true;
       } catch (error) {
@@ -366,7 +374,7 @@ export function useMeetingClient(): MeetingClient {
         return false;
       }
     },
-    [client],
+    [client, api],
   );
 
   const start = useCallback(async () => {

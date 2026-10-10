@@ -131,6 +131,47 @@ class SessionConfig(_Model):
         return seen
 
 
+ICE_URL_SCHEMES = ("stun:", "stuns:", "turn:", "turns:")
+
+
+class IceServerConfig(_Model):
+    """一台 STUN/TURN 服务器。形状对应浏览器的 ``RTCIceServer``，凭据只写环境变量名。"""
+
+    urls: list[str] = Field(min_length=1)
+    username: str = ""
+    # 存放 TURN 凭据（密码）的环境变量名。
+    credential_env: str = ""
+
+    @field_validator("urls", mode="before")
+    @classmethod
+    def _one_url(cls, v: object) -> object:
+        return [v] if isinstance(v, str) else v
+
+    @field_validator("urls")
+    @classmethod
+    def _known_schemes(cls, v: list[str]) -> list[str]:
+        urls = [url.strip() for url in v]
+        for url in urls:
+            if not url.lower().startswith(ICE_URL_SCHEMES):
+                raise ValueError(
+                    f"ICE 服务器地址必须以 stun:、stuns:、turn: 或 turns: 开头：{url!r}"
+                )
+        return urls
+
+    @model_validator(mode="after")
+    def _turn_needs_credentials(self) -> IceServerConfig:
+        if bool(self.username) != bool(self.credential_env):
+            raise ValueError("username 与 credential_env 必须同时填写或同时留空")
+        if not self.username and self.has_turn:
+            # 浏览器拒绝没有用户名和凭据的 TURN 地址（RTCPeerConnection 直接报错）
+            raise ValueError("TURN 服务器必须填写 username 和 credential_env")
+        return self
+
+    @property
+    def has_turn(self) -> bool:
+        return any(url.lower().startswith("turn") for url in self.urls)
+
+
 class ServerConfig(_Model):
     host: str = "0.0.0.0"
     port: int = Field(default=7860, ge=1, le=65535)
@@ -138,12 +179,20 @@ class ServerConfig(_Model):
     # 只能用 http://localhost 访问。
     tls_cert: str = ""
     tls_key: str = ""
-    # WebRTC ICE 服务器。同一局域网内留空即可。
-    ice_servers: list[str] = Field(default_factory=list)
+    # WebRTC ICE 服务器，服务端和浏览器都用（docs/interfaces.md §5.2）。同一局域网内留空即可。
+    # 每项可以只写一个地址字符串，也可以写成带 urls / username / credential_env 的表。
+    ice_servers: list[IceServerConfig] = Field(default_factory=list)
     # 访问口令所在的环境变量名。留空 = 不需要登录（只在本机或可信网络里用）。见 docs/interfaces.md §5.7。
     password_env: str = ""
     # 登录一次的有效天数，到期需要重新输入口令。
     auth_session_days: float = Field(default=7.0, gt=0, le=365)
+
+    @field_validator("ice_servers", mode="before")
+    @classmethod
+    def _plain_urls(cls, v: object) -> object:
+        if isinstance(v, list):
+            return [{"urls": [item]} if isinstance(item, str) else item for item in v]
+        return v
 
 
 # --------------------------------------------------------------------------- #
@@ -646,6 +695,8 @@ def check_ready(cfg: AppConfig) -> list[str]:
             problems.append(f"{label} 指向的文件不存在：{cfg.resolve(value)}")
     if bool(cfg.server.tls_cert) != bool(cfg.server.tls_key):
         problems.append("server.tls_cert 与 server.tls_key 必须同时填写或同时留空")
+    for i, ice in enumerate(cfg.server.ice_servers):
+        need_env(f"server.ice_servers[{i}].credential_env", ice.credential_env)
     need_env("server.password_env", cfg.server.password_env)
     password = secret(cfg.server.password_env)
     if password and len(password) < MIN_PASSWORD_CHARS:
@@ -666,14 +717,22 @@ def is_loopback_host(host: str) -> bool:
 
 
 def server_warnings(cfg: AppConfig) -> list[str]:
-    """服务端自身的安全提醒，只在命令行打印、不发给浏览器（目前只有「没有访问口令却对外监听」）。"""
-    if cfg.server.password_env or is_loopback_host(cfg.server.host):
+    """服务端自身的安全提醒，只在命令行打印、不发给浏览器（都是「没有访问口令」的后果）。"""
+    if cfg.server.password_env:
         return []
-    return [
-        f"服务监听在 {cfg.server.host}，同一网络里的其他设备都能访问，但没有设置访问口令："
-        "任何人都可以查看和删除会议记录。在可信网络之外使用时，请设置 server.password_env"
-        "（见 docs/configuration.md）。"
-    ]
+    warnings: list[str] = []
+    if not is_loopback_host(cfg.server.host):
+        warnings.append(
+            f"服务监听在 {cfg.server.host}，同一网络里的其他设备都能访问，但没有设置访问口令："
+            "任何人都可以查看和删除会议记录。在可信网络之外使用时，请设置 server.password_env"
+            "（见 docs/configuration.md）。"
+        )
+    if any(ice.has_turn for ice in cfg.server.ice_servers):
+        warnings.append(
+            "配置了 TURN 服务器，但没有设置访问口令：能打开页面的人都能读到 TURN 凭据，"
+            "借你的 TURN 服务器中转流量。请设置 server.password_env。"
+        )
+    return warnings
 
 
 def check_warnings(cfg: AppConfig) -> list[str]:
