@@ -49,15 +49,20 @@ Rules:
 - Relative paths are resolved against the repository root with `AppConfig.resolve()`.
 - Application code does not branch on the realtime LLM access mode. `RealtimeLLMConfig` exposes:
 
-  | Member                                 | Meaning                                                                                              |
-  | -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-  | `active`                               | The selected set of settings (`base_url`, `api_key_env`, `model`, `supports_vision`, `sampling`, …)  |
-  | `managed`                              | Whether the process supervisor launches the realtime LLM (`llama_server` mode with `launch.enabled`) |
-  | `request_extra_body(background=False)` | Fields to place in `extra_body` of each request, already merged for the mode                         |
-  | `cache_warm`                           | Whether to send warm-up requests                                                                     |
-  | `supports_developer_role`              | Whether the server accepts the `developer` role                                                      |
+  | Member                                 | Meaning                                                                                                  |
+  | -------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+  | `active`                               | The selected set of settings (`base_url`, `api_key_env`, `model`, `supports_vision`, `sampling`, …)      |
+  | `managed`                              | Whether the process supervisor launches the realtime LLM (`llama_server` mode with `launch.enabled`)     |
+  | `has_health_endpoint`                  | Whether read-only probes use the origin's dedicated `/health` endpoint; independent of process ownership |
+  | `request_extra_body(background=False)` | Fields to place in `extra_body` of each request, already merged for the mode                             |
+  | `cache_warm`                           | Whether to send warm-up requests                                                                         |
+  | `supports_developer_role`              | Whether the server accepts the `developer` role                                                          |
 
   Only the process supervisor reads `mode` and `llama_server.launch` directly.
+
+  `has_health_endpoint` is true for `llama_server`, including externally launched servers. Otherwise
+  probes use the selected `active.base_url` plus `/models`, even for loopback addresses; any HTTP
+  response establishes reachability only. This property adds no configuration or HTTP fields.
 
 - `config.check_warnings(cfg)` returns items that do not prevent startup but that the operator should
   know about — currently, data leaving the machine. `check` and `serve` print them, and the browser

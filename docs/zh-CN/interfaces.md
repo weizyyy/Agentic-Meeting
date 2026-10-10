@@ -50,11 +50,16 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
   | -------------------------------------- | ------------------------------------------------------------------------------------------ |
   | `active`                               | 当前选中的那一套设置（`base_url`、`api_key_env`、`model`、`supports_vision`、`sampling`…） |
   | `managed`                              | 是否由进程管理器启动实时模型服务（只有 `llama_server` 方式且 `launch.enabled` 时为真）     |
+  | `has_health_endpoint`                  | 只读探测是否使用地址源的专用 `/health` 端点，与进程由谁启动无关                            |
   | `request_extra_body(background=False)` | 每次请求要放进 `extra_body` 的字段，已按接入方式合并好                                     |
   | `cache_warm`                           | 是否做缓存预热                                                                             |
   | `supports_developer_role`              | 服务端是否认识 `developer` 角色                                                            |
 
   只有进程管理器（要不要生成启动命令）需要直接看 `mode` 和 `llama_server.launch`。
+
+  `llama_server` 的 `has_health_endpoint` 为真，包括外部启动的服务。其他方式使用选中的
+  `active.base_url` 加 `/models`，即使地址为回环地址也一样；任意 HTTP 响应仅表示可达。
+  此属性不新增配置字段或 HTTP 字段。
 
 - `config.check_warnings(cfg)` 返回不妨碍启动、但运维者应当知情的事项（目前是数据外发）。
   `check` 与 `serve` 都会打印这些事项，浏览器连接后各收到一条 `notice` 消息。

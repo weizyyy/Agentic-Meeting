@@ -69,6 +69,59 @@ def test_remote_targets_and_selected_realtime_endpoint(make_cfg):
     assert built["agent"].any_status_ok
 
 
+@pytest.mark.parametrize("has_health_endpoint", [False, True])
+def test_target_consumes_config_health_semantics(make_cfg, monkeypatch, has_health_endpoint):
+    cfg = make_cfg()
+    cfg.realtime_llm.mode = "openai_api" if has_health_endpoint else "llama_server"
+    cfg.realtime_llm.active.base_url = "https://realtime.test/api/v1"
+    # 配置语义改变时，探测器无需知道具体端点类或接入方式。
+    monkeypatch.setattr(
+        type(cfg.realtime_llm), "has_health_endpoint", property(lambda _: has_health_endpoint)
+    )
+    target = targets(cfg)["realtime"]
+    expected = "/health" if has_health_endpoint else "/api/v1/models"
+    assert target.health_url == "https://realtime.test" + expected
+    assert target.any_status_ok is (not has_health_endpoint)
+
+
+@pytest.mark.parametrize(
+    ("mode", "managed", "base_url", "path"),
+    [
+        ("llama_server", True, "http://127.0.0.1:8080/api/v1/", "/health"),
+        ("llama_server", False, "https://realtime.test/api/v1/", "/health"),
+        ("openai_api", False, "https://realtime.test/api/v1/", "/api/v1/models"),
+        ("openai_api", False, "http://127.0.0.1:9000/api/v1/", "/api/v1/models"),
+    ],
+)
+@pytest.mark.parametrize("status_code", [200, 401, 403, 404, 503])
+async def test_realtime_probe_protocol_and_selected_auth(
+    make_cfg, monkeypatch, mode, managed, base_url, path, status_code
+):
+    cfg = make_cfg()
+    cfg.realtime_llm.mode = mode
+    cfg.realtime_llm.llama_server.launch.enabled = managed
+    cfg.realtime_llm.active.base_url = base_url
+    cfg.realtime_llm.active.api_key_env = "FAKE_SELECTED_KEY"
+    monkeypatch.setenv("FAKE_SELECTED_KEY", "fake-selected-token")
+    target = targets(cfg)["realtime"]
+    assert target.any_status_ok is (not cfg.realtime_llm.has_health_endpoint)
+
+    def respond(request):
+        assert request.url.path == path
+        assert str(request.url) == target.health_url
+        assert request.headers["Authorization"] == "Bearer fake-selected-token"
+        return httpx.Response(status_code)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        result = await probe_service(target, client)
+    if mode == "openai_api":
+        assert (result["status"], result["reason"]) == ("reachable", "http_response")
+    elif status_code == 200:
+        assert (result["status"], result["reason"]) == ("ok", "healthy")
+    else:
+        assert (result["status"], result["reason"]) == ("unavailable", "http_error")
+
+
 @pytest.mark.parametrize("provider", ["none", "tasks", "caption", "digest", "report"])
 def test_agent_selected_by_every_provider(make_cfg, provider):
     cfg = make_cfg()

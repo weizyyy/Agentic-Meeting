@@ -31,7 +31,6 @@ from loguru import logger
 from agentic_meeting.config import (
     AppConfig,
     ASRProfile,
-    LlamaServerEndpoint,
     is_loopback,
     load_asr_profile,
     secret,
@@ -454,7 +453,7 @@ def build_probe_targets(cfg: AppConfig) -> list[ProbeTarget]:
         target("asr", True, cfg.asr.base_url),
         target(
             "realtime", True, rt.base_url,
-            auth_env=rt.api_key_env, generic=not isinstance(rt, LlamaServerEndpoint),
+            auth_env=rt.api_key_env, generic=not cfg.realtime_llm.has_health_endpoint,
         ),
         target("tts", cfg.tts.enabled, cfg.tts.base_url, auth_env=cfg.tts.api_key_env),
         target("embedding", cfg.embedding.enabled, cfg.embedding.base_url),
