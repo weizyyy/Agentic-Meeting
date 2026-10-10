@@ -560,10 +560,10 @@ Packages and versions are pinned in `client/package.json`; the type definitions 
 ```ts
 import { PipecatClient } from "@pipecat-ai/client-js";
 import { PipecatClientAudio, PipecatClientProvider } from "@pipecat-ai/client-react";
-import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
+import { SmallWebRTCTransport, WavMediaManager } from "@pipecat-ai/small-webrtc-transport";
 
 const client = new PipecatClient({
-  transport: new SmallWebRTCTransport(),
+  transport: new SmallWebRTCTransport({ mediaManager: new WavMediaManager() }),
   enableMic: true,
   enableCam: false,
   callbacks: {
@@ -587,8 +587,23 @@ await client.disconnect();
   it. Wrap the UI in `<PipecatClientProvider client={client}>` and include `<PipecatClientAudio />`.
   The client object is created once; starting and ending a meeting call `connect()` and
   `disconnect()` on it.
-- The default media manager, `DailyMediaManager` (`@daily-co/daily-js`), does not expose microphone
-  constraints and requests the microphone without any. Echo cancellation is checked in
+- **The page uses `WavMediaManager`, not the default media manager.** Without a `mediaManager`
+  option the transport creates a `DailyMediaManager` (`@daily-co/daily-js`), which downloads its
+  call-machine bundle from `c.daily.co` and reports errors to `sentry.io` when a meeting starts; if
+  the browser cannot reach `c.daily.co`, no `RTCPeerConnection` is ever created. The page passes
+  `new SmallWebRTCTransport({ mediaManager: new WavMediaManager() })` (both exported by
+  `@pipecat-ai/small-webrtc-transport`), which makes no network requests of its own.
+  `WavMediaManager` takes the microphone with `getUserMedia({ audio: true })` (plus `deviceId` when one
+  is chosen) and reports the track through `onTrackStarted`. It also runs an `AudioWorklet` recorder
+  and a stream player meant for WebSocket transports; with SmallWebRTC nothing reads the recorded
+  chunks and the assistant's voice still arrives as a remote WebRTC track.
+- **Microphone changes are not sent by the transport.** When the system default microphone changes
+  or the current one disappears, `WavMediaManager` stops the old track and starts a new one, but only
+  `DailyMediaManager` is wired to replace the track in the peer connection. The page does it in
+  `onTrackStarted` (`localAudio.ts`) through the transport's `getAudioTransceiver()`, an internal
+  method of 1.10.8 that is missing from the type declarations; it is checked before use. Without it,
+  the connection keeps the ended track and the server receives no more audio.
+- Microphone constraints are not exposed by the media manager. Echo cancellation is checked in
   `onTrackStarted` with `track.getSettings().echoCancellation` and enabled with
   `track.applyConstraints({ echoCancellation: true })` when needed. Noise suppression and automatic
   gain are left at the browser defaults; whether the browser's automatic gain takes effect on a
