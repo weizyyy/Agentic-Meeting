@@ -50,6 +50,7 @@ and Linux with Python 3.12, 3.13 and 3.14, so avoid platform-specific paths and 
 | `config/config.example.toml`        | Configuration template; `config/prompts/` and `config/asr_profiles/` hold prompts and model-specific formats |
 | `scripts/`                          | Runtime fetch/build, headless replay, realtime-LLM evaluation, microphone check                              |
 | `tests/`                            | End-to-end tests in `tests/e2e/`; fake inference services are in `tests/e2e/inference.py`                    |
+| `client/e2e/`, `tests/browser/`     | Browser end-to-end tests (Playwright) and the test server they start                                         |
 | `docs/`, `docs/zh-CN/`              | Documentation in English and Chinese with identical file names and section numbers                           |
 
 Read these before changing behavior:
@@ -138,7 +139,9 @@ Tests are end-to-end scenarios: start the application with the `start_app` fixtu
 `tests/e2e/conftest.py`, script the fake inference services in `tests/e2e/inference.py`, and drive
 it through HTTP and `tests/e2e/meeting_client.py` (WebRTC with a real speech recording). Do not add
 unit tests of single functions or classes. Do not add tests that require a GPU, weights or network
-access unless they are marked `@pytest.mark.gpu`.
+access unless they are marked `@pytest.mark.gpu`. Behavior that only shows in the meeting page
+belongs in the Playwright suite under `client/e2e/` (`npm run test:e2e --prefix client`, see
+[docs/development.md](docs/development.md)); it serves the built client from `tests/browser/server.py`.
 
 ## Before you finish
 

@@ -119,12 +119,104 @@ The test suite is end-to-end. It runs without a GPU, model weights or network ac
 Write a new test as a scenario a user would recognize: what they do in the meeting page or on the
 command line, and what they then see through the API, the data channel or the files. Avoid tests of
 single functions or classes; they bind the code's current shape without proving that the system
-works. The web client has no tests of its own yet: `npm run build` type-checks it, and the server
-side of every message it exchanges is covered by `tests/e2e/`.
+works. `npm run build` type-checks the web client, the server side of every message it exchanges
+is covered by `tests/e2e/`, and the browser suite below drives the built page in real browsers.
 
-Other end-to-end checks use the scripts described in [runtimes.md §6](runtimes.md):
-`scripts/soak.py` replays a recording through a running server, and `scripts/eval_realtime_model.py`
-checks tool selection and latency of the configured realtime LLM. Run the latter after changing
+### Browser end-to-end tests
+
+The browser suite uses Playwright 1.64.0 from the client lockfile, Python 3.12–3.14 and Node.js
+24 (the CI version). From the repository root, install the locked dependencies, build the real
+client and install all three browser engines:
+
+```bash
+uv sync --frozen --extra agent
+npm ci
+npm ci --prefix client
+npm run build --prefix client
+cd client
+npx playwright install --with-deps chromium firefox webkit
+cd ..
+```
+
+Browser installation downloads browser binaries and may need administrator privileges for system
+packages on Linux; it does not download model weights. After changing client code, rebuild before
+running these tests because the server serves `client/dist/`.
+
+```bash
+# All three engines: Chromium, Firefox and WebKit
+npm run test:e2e --prefix client
+# One engine
+npm run test:e2e --prefix client -- --project=chromium
+# One test in one engine
+npm run test:e2e --prefix client -- --project=chromium --grep '真实页面、WebRTC、RTVI 与合成媒体探针'
+```
+
+Headless Linux also needs an audio output backend: Firefox's native `AudioContext.resume()`
+can otherwise remain pending before WebRTC negotiation starts. CI starts PulseAudio with a CPU
+null sink, which discards output and needs no physical audio device. On a headless Ubuntu machine,
+prepare it before running the browser suite:
+
+```bash
+sudo apt-get install -y pulseaudio pulseaudio-utils
+pulseaudio --start --exit-idle-time=-1
+pactl load-module module-null-sink sink_name=e2e
+pactl set-default-sink e2e
+```
+
+The pinned Linux WebKit build suspends muted MediaStream video outside the document, including
+our native screen-frame consumer. CI uses WebKit's test environment switch to allow playback.
+For local Linux runs after preparing PulseAudio:
+
+```bash
+WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS=1 npm run test:e2e --prefix client
+```
+
+Remove this workaround when the pinned browser includes the
+[upstream fix for WebKit 319380](https://github.com/WebKit/WebKit/commit/f2797a15c336841f348b94902c3dd556a0cd5540).
+Native media tracks, video decoding, screenshot uploads and assertions remain unchanged.
+
+This is test environment setup, not an AudioContext or SDK replacement. The CI runner is discarded
+after the job. On a local machine, unload the module using the ID printed by `pactl load-module`
+(`pactl unload-module <id>`); stop PulseAudio only if it was started solely for this test run.
+
+The same core cases run in each engine, with one worker and no retries. Each test starts its own
+`tests.browser.server` Python subprocess on a dynamically allocated loopback port. The fixture
+waits for the structured `E2E_READY` message after server startup. The server owns a system
+temporary directory (`agentic-meeting-e2e-*`) containing a separate SQLite database and fictional
+seed meetings, screenshots and task artifacts. Teardown stops the subprocess, closes the Store
+and removes that directory; it never reads or writes `config/config.toml`, `.env` or `data/`.
+Forced process termination can leave temporary files behind; after ensuring the test process has
+exited, remove only its `agentic-meeting-e2e-*` directory from the system temporary directory.
+
+Tests exercise production `create_app`, Store and HTTP business endpoints, the real
+SmallWebRTC transport, Pipecat pipeline and RTVI data channel. Inference is replaced by a controlled
+test bot; ASR, LLM, TTS, embeddings and screen caption models are not started. Chromium and WebKit
+use CPU WebAudio microphone tracks; Firefox uses its native fake media devices. All three engines
+use `canvas.captureStream()` screen tracks instead of capturing a desktop. Browser requests outside
+the test server are blocked and fail the test. These checks do not validate real microphone or
+screen permissions, physical devices, model quality, external services, GPU behavior or Internet
+ICE connectivity. CI runs the three engines on Ubuntu CPU; platform-specific browser startup or
+ICE failures on other operating systems must be investigated rather than skipping an engine.
+
+Failure traces and screenshots, plus per-test `server.log`, are written under
+`client/test-results/`; the HTML report is in `client/playwright-report/`. Inspect them with:
+
+```bash
+cd client
+npx playwright show-report playwright-report
+# Replace the example with a failed test's actual trace path
+npx playwright show-trace 'test-results/<failed-test>/trace.zip'
+```
+
+Both output directories are ignored by Git and can be deleted after debugging. CI uploads only
+these two directories after a failure or cancellation, with a three-day retention period. The
+E2E job is required by `All checks`, including failure, cancellation and skipped-job propagation.
+
+### Checks with real models
+
+End-to-end checks use the scripts described in [runtimes.md §6](runtimes.md): `scripts/soak.py`
+replays a recording through a running server, and `scripts/eval_realtime_model.py` checks tool
+selection and latency of the configured realtime LLM. Run the latter after changing
 `config/prompts/realtime_system.md` or switching models.
 
 ## Repository layout
