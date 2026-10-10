@@ -5,7 +5,7 @@ import { once } from "node:events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { installMedia } from "./media.ts";
-import { stopServer, waitForServer } from "./server.ts";
+import { stopServer, waitForServer, type ServerExit } from "./server.ts";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 
@@ -24,7 +24,9 @@ export const test = base.extend<{ serverURL: string }>({
     const log = createWriteStream(logPath);
     child.stdout.pipe(log, { end: false });
     child.stderr.pipe(log, { end: false });
-    const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+    const closed = new Promise<ServerExit>((resolve) =>
+      child.once("close", (code, signal) => resolve({ code, signal })),
+    );
     try {
       const url = await waitForServer(child);
       await use(url);

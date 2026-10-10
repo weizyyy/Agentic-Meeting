@@ -33,10 +33,12 @@ export function waitForServer(
   });
 }
 
-/** 退出事件也覆盖启动失败；强杀或无法退出都显式报告，不留无限等待。 */
+export type ServerExit = { code: number | null; signal: NodeJS.Signals | null };
+
+/** 退出事件也覆盖启动失败；强杀或异常退出都显式报告，不留无限等待。 */
 export async function stopServer(
   child: ChildProcessWithoutNullStreams,
-  closed: Promise<void>,
+  closed: Promise<ServerExit>,
   grace = 15_000,
 ): Promise<void> {
   let forced = false;
@@ -48,8 +50,9 @@ export async function stopServer(
   let killTimer: ReturnType<typeof setTimeout>;
   let deadline: ReturnType<typeof setTimeout>;
   try {
-    child.kill("SIGTERM");
-    await Promise.race([
+    const alreadyExited = child.exitCode !== null || child.signalCode !== null;
+    if (!alreadyExited) child.kill("SIGTERM");
+    const result = await Promise.race([
       closed,
       new Promise<never>((_, reject) => {
         killTimer = setTimeout(() => {
@@ -64,6 +67,10 @@ export async function stopServer(
     ]);
     if (forced) throw new Error("测试服务器未正常关闭，已强杀");
     if (killError) throw killError;
+    // 没有 pid 表示 spawn 失败；waitForServer 已保留原始启动错误。
+    if (child.pid && (alreadyExited || (result.code !== 0 && result.signal !== "SIGTERM"))) {
+      throw new Error(`测试服务器异常退出：code=${result.code}, signal=${result.signal}`);
+    }
   } finally {
     clearTimeout(killTimer!);
     clearTimeout(deadline!);

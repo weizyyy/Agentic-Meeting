@@ -3,11 +3,14 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { stopServer, waitForServer } from "./server.ts";
+import { stopServer, waitForServer, type ServerExit } from "./server.ts";
 
 function child() {
   return Object.assign(new EventEmitter(), {
     stdout: new PassThrough(),
+    pid: 1,
+    exitCode: null,
+    signalCode: null,
   }) as ChildProcessWithoutNullStreams;
 }
 test("服务器就绪信号支持分块且移除监听器", async () => {
@@ -28,7 +31,9 @@ test("服务器无就绪信号时超时，提前退出时立即失败", async ()
 
 test("缺少 Python 时保留启动错误且关闭事件有界完成", async () => {
   const process = spawn("agentic-meeting-test-missing-executable", []);
-  const closed = new Promise<void>((resolve) => process.once("close", () => resolve()));
+  const closed = new Promise<ServerExit>((resolve) =>
+    process.once("close", (code, signal) => resolve({ code, signal })),
+  );
   try {
     await assert.rejects(waitForServer(process), /ENOENT/);
   } finally {
@@ -39,9 +44,11 @@ test("缺少 Python 时保留启动错误且关闭事件有界完成", async () 
 test("正常退出和强杀路径都会移除计时器与监听器", async () => {
   for (const needsKill of [false, true]) {
     const process = child();
-    const closed = new Promise<void>((resolve) => process.once("close", () => resolve()));
+    const closed = new Promise<ServerExit>((resolve) =>
+      process.once("close", (code, signal) => resolve({ code, signal })),
+    );
     process.kill = (signal) => {
-      if (!needsKill || signal === "SIGKILL") process.emit("close");
+      if (!needsKill || signal === "SIGKILL") process.emit("close", null, signal);
       return true;
     };
     const stopped = stopServer(process, closed, 1);
@@ -59,4 +66,30 @@ test("强杀被拒绝时保留错误并有界失败", async () => {
   };
   await assert.rejects(stopServer(process, new Promise(() => {}), 1), /kill rejected/);
   assert.equal(process.listenerCount("error"), 0);
+});
+
+test("真实服务器就绪后非零退出不会被 teardown 判为成功", async () => {
+  const process = spawn(globalThis.process.execPath, [
+    "-e",
+    'console.log("E2E_READY http://127.0.0.1:1234"); setTimeout(() => process.exit(23), 10)',
+  ]);
+  const closed = new Promise<ServerExit>((resolve) =>
+    process.once("close", (code, signal) => resolve({ code, signal })),
+  );
+  assert.equal(await waitForServer(process), "http://127.0.0.1:1234");
+  await closed;
+  await assert.rejects(stopServer(process, closed, 5), /异常退出：code=23/);
+  assert.equal(process.listenerCount("error"), 0);
+});
+
+test("主动关闭期间服务清理非零退出也会失败", async () => {
+  const process = child();
+  process.kill = () => {
+    process.emit("close", 23, null);
+    return true;
+  };
+  const closed = new Promise<ServerExit>((resolve) =>
+    process.once("close", (code, signal) => resolve({ code, signal })),
+  );
+  await assert.rejects(stopServer(process, closed, 5), /异常退出：code=23/);
 });
