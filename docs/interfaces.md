@@ -761,11 +761,14 @@ of `server.auth_session_days`, and `Secure` when the request arrived over HTTPS.
 first two fields. The session expires at the stated time; there is no sliding renewal.
 
 **Keys.** On first start a random 32-byte secret is written to `<data_dir>/auth_secret` (readable
-by the owner only). The signing key is HMAC-SHA256 of the secret and the password, so changing the
-password logs out every device, and so does deleting the file. The CSRF token is HMAC-SHA256 of
+by the owner only). The password is stretched once at startup with scrypt (`n=2^14, r=8, p=1`),
+salted with the secret; the signing key is HMAC-SHA256 of that result. Changing the password
+therefore logs out every device, and so does deleting the file; a leaked cookie together with the
+secret still makes each password guess cost a full scrypt evaluation. The CSRF token is HMAC-SHA256 of
 the session nonce under the same key; it is not stored anywhere.
 
-**Login attempts.** The password is compared in constant time. At most 5 failed attempts per client
+**Login attempts.** Each attempt is stretched with the same scrypt parameters (in a worker thread,
+at most 4 at a time) and compared in constant time. At most 5 failed attempts per client
 address are allowed in any 5-minute window; further attempts receive 429 until the oldest failure
 leaves the window. A successful login clears the count for that address. Behind a reverse proxy the
 client address comes from `X-Forwarded-For` only when uvicorn trusts the proxy

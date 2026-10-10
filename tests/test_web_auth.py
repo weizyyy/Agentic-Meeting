@@ -18,6 +18,13 @@ from agentic_meeting.web.app import create_app
 
 PASSWORD_ENV = "FAKE_MEETING_PASSWORD"
 PASSWORD = "correct horse battery"
+PRODUCTION_SCRYPT_N = auth.SCRYPT_N  # 在下面的夹具调低之前记下正式参数
+
+
+@pytest.fixture(autouse=True)
+def cheap_scrypt(monkeypatch):
+    """测试里把口令拉伸调到很便宜，否则每次建应用、每次登录都要算一遍正式参数，整个文件慢十倍。"""
+    monkeypatch.setattr(auth, "SCRYPT_N", 2**4)
 
 
 def client_for(app, base_url: str = "http://test") -> httpx.AsyncClient:
@@ -309,3 +316,15 @@ def test_secret_file_is_created_once_and_private(tmp_path):
     path.write_text("not hex", "ascii")
     with pytest.raises(RuntimeError, match="auth_secret"):
         auth.load_or_create_secret(tmp_path / "data")
+
+
+def test_password_is_stretched_with_the_documented_scrypt_parameters():
+    import hashlib
+
+    assert (auth.SCRYPT_N, auth.SCRYPT_R, auth.SCRYPT_P) == (2**4, 8, 1)  # 本文件里被调低了
+    expected = hashlib.scrypt(b"pw", salt=b"salt", n=2**4, r=8, p=1, dklen=32)
+    assert auth.stretch_password("pw", b"salt") == expected
+
+
+def test_production_scrypt_parameters_are_unchanged():
+    assert (PRODUCTION_SCRYPT_N, auth.SCRYPT_R, auth.SCRYPT_P) == (2**14, 8, 1)

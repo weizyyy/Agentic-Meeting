@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -33,6 +34,12 @@ COOKIE_NAME = "am_session"
 CSRF_HEADER = "X-CSRF-Token"
 SECRET_FILE = "auth_secret"
 SECRET_BYTES = 32
+# 口令拉伸参数（scrypt）：一次约几十毫秒、16 MB 内存。启动时算一次，每次登录尝试再算一次。
+SCRYPT_N = 2**14
+SCRYPT_R = 8
+SCRYPT_P = 1
+# 同时进行的口令比对上限：一大波并发登录不会占满线程池和内存
+MAX_CONCURRENT_CHECKS = 4
 
 # 登录限速：同一地址在窗口内最多失败这么多次
 MAX_FAILURES = 5
@@ -53,6 +60,13 @@ NOT_ENABLED = "没有启用访问口令"
 
 def _b64(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def stretch_password(password: str, salt: bytes) -> bytes:
+    """用 scrypt 拉伸口令。签名密钥和口令比对都从它出发，不直接对口令做快速哈希。"""
+    return hashlib.scrypt(
+        password.encode("utf-8"), salt=salt, n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, dklen=32
+    )
 
 
 def load_or_create_secret(data_dir: Path) -> bytes:
@@ -142,13 +156,13 @@ class AuthGuard:
     ) -> None:
         if not password:
             raise ValueError("访问口令不能为空")
-        self._password_digest = hashlib.sha256(password.encode("utf-8")).digest()
-        self._key = hmac.new(
-            server_secret, b"agentic-meeting session\0" + password.encode("utf-8"), hashlib.sha256
-        ).digest()
+        self._salt = server_secret
+        self._stretched = stretch_password(password, server_secret)
+        self._key = hmac.new(self._stretched, b"agentic-meeting session", hashlib.sha256).digest()
         self.session_secs = session_secs
         self._clock = clock
         self.limiter = limiter or LoginLimiter()
+        self._checks = asyncio.Semaphore(MAX_CONCURRENT_CHECKS)
 
     @classmethod
     def from_config(cls, cfg: AppConfig) -> AuthGuard | None:
@@ -163,8 +177,12 @@ class AuthGuard:
         return cls(password, server_secret, session_secs=cfg.server.auth_session_days * 86400.0)
 
     def check_password(self, candidate: str) -> bool:
-        digest = hashlib.sha256(candidate.encode("utf-8")).digest()
-        return hmac.compare_digest(digest, self._password_digest)
+        """比对口令（阻塞几十毫秒；在事件循环里请用 :meth:`check_password_async`）。"""
+        return hmac.compare_digest(stretch_password(candidate, self._salt), self._stretched)
+
+    async def check_password_async(self, candidate: str) -> bool:
+        async with self._checks:
+            return await asyncio.to_thread(self.check_password, candidate)
 
     def _sign(self, payload: str) -> str:
         return _b64(hmac.new(self._key, payload.encode("ascii"), hashlib.sha256).digest())
@@ -242,7 +260,7 @@ def register(app: FastAPI, guard: AuthGuard | None) -> None:
         password = body.get("password") if isinstance(body, dict) else None
         if not isinstance(password, str):
             raise StarletteHTTPException(400, '请求体应为 {"password": "..."}')
-        if not guard.check_password(password):
+        if not await guard.check_password_async(password):
             guard.limiter.failed(address)
             logger.warning(f"登录失败：{address}")
             return JSONResponse({"error": WRONG_PASSWORD}, status_code=401)
