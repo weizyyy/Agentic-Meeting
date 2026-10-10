@@ -24,13 +24,52 @@ test("真实页面、WebRTC、RTVI 与合成媒体探针", async ({ page, reques
   expect(JSON.stringify(detail)).toContain("已经保存的实时定稿");
   const screen = await page.evaluate(async () => {
     const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-    const result = stream
+    const tracks = stream
       .getVideoTracks()
       .map((track) => ({ state: track.readyState, kind: track.kind }));
-    stream.getTracks().forEach((track) => track.stop());
-    return result;
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+    let playback = "pending";
+    void video.play().then(
+      () => (playback = "resolved"),
+      (error) => (playback = String(error)),
+    );
+    const sample = async () => {
+      const deadline = Date.now() + 3000;
+      while (video.readyState < 2 && Date.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext("2d")!;
+      if (video.readyState >= 2) context.drawImage(video, 0, 0, 1, 1);
+      return {
+        width: video.videoWidth,
+        height: video.videoHeight,
+        readyState: video.readyState,
+        playback,
+        pixel: Array.from(context.getImageData(0, 0, 1, 1).data),
+      };
+    };
+    try {
+      const detached = await sample();
+      document.body.append(video);
+      const attached = await sample();
+      return { tracks, detached, attached };
+    } finally {
+      stream.getTracks().forEach((track) => track.stop());
+      video.srcObject = null;
+      video.remove();
+    }
   });
-  expect(screen).toEqual([{ state: "live", kind: "video" }]);
+  console.log("合成屏幕原生视频消费：", JSON.stringify(screen));
+  expect(screen.tracks).toEqual([{ state: "live", kind: "video" }]);
+  expect(screen.detached).toMatchObject({
+    width: 640,
+    height: 360,
+    pixel: [52, 86, 120, 255],
+  });
   await page.getByRole("button", { name: "结束会议", exact: true }).click();
   await expect(page.getByRole("status").first()).toHaveText("未连接");
   await expect
