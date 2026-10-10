@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -170,6 +171,46 @@ async def test_offer_accepts_the_snake_case_request_data_too(cfg, tmp_path):
             "/api/offer", json={"sdp": "s", "type": "offer", "request_data": {"k": 1}}
         )
     assert calls == [{"k": 1}]
+
+
+async def test_the_meeting_does_not_hold_the_offer_request_open(cfg, tmp_path):
+    # uvicorn 关闭时先等请求任务结束才进入 lifespan 收尾；管线若挂在请求上，会议进行中按 Ctrl+C 停不下来。
+    handler, started, closed = FakeHandler(), asyncio.Event(), asyncio.Event()
+
+    async def bot(connection, request_data, resources):
+        started.set()
+        await closed.wait()  # 像真的管线一样，连接被断开才结束
+
+    async def close():
+        closed.set()
+
+    handler.close = close
+    app = create_app(cfg, handler=handler, bot=bot, static_dir=tmp_path / "nope")
+    async with app.router.lifespan_context(app), client_for(app) as client:
+        response = await asyncio.wait_for(
+            client.post("/api/offer", json={"sdp": "s", "type": "offer"}), 5
+        )
+        assert response.status_code == 200
+        await asyncio.wait_for(started.wait(), 5)
+        assert len(app.state.bots) == 1
+    assert closed.is_set() and not app.state.bots
+
+
+async def test_a_meeting_that_does_not_end_is_cancelled_on_shutdown(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "BOT_EXIT_TIMEOUT_SECS", 0.05)
+    handler, cancelled = FakeHandler(), asyncio.Event()
+
+    async def bot(connection, request_data, resources):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    app = create_app(cfg, handler=handler, bot=bot, static_dir=tmp_path / "nope")
+    async with app.router.lifespan_context(app), client_for(app) as client:
+        await client.post("/api/offer", json={"sdp": "s", "type": "offer"})
+    assert cancelled.is_set() and not app.state.bots
 
 
 @pytest.mark.parametrize(

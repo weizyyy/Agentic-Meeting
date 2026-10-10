@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -16,10 +17,11 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
-from fastapi import BackgroundTasks, FastAPI, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from loguru import logger
 from pipecat.transports.smallwebrtc.connection import IceServer
 from pipecat.transports.smallwebrtc.request_handler import (
     SmallWebRTCPatchRequest,
@@ -62,6 +64,9 @@ DEFAULT_STATIC_DIR = REPO_ROOT / "client" / "dist"
 
 BotRunner = Callable[[Any, Any, AppResources], Awaitable[None]]
 
+# 应用关闭时，断开连接之后再等管线自己结束的时间；超过就取消。
+BOT_EXIT_TIMEOUT_SECS = 5.0
+
 NOT_BUILT_HTML = """<!doctype html>
 <html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>请先构建客户端</title>
@@ -84,6 +89,28 @@ def ice_servers_for_browser(cfg: AppConfig) -> list[dict[str, Any]]:
             entry["credential"] = secret(ice.credential_env) or ""
         servers.append(entry)
     return servers
+
+
+def _bot_done(bots: set[asyncio.Task[None]]) -> Callable[[asyncio.Task[None]], None]:
+    def done(task: asyncio.Task[None]) -> None:
+        bots.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            logger.opt(exception=task.exception()).error("会议管线异常结束")
+
+    return done
+
+
+async def _finish_bots(bots: set[asyncio.Task[None]]) -> None:
+    """应用关闭时：连接已断开，等管线自己结束（有超时），还没结束的取消。"""
+    pending = set(bots)
+    if not pending:
+        return
+    _done, late = await asyncio.wait(pending, timeout=BOT_EXIT_TIMEOUT_SECS)
+    if late:
+        logger.warning("应用关闭时有 {} 条会议管线没有及时结束，取消", len(late))
+        for task in late:
+            task.cancel()
+        await asyncio.gather(*late, return_exceptions=True)
 
 
 def create_app(
@@ -265,6 +292,10 @@ def create_app(
         )
         retention.start()
         app.state.bot = bot
+        # 会议管线由应用自己持有，不挂在 /api/offer 的请求上：uvicorn 关闭时会先等请求任务全部结束，
+        # 再进入下面的收尾；管线挂在请求上就要等会议结束，而断开会议的正是收尾，Ctrl+C 一次停不下来。
+        bots: set[asyncio.Task[None]] = set()
+        app.state.bots = bots
         # 同一局域网内不需要 ICE 服务器，留空即可。浏览器那一端用的是同一份（GET /api/ice）。
         ice_servers = [IceServer(**entry) for entry in browser_ice_servers]
         app.state.handler = handler or SmallWebRTCRequestHandler(ice_servers=ice_servers or None)
@@ -279,6 +310,7 @@ def create_app(
             await app.state.handler.close()
             await sessions.wait_idle()  # 被断开的连接要把连接记录写完，再关库
             await sessions.drain()
+            await _finish_bots(bots)
             if tasks is not None:
                 await tasks.close()
             await reports.stop()
@@ -341,7 +373,7 @@ def create_app(
     # ---- WebRTC 信令（interfaces.md §5.2） ----
 
     @app.post("/api/offer")
-    async def offer(http_request: Request, background_tasks: BackgroundTasks):
+    async def offer(http_request: Request):
         # 不用 FastAPI 的请求体类型：浏览器端 SDK 把连接参数放在驼峰的 requestData 里，
         # 只有 SmallWebRTCRequest.from_dict 认识它（客户端在里面带 session_id 等）。
         try:
@@ -364,7 +396,12 @@ def create_app(
 
         async def on_connection(connection: Any) -> None:
             state = http_request.app.state
-            background_tasks.add_task(state.bot, connection, request.request_data, state.resources)
+            task = asyncio.create_task(
+                state.bot(connection, request.request_data, state.resources),
+                name=f"bot-{getattr(connection, 'pc_id', '')}",
+            )
+            state.bots.add(task)
+            task.add_done_callback(_bot_done(state.bots))
 
         return await http_request.app.state.handler.handle_web_request(
             request=request, webrtc_connection_callback=on_connection

@@ -39,6 +39,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- A single `Ctrl+C` during a meeting now stops `agentic-meeting serve` (and then the inference
+  services started with `--with-services`). Previously the server waited for the meeting to end,
+  which only happened on a second `Ctrl+C`.
 - The web client no longer depends on `c.daily.co`. The Pipecat SDK's default media manager
   downloaded a script from that host and sent error reports to `sentry.io` when a meeting started,
   so browsers without access to it could not connect at all. The page now uses the SDK's
