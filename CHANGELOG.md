@@ -6,6 +6,17 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- The web page states the supported browsers (Chrome and Edge 111, Firefox 114, Safari 16.4) and
+  explains why a browser cannot hold a meeting: too old to run the page, not opened over HTTPS, or
+  missing WebRTC, microphone capture or Web Audio. Starting and resuming are blocked in such a
+  browser, and past meetings stay readable ([#47]).
+- When the browser's autoplay policy blocks the assistant's voice, the page says so and offers a
+  button that turns it on, instead of staying silent ([#47]).
+
+[#47]: https://github.com/weizyyy/Agentic-Meeting/pull/47
+
 ## [0.2.0] - 2026-10-10
 
 This release makes it safe to let other people reach an instance: an access password, TURN and

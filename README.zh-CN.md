@@ -146,7 +146,8 @@ uv run agentic-meeting serve --with-services
 
 浏览器打开 <http://localhost:7860>，点击「开始新会议」并允许使用麦克风。
 其他电脑上的浏览器需要通过 HTTPS 访问，见
-[入门指南](docs/zh-CN/getting-started.md#从其他设备访问)。
+[入门指南](docs/zh-CN/getting-started.md#从其他设备访问)。网页需要 Chrome 或 Edge 111、Firefox 114、
+Safari 16.4 及以上版本，见[支持的浏览器](docs/zh-CN/user-guide.md#支持的浏览器)。
 
 ## 文档
 
