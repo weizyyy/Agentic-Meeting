@@ -508,7 +508,7 @@ class MeetingRecorder(FrameProcessor):
                 self._caption_lag = max(0.0, raw_lag)
                 self._caption_sampled_at = sampled_at
         except Exception:
-            logger.exception("字幕指标采样失败，保留上次样本")
+            logger.warning("字幕指标采样失败，保留上次样本")
 
     async def _caption_message(self, c: CaptionUpdate) -> dict:
         return {
