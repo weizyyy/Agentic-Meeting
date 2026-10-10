@@ -71,7 +71,8 @@ password_env = "AGENTIC_MEETING_PASSWORD"
 ### 3.2 Caddy
 
 域名解析到这台机器、80 和 443 端口能从互联网访问时，Caddy 会自动申请并续期证书。它自己会设置 `X-Forwarded-For` 和
-`X-Forwarded-Proto`，没有长度的响应（ZIP 导出）收到多少转发多少，默认也不限制请求体大小。
+`X-Forwarded-Proto`，没有长度的响应（ZIP 导出）收到多少转发多少。它默认不限制请求体大小：请保留 `request_body`，因为登录接口
+不需要登录就能访问，并且会把整个请求体读进内存（测试中一个未登录的 300 MB 请求让应用的内存涨了约 560 MB）。
 
 ```caddy
 # /etc/caddy/Caddyfile
@@ -83,6 +84,11 @@ meeting.example.org {
 	}
 	respond @ops 403
 
+	# 截图上传最大 4 MB；更大的请求在到达应用之前就拒绝
+	request_body {
+		max_size 8MB
+	}
+
 	reverse_proxy 127.0.0.1:7860
 }
 ```
@@ -92,6 +98,9 @@ meeting.example.org {
 ```caddy
 meeting.example.internal {
 	tls /etc/ssl/meeting/fullchain.pem /etc/ssl/meeting/privkey.pem
+	request_body {
+		max_size 8MB
+	}
 	reverse_proxy 127.0.0.1:7860
 }
 ```
@@ -143,13 +152,13 @@ server {
 
 ### 3.4 代理必须满足的条件
 
-| 条件                               | 原因                                                                                  |
-| ---------------------------------- | ------------------------------------------------------------------------------------- |
-| 传 `X-Forwarded-Proto: https`      | 应用认为请求走的是 HTTPS 时，会话 Cookie 才带 `Secure`                                |
-| 传带客户端地址的 `X-Forwarded-For` | 登录限速（5 分钟内失败 5 次）按客户端地址计数                                         |
-| 请求体至少允许 4 MB                | `POST /api/frames` 上传的截图最大 4 MB                                                |
-| 不缓冲、允许长时间的响应           | `GET /api/export/{id}.zip` 边打包边发送；截图多的会议要传一阵子                       |
-| 允许几秒钟才返回的请求             | `POST /api/offer` 要等服务端收集完 ICE 候选地址才回答，配了 TURN 时还包括申请中继地址 |
+| 条件                               | 原因                                                                                            |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------- |
+| 传 `X-Forwarded-Proto: https`      | 应用认为请求走的是 HTTPS 时，会话 Cookie 才带 `Secure`                                          |
+| 传带客户端地址的 `X-Forwarded-For` | 登录限速（5 分钟内失败 5 次）按客户端地址计数                                                   |
+| 请求体允许 4 MB，但不要大太多      | `POST /api/frames` 上传的截图最大 4 MB；`POST /api/auth/login` 不需要登录，并且会读入整个请求体 |
+| 不缓冲、允许长时间的响应           | `GET /api/export/{id}.zip` 边打包边发送；截图多的会议要传一阵子                                 |
+| 允许几秒钟才返回的请求             | `POST /api/offer` 要等服务端收集完 ICE 候选地址才回答，配了 TURN 时还包括申请中继地址           |
 
 应用不用 WebSocket，不需要 `Upgrade` 相关的请求头。
 
@@ -259,6 +268,7 @@ TURN 服务器的证书相符。
 
 **所有人都被告知登录尝试次数太多。** 所有客户端看起来都是代理的地址，见 §3.1 的 `FORWARDED_ALLOW_IPS`。
 
-**截图上传失败，返回 413。** 代理限制了请求体大小；把 nginx 的 `client_max_body_size` 调到至少 4 MB。
+**截图上传失败，返回 413（nginx）或 502（Caddy）。** 代理的请求体上限低于 4 MB；把 nginx 的 `client_max_body_size` 或 Caddy 的
+`request_body max_size` 调到 8 MB 左右。
 
 **导出下载到一半就断了。** 代理缓冲了响应或者超时了；见 §3.3 的 `proxy_buffering` 和 `proxy_read_timeout`。

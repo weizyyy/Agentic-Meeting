@@ -86,8 +86,10 @@ on an address the proxy can reach, so restrict port 7860 to the proxy in the fir
 
 Caddy obtains and renews a certificate automatically when the name resolves to the machine and ports
 80 and 443 are reachable from the internet. It sets `X-Forwarded-For` and `X-Forwarded-Proto` itself,
-streams responses without a length (ZIP exports) as they come, and has no request size limit by
-default.
+and streams responses without a length (ZIP exports) as they come. It does not limit request bodies
+by default: keep `request_body`, because the login endpoint is public and reads the whole body
+into memory (one unauthenticated 300 MB request raised the application's memory by about 560 MB in
+a test).
 
 ```caddy
 # /etc/caddy/Caddyfile
@@ -99,6 +101,11 @@ meeting.example.org {
 	}
 	respond @ops 403
 
+	# Screenshots are uploaded up to 4 MB; refuse anything much larger before it reaches the app
+	request_body {
+		max_size 8MB
+	}
+
 	reverse_proxy 127.0.0.1:7860
 }
 ```
@@ -108,6 +115,9 @@ On an internal network without a public name, use your organization's certificat
 ```caddy
 meeting.example.internal {
 	tls /etc/ssl/meeting/fullchain.pem /etc/ssl/meeting/privkey.pem
+	request_body {
+		max_size 8MB
+	}
 	reverse_proxy 127.0.0.1:7860
 }
 ```
@@ -159,13 +169,13 @@ the first address it does not trust, so a client cannot spoof its address by sen
 
 ### 3.4 What the proxy has to pass
 
-| Requirement                        | Why                                                                                                                 |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `X-Forwarded-Proto: https`         | The session cookie is marked `Secure` only when the request is seen as HTTPS                                        |
-| `X-Forwarded-For` with the client  | The login rate limit (5 failures in 5 minutes) is counted per client address                                        |
-| Request bodies of at least 4 MB    | `POST /api/frames` uploads screenshots of up to 4 MB                                                                |
-| Unbuffered, long responses         | `GET /api/export/{id}.zip` is streamed while it is packed; large meetings with many screenshots take a while        |
-| Requests that take several seconds | `POST /api/offer` answers after the server has gathered its ICE candidates, including TURN allocation if configured |
+| Requirement                               | Why                                                                                                                  |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `X-Forwarded-Proto: https`                | The session cookie is marked `Secure` only when the request is seen as HTTPS                                         |
+| `X-Forwarded-For` with the client         | The login rate limit (5 failures in 5 minutes) is counted per client address                                         |
+| Request bodies of 4 MB, but not much more | `POST /api/frames` uploads screenshots of up to 4 MB; `POST /api/auth/login` needs no login and reads the whole body |
+| Unbuffered, long responses                | `GET /api/export/{id}.zip` is streamed while it is packed; large meetings with many screenshots take a while         |
+| Requests that take several seconds        | `POST /api/offer` answers after the server has gathered its ICE candidates, including TURN allocation if configured  |
 
 The application uses no WebSockets; no `Upgrade` headers are needed.
 
@@ -290,8 +300,8 @@ does not rewrite `Location` headers to HTTP.
 **Everybody is told there were too many login attempts.** All clients appear with the proxy's
 address; see `FORWARDED_ALLOW_IPS` in §3.1.
 
-**Screenshots fail with 413.** The proxy limits request bodies; raise `client_max_body_size` (nginx)
-to at least 4 MB.
+**Screenshots fail with 413 (nginx) or 502 (Caddy).** The proxy's request body limit is below 4 MB;
+raise `client_max_body_size` (nginx) or `request_body max_size` (Caddy) to about 8 MB.
 
 **Exports stop in the middle.** The proxy buffers the response or times out; see `proxy_buffering`
 and `proxy_read_timeout` in §3.3.
