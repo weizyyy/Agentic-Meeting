@@ -36,7 +36,7 @@ export function AssistantPanel({
   onDismissNotice,
 }: Props) {
   return (
-    <section className="panel" aria-label="助理">
+    <section className="panel assistant-panel" aria-label="助理">
       <h2>
         助理 <span className={`badge badge-${state}`}>{STATE_LABELS[state]}</span>
         {text && replyMode && <span className="reply-mode">{REPLY_LABELS[replyMode]}</span>}

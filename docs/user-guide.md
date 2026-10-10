@@ -129,7 +129,8 @@ Tasks requested by typing are reported in text only.
 
 The task panel shows progress. Open a task to see the detailed result, sources, generated files and
 **exactly what was sent to the remote model**. Running tasks can be cancelled, and you can ask the
-assistant how a task is going.
+assistant how a task is going. When the window is short, the task panel gives up space first and
+scrolls, so the assistant's answer always keeps at least four lines.
 
 Running code requires the Docker sandbox; without it the agent can still search and read images.
 

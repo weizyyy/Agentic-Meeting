@@ -75,6 +75,23 @@ async def seed(store: Store, root: Path) -> dict[str, Any]:
     directory = task_dir(root, task)
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "result.txt").write_text("星河测试产物\n", encoding="utf-8")
+    # 再交办两个目标和结论都较长的任务，看板放不下时要能看出各区域怎么分高度。
+    for goal, brief in (
+        (
+            "逐条核对星河测试里提到的四组虚构数据各自的采集日期和来源，"
+            "每组用一两句话说明结论，最后汇总哪些数据需要重新采集，结果用中文回答。",
+            "四组虚构数据里有三组是上周采集的，第四组更早，来源都已补全；"
+            "建议重新采集第四组，其余可以直接用于下一轮星河测试。",
+        ),
+        (
+            "比较星河测试前后两轮虚构结果的差异，列出变化最大的三项指标并说明可能的原因，"
+            "结果用中文回答。",
+            "变化最大的是虚构指标甲、乙、丙，主要原因是第二轮换了采集设备；"
+            "其余指标的差异都在误差范围内，不需要额外处理。",
+        ),
+    ):
+        extra = await store.create_task(ended.id, goal=goal, requested_t=5)
+        await store.update_task(extra.id, status="succeeded", brief=brief, finished_at=now)
     return {"ended": ended.id, "interrupted": interrupted.id, "task": task.id, "frame": frame.id}
 
 

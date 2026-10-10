@@ -15,6 +15,13 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - When the browser's autoplay policy blocks the assistant's voice, the page says so and offers a
   button that turns it on, instead of staying silent ([#47]).
 
+### Fixed
+
+- With several background tasks, the task panel no longer squeezes the assistant's answer down to a
+  single line: the answer keeps at least four lines, the task panel shrinks first (to about one
+  task in a 900-pixel-high window) and scrolls, and a window too short for everything scrolls the
+  right column instead of overlapping panels.
+
 [#47]: https://github.com/weizyyy/Agentic-Meeting/pull/47
 
 ## [0.2.0] - 2026-10-10

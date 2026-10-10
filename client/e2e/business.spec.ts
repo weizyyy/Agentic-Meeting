@@ -131,6 +131,26 @@ test("打开成功任务详情并下载真实产物", async ({ page, request }) 
   await expect(detail).toHaveCount(0);
 });
 
+test("任务多时右列先让助理回答区留够几行，后台任务看板缩到能看全最新一个", async ({ page }) => {
+  await page.setViewportSize({ width: 1350, height: 900 });
+  await openEndedMeeting(page);
+  const tasks = page.getByRole("region", { name: "后台任务", exact: true });
+  const cards = tasks.getByRole("button");
+  await expect(cards).toHaveCount(3);
+  await expect(cards.first()).toContainText("前后两轮虚构结果");
+  await expect(cards.first()).toBeInViewport({ ratio: 1 });
+  await expect(cards.nth(1)).not.toBeInViewport({ ratio: 1 });
+  const placeholder = page
+    .getByRole("region", { name: "助理", exact: true })
+    .getByText("它的回答会显示在这里");
+  const lines = await placeholder.evaluate(
+    (element) =>
+      element.parentElement!.getBoundingClientRect().height /
+      parseFloat(getComputedStyle(element).lineHeight),
+  );
+  expect(Math.round(lines)).toBeGreaterThanOrEqual(4);
+});
+
 test("时间轴截图打开后加载真实图片及对应元数据", async ({ page, request }) => {
   const seeds = await (await request.get("/__test/state")).json();
   await openEndedMeeting(page);
@@ -196,6 +216,8 @@ test("真实下载转录和 JSON 导出，核对会议身份与内容", async ({
   expect(exported.frames).toMatchObject([{ id: seeds.frame, t: 3, width: 320, height: 180 }]);
   expect(exported.tasks).toMatchObject([
     { id: seeds.task, status: "succeeded", goal: "整理星河测试结论" },
+    { status: "succeeded", goal: expect.stringContaining("四组虚构数据") },
+    { status: "succeeded", goal: expect.stringContaining("前后两轮虚构结果") },
   ]);
   expect(JSON.stringify(exported)).not.toContain("月面计划");
 });
