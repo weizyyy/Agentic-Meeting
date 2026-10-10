@@ -3,6 +3,7 @@
 [English](../troubleshooting.md) · **简体中文**
 
 - [启动](#启动)
+- [健康状态与指标](#健康状态与指标)
 - [字幕断续或缺失](#字幕断续或缺失)
 - [叫名字后助理没有反应](#叫名字后助理没有反应)
 - [应答较慢](#应答较慢)
@@ -27,6 +28,57 @@
 
 **应用崩溃后推理进程仍在运行。** 在 Windows 和 Linux 上，应用进程消失后操作系统会结束这些进程。
 macOS 没有对应的机制，需要手动结束 `llama-server` 和 `tts-server`。
+
+## 健康状态与指标
+
+请求[后端应用端口](getting-started.md#检查健康状态与指标)，不要请求 Vite 端口。
+`/metrics` 返回 JSON，不是 Prometheus exposition 文本。字段与响应定义见
+[interfaces.md §5.8](interfaces.md#58-健康检查与基础指标)。
+
+**Health 为 200，但 readiness 为 503。** `/healthz` 只证明 HTTP 进程能响应，不检查数据库或模型。
+查看就绪响应的 `lifecycle`、`storage` 和 `services.asr`。
+`starting`/`stopping`、Store 不可用或 ASR 不健康都会阻止就绪。
+`SELECT 1` 只证明现有数据库连接可读，不证明磁盘容量或后续写入耐久性。
+启用的可选 realtime、TTS、embedding 或 agent 端点故障或未知时，则返回 HTTP 200 和 `degraded`。
+服务 disabled 属于正常状态。
+
+**Metrics 为 partial，或冷缓存响应较慢。** 本地 gauge 每次请求读取；服务和成功任务计数快照按需刷新，
+缓存有效期严格小于 5 秒。并发请求共享采集工作。存储就绪检查和任务计数各有 0.5 秒等待预算，
+并发 HTTP 服务探测整轮预算为 2 秒，整个 readiness/metrics 采集预算为 2.5 秒，包含共享工作和数据库等待。
+这些是采集预算，不是网络响应 SLA：调度和 HTTP 传送仍可增加时间。
+缺失观测返回 `null`/`unknown` 和 metrics `partial`，保留其他可得数据，不把过期成功值当作新鲜数据。
+含 unknown 的服务轮次也可复用 5 秒，其 age 为 `null`；任务计数只有新查询成功后才恢复。
+已经观测到的存储故障立即使计数缓存失效。下游恢复在后续刷新中呈现，没有永久轮询循环。
+
+五类指标的数值字段使用有限非负计数或秒数。`null` 表示无样本或观测不可用，绝不表示零；
+正常空闲零值和没有字幕样本的 null 不触发 `partial`。
+
+| 类别      | 解释                                                                                                                                                                         |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 活动连接  | `live_connections` 为当前已登记活动媒体连接的 0 或 1，不是浏览器访问量或历史行数；组装/接管空档可为 0                                                                        |
+| 字幕 lag  | 每个 ASR delta 首次成功非空服务端 push 后采集 `caption_lag_seconds`；`caption_sample_age_seconds` 为该样本的单调时钟 age，单位为秒                                           |
+| 队列      | `transcript_retry` 为未保存发言数；`screen_caption.depth` 为 0 或 1 个待处理新画面槽，不含处理中画面或复用摘要的 followers（关闭时为 0）；`agent_tasks` 为数据库 `queued` 数 |
+| 保留任务  | `task_counts` 覆盖全库保留任务的五种状态，即使 agent 关闭。它们是 gauge，不是启动后的累计值；删除可使计数下降。空库为五个零；查询失败时整组为 null                           |
+| HTTP 服务 | 固定名称为 `asr`、`realtime`、`tts`、`embedding`、`agent`，状态和原因语义与就绪检查相同；`unavailable` 是完整观测，不会单独使 metrics partial                                |
+
+字幕 lag 估计共享会话音频时间轴上的积压，不含网络传送、浏览器绘制或逐词最终定稿，
+不能验证 1.5 秒最终字幕目标。静音时 lag 保留上次值而 age 增长，解释旧的低值前请先看 age。
+新连接没有样本；断开/接管会清空旧样本。恢复沿用共享时间轴，不会重复叠加恢复 base。
+失败或无效采样保留之前的样本及其持续增长的 age。
+
+`task_counts_age_seconds` 与 `service_snapshot_age_seconds` 属于独立快照，age 可以不同。
+计数不可用时 age 为 null；任何启用服务为 unknown 时，服务 age 为 null。
+任务分组查询扫描保留任务，因此成本随历史增长；超预算返回 null。
+已经排入 SQLite 队列的查询可能在等待它的协程取消后完成，采集不会中断其他业务查询。
+
+**服务 reachable，但推理失败。** 通用 OpenAI 兼容 `/models` 探测将任何 HTTP 响应，
+包括 401/403/404/503，都视为 `reachable`；它不证明认证、模型权限、推理成功或模型质量。
+专用 `/health` 需要 HTTP 200 才为 `ok`。只探测配置中的 HTTP 推理端点，包括外部托管端点；
+进程内说话人区分、MCP、Docker、浏览器 ICE 和带宽不在覆盖范围内。
+
+**启动或停止期间无法连接检查端点。** lifespan 启动完成前或停止开始后，服务器可能尚未监听或已经停止监听。
+若请求到达 `starting`/`stopping` 的应用，就绪为 503，metrics 为 partial，缺失观测为 null/unknown；
+关闭的画面队列 depth 仍为 0。这不保证这些阶段可以通过网络访问端点。
 
 ## 字幕断续或缺失
 

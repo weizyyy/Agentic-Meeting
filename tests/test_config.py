@@ -84,6 +84,8 @@ def test_realtime_mode_selects_active_endpoint():
     llama = realtime_cfg("llama_server").realtime_llm
     assert llama.active is llama.llama_server
     assert llama.managed is True
+    assert llama.has_health_endpoint is True
+    assert "has_health_endpoint" not in llama.model_dump()
     assert llama.cache_warm is True
     assert llama.supports_developer_role is False
 
@@ -91,6 +93,7 @@ def test_realtime_mode_selects_active_endpoint():
     assert api.active is api.openai_api
     assert api.active.model == "fake-model"
     assert api.managed is False  # 通用接口的进程不归本项目管
+    assert api.has_health_endpoint is False
     assert api.cache_warm is False  # 默认不对通用接口做预热
     assert remote_api_cfg(openai_api__cache_warm=True).realtime_llm.cache_warm is True
     assert (
@@ -104,6 +107,7 @@ def test_realtime_mode_selects_active_endpoint():
 def test_realtime_llama_server_not_managed_when_launch_disabled():
     cfg = realtime_cfg("llama_server", llama_server__launch__enabled=False)
     assert cfg.realtime_llm.managed is False
+    assert cfg.realtime_llm.has_health_endpoint is True
     assert "realtime_llm.llama_server.launch" not in "\n".join(check_ready(cfg))
 
 

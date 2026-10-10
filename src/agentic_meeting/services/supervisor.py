@@ -4,7 +4,7 @@
 
 * :func:`build_specs` 把配置翻译成 :class:`ServiceSpec`（命令行、健康检查地址、日志路径……），
   除了定位程序之外不碰磁盘；
-* :func:`probe` 对一个地址做一次健康探测；
+* :func:`build_probe_targets` 只提取五个 HTTP 探测目标，:func:`probe` 做一次只读探测；
 * :class:`Supervisor` 负责子进程的生命周期。
 
 命令行的生成规则见 docs/interfaces.md §9。
@@ -28,7 +28,13 @@ from urllib.parse import urlparse
 import httpx
 from loguru import logger
 
-from agentic_meeting.config import AppConfig, ASRProfile, is_loopback, load_asr_profile, secret
+from agentic_meeting.config import (
+    AppConfig,
+    ASRProfile,
+    is_loopback,
+    load_asr_profile,
+    secret,
+)
 from agentic_meeting.services.paths import find_executable
 
 # 我们启动的服务一律只监听回环地址，对外只暴露应用端口（architecture.md §2）。
@@ -392,11 +398,79 @@ def build_specs(cfg: AppConfig, *, find: Finder = find_executable) -> list[Servi
 # --------------------------------------------------------------------------- #
 
 
+@dataclass(frozen=True)
+class ProbeTarget:
+    """只读探测目标；空地址表示启用但配置无效，禁用项不访问网络。不能直接公开序列化。"""
+
+    name: str
+    enabled: bool
+    required: bool = False
+    health_url: str = ""
+    auth_env: str = ""
+    any_status_ok: bool = False
+
+
+def _valid_probe_url(url: str) -> bool:
+    try:
+        parsed = httpx.URL(url)
+        return (
+            not any(char.isspace() for char in url)
+            and parsed.scheme in {"http", "https"}
+            and bool(parsed.host)
+            and (parsed.port is None or 0 < parsed.port < 65536)
+            and not (parsed.username or parsed.password or parsed.query or parsed.fragment)
+        )
+    except httpx.InvalidURL:
+        return False
+
+
+def build_probe_targets(cfg: AppConfig) -> list[ProbeTarget]:
+    """按 §5.8 构建五个目标，不定位程序、不读取模型或模板、不生成启动规格。"""
+    from agentic_meeting.pipeline.services import caption_provider
+
+    def target(
+        name: str,
+        enabled: bool,
+        base_url: str,
+        *,
+        auth_env: str = "",
+        generic: bool = False,
+        configured: bool = True,
+    ) -> ProbeTarget:
+        url = ""
+        if enabled and configured and _valid_probe_url(base_url):
+            url = base_url.rstrip("/") + "/models" if generic else _origin(base_url) + "/health"
+        return ProbeTarget(name, enabled, name == "asr", url, auth_env, generic)
+
+    rt = cfg.realtime_llm.active
+    agent_enabled = (
+        cfg.agent.enabled
+        or caption_provider(cfg) == "agent_llm"
+        or cfg.realtime.digest_provider == "agent_llm"
+        or cfg.report.provider == "agent_llm"
+    )
+    return [
+        target("asr", True, cfg.asr.base_url),
+        target(
+            "realtime", True, rt.base_url,
+            auth_env=rt.api_key_env, generic=not cfg.realtime_llm.has_health_endpoint,
+        ),
+        target("tts", cfg.tts.enabled, cfg.tts.base_url, auth_env=cfg.tts.api_key_env),
+        target("embedding", cfg.embedding.enabled, cfg.embedding.base_url),
+        target(
+            "agent", agent_enabled, cfg.agent.base_url,
+            auth_env=cfg.agent.api_key_env, generic=True, configured=bool(cfg.agent.model.strip()),
+        ),
+    ]  # fmt: skip
+
+
 @dataclass
 class ProbeResult:
     ok: bool
     detail: str
     status_code: int | None = None
+    # detail 留给 CLI；HTTP 层只使用白名单原因码。
+    reason: str = ""
 
 
 def _new_client(url: str) -> httpx.AsyncClient:
@@ -405,13 +479,20 @@ def _new_client(url: str) -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=_timeout_for(url), trust_env=not is_loopback(url))
 
 
-def _timeout_for(url: str) -> httpx.Timeout:
-    connect = LOOPBACK_CONNECT_TIMEOUT_SECS if is_loopback(url) else PROBE_TIMEOUT_SECS
-    return httpx.Timeout(PROBE_TIMEOUT_SECS, connect=connect)
+def _timeout_for(url: str, timeout_secs: float = PROBE_TIMEOUT_SECS) -> httpx.Timeout:
+    connect = min(LOOPBACK_CONNECT_TIMEOUT_SECS, timeout_secs) if is_loopback(url) else timeout_secs
+    return httpx.Timeout(timeout_secs, connect=connect)
 
 
-async def probe(spec: ServiceSpec, client: httpx.AsyncClient | None = None) -> ProbeResult:
+async def probe(
+    spec: ServiceSpec | ProbeTarget,
+    client: httpx.AsyncClient | None = None,
+    *,
+    timeout_secs: float = PROBE_TIMEOUT_SECS,
+) -> ProbeResult:
     """对 ``spec.health_url`` 发一次 GET。连接失败、超时返回 ``ok=False`` 并写明原因，不抛异常。"""
+    if not _valid_probe_url(spec.health_url):
+        return ProbeResult(False, "探测地址配置无效", reason="invalid_config")
     headers: dict[str, str] = {}
     key = secret(spec.auth_env)
     if key:
@@ -421,27 +502,57 @@ async def probe(spec: ServiceSpec, client: httpx.AsyncClient | None = None) -> P
     if client is None:
         client = _new_client(spec.health_url)
     try:
-        response = await client.get(
-            spec.health_url, headers=headers, timeout=_timeout_for(spec.health_url)
-        )
+        async with asyncio.timeout(timeout_secs):
+            async with client.stream(
+                "GET",
+                spec.health_url,
+                headers=headers,
+                timeout=_timeout_for(spec.health_url, timeout_secs),
+                follow_redirects=False,
+            ) as response:
+                code = response.status_code
     except httpx.ConnectTimeout:
-        return ProbeResult(False, "无法连接：端口没有响应")
-    except httpx.TimeoutException:
-        return ProbeResult(False, f"超时（{PROBE_TIMEOUT_SECS:g} 秒内没有响应）")
+        return ProbeResult(False, "无法连接：端口没有响应", reason="timeout")
+    except (httpx.TimeoutException, TimeoutError):
+        return ProbeResult(False, f"超时（{timeout_secs:g} 秒内没有响应）", reason="timeout")
     except httpx.HTTPError as e:
-        # 异常信息里不会有请求头，不必担心带出密钥。
-        return ProbeResult(False, f"无法连接：{e}" if str(e) else "无法连接")
+        # 仅供 CLI 使用，公开接口绝不能序列化 detail 或异常信息。
+        return ProbeResult(
+            False, f"无法连接：{e}" if str(e) else "无法连接", reason="connection_failed"
+        )
     finally:
         if owned:
             await client.aclose()
 
-    code = response.status_code
     if code == 200:
-        return ProbeResult(True, "HTTP 200", code)
+        return ProbeResult(
+            True, "HTTP 200", code, "http_response" if spec.any_status_ok else "healthy"
+        )
     if spec.any_status_ok:
-        return ProbeResult(True, f"HTTP {code}（有响应，地址是通的）", code)
+        return ProbeResult(True, f"HTTP {code}（有响应，地址是通的）", code, "http_response")
     hint = "（服务还在加载）" if code == 503 else ""
-    return ProbeResult(False, f"HTTP {code}{hint}", code)
+    return ProbeResult(False, f"HTTP {code}{hint}", code, "http_error")
+
+
+async def probe_service(
+    target: ProbeTarget,
+    client: httpx.AsyncClient | None = None,
+    *,
+    timeout_secs: float = PROBE_TIMEOUT_SECS,
+) -> dict[str, bool | str]:
+    """返回契约的四个安全字段；只关闭自建 client，取消继续传播给调用者。"""
+    if not target.enabled:
+        status, reason = "disabled", "disabled"
+    else:
+        result = await probe(target, client, timeout_secs=timeout_secs)
+        status = ("reachable" if target.any_status_ok else "ok") if result.ok else "unavailable"
+        reason = result.reason
+    return {
+        "enabled": target.enabled,
+        "required": target.required,
+        "status": status,
+        "reason": reason,
+    }
 
 
 async def check_tts_voice(cfg: AppConfig, client: httpx.AsyncClient | None = None) -> None:

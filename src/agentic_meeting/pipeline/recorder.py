@@ -21,7 +21,9 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from collections.abc import Awaitable, Callable
+from time import monotonic
 from typing import Any, Protocol
 
 from loguru import logger
@@ -123,6 +125,8 @@ class MeetingRecorder(FrameProcessor):
 
         self._samples = 0  # 与识别服务看到的是同一串音频帧
         self._last_delta: ASRDelta | None = None
+        self._caption_lag: float | None = None
+        self._caption_sampled_at: float | None = None
         self._names: dict[int, str] = {}
         self._unsaved: list[Utterance] = []  # 落库失败、等下一次补写的发言（保持原顺序）
         self._bot_started_at: float | None = None
@@ -199,6 +203,23 @@ class MeetingRecorder(FrameProcessor):
     def elapsed_secs(self) -> float:
         """已经收到的音频在会话时间轴上走到了哪里（连接结束时写进连接记录的 ``t_to``）。"""
         return self._now()
+
+    @property
+    def caption_lag_seconds(self) -> float | None:
+        """最近一次成功输出非空识别字幕时的音频积压估计；无有效样本为 None。"""
+        return self._caption_lag
+
+    @property
+    def caption_sample_age_seconds(self) -> float | None:
+        """有效字幕样本的单调时钟年龄；静音期间不重算积压。"""
+        if self._caption_sampled_at is None:
+            return None
+        return max(0.0, monotonic() - self._caption_sampled_at)
+
+    @property
+    def unsaved_utterance_count(self) -> int:
+        """等待下次落库重试的发言数。"""
+        return len(self._unsaved)
 
     def set_speaker_name(self, idx: int, name: str) -> None:
         """说话人改名后调用，之后的字幕和上下文行用新名字。"""
@@ -462,11 +483,32 @@ class MeetingRecorder(FrameProcessor):
             return  # 不是我们的识别服务发的，或这个增量已经通过它的临时转录帧处理过了
         self._last_delta = delta
         segments = await self._segments(self._now() - SEGMENT_LOOKBACK_SECS)
+        sampled = False
         for event in self._assembler.on_delta(delta, segments):
             if isinstance(event, CaptionUpdate):
                 await self._send(await self._caption_message(event))
+                if not sampled and (event.stable + event.unstable).strip():
+                    sampled = True
+                    self._sample_caption(delta)
             else:
                 await self._on_final(event)
+
+    def _sample_caption(self, delta: ASRDelta) -> None:
+        """每个增量仅尝试一次；拒绝异常时间轴而保留旧样本，不影响字幕和定稿。"""
+        try:
+            elapsed = self.elapsed_secs
+            raw_lag = elapsed - delta.audio_end_secs
+            if (
+                math.isfinite(elapsed)
+                and math.isfinite(delta.audio_end_secs)
+                and math.isfinite(raw_lag)
+                and raw_lag >= -1 / ASR_SAMPLE_RATE
+            ):
+                sampled_at = monotonic()
+                self._caption_lag = max(0.0, raw_lag)
+                self._caption_sampled_at = sampled_at
+        except Exception:
+            logger.warning("字幕指标采样失败，保留上次样本")
 
     async def _caption_message(self, c: CaptionUpdate) -> dict:
         return {
