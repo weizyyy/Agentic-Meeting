@@ -73,7 +73,7 @@ you!
   answered only the start of a question. Loading the voice activity and turn-detection models
   blocked the server for a few seconds while the connection was being set up, and their first
   inference delayed the start of the audio. Both now happen in a worker thread before the meeting
-  starts.
+  starts. ([#46])
 - `/readyz` no longer briefly reports `not_ready` with a storage `timeout` while service probes
   refresh. Each probe used to reload the CA certificates on the event loop, which on slower machines
   stalled it past the 0.5-second storage budget; the certificates are now loaded once per process.
@@ -102,6 +102,7 @@ you!
 [#43]: https://github.com/weizyyy/Agentic-Meeting/pull/43
 [#44]: https://github.com/weizyyy/Agentic-Meeting/pull/44
 [#45]: https://github.com/weizyyy/Agentic-Meeting/pull/45
+[#46]: https://github.com/weizyyy/Agentic-Meeting/pull/46
 [@gad-en1nd]: https://github.com/gad-en1nd
 
 ## [0.1.1] - 2026-10-09
