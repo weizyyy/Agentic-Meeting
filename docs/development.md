@@ -149,6 +149,22 @@ npm run test:e2e --prefix client -- --project=chromium
 npm run test:e2e --prefix client -- --project=chromium --grep '^真实页面、WebRTC、RTVI 与合成媒体探针$'
 ```
 
+Headless Linux also needs an audio output backend: Firefox's native `AudioContext.resume()`
+can otherwise remain pending before WebRTC negotiation starts. CI starts PulseAudio with a CPU
+null sink, which discards output and needs no physical audio device. On a headless Ubuntu machine,
+prepare it before running the browser suite:
+
+```bash
+sudo apt-get install -y pulseaudio pulseaudio-utils
+pulseaudio --start --exit-idle-time=-1
+pactl load-module module-null-sink sink_name=e2e
+pactl set-default-sink e2e
+```
+
+This is test environment setup, not an AudioContext or SDK replacement. The CI runner is discarded
+after the job. On a local machine, unload the module using the ID printed by `pactl load-module`
+(`pactl unload-module <id>`); stop PulseAudio only if it was started solely for this test run.
+
 The same core cases run in each engine, with one worker and no retries. Each test starts its own
 `tests.browser.server` Python subprocess on a dynamically allocated loopback port. The fixture
 waits for the structured `E2E_READY` message after server startup. The server owns a system

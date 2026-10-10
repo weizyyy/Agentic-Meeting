@@ -125,6 +125,14 @@ jobs:
         working-directory: client
         run: npx playwright install --with-deps chromium firefox webkit
 
+      - name: Start virtual audio output
+        run: |
+          sudo apt-get install -y pulseaudio pulseaudio-utils
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=e2e
+          pactl set-default-sink e2e
+          pactl list short sinks
+
       - name: Test all browser engines
         run: npm run test:e2e --prefix client
 

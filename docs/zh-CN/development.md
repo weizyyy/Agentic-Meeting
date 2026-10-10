@@ -134,6 +134,21 @@ npm run test:e2e --prefix client -- --project=chromium
 npm run test:e2e --prefix client -- --project=chromium --grep '^真实页面、WebRTC、RTVI 与合成媒体探针$'
 ```
 
+无界面的 Linux 还需要音频输出后端，否则 Firefox 原生 `AudioContext.resume()` 可能一直等待，
+尚未开始 WebRTC 协商。CI 启动 PulseAudio 的 CPU null sink，丢弃输出，不需要物理声卡。
+在无界面的 Ubuntu 上，先准备这个后端再运行浏览器测试：
+
+```bash
+sudo apt-get install -y pulseaudio pulseaudio-utils
+pulseaudio --start --exit-idle-time=-1
+pactl load-module module-null-sink sink_name=e2e
+pactl set-default-sink e2e
+```
+
+这是测试环境准备，不替换 AudioContext 或 SDK。CI runner 在 job 结束后销毁。
+本地运行结束后，用 `pactl load-module` 打印的 ID 卸载模块（`pactl unload-module <id>`）；
+只有 PulseAudio 专为这次测试启动时才停止它。
+
 三个引擎运行相同的核心用例，单 worker，不重试。每个用例启动独立的 `tests.browser.server` Python 子进程，
 监听动态分配的回环端口。夹具等待服务器启动完成后输出的结构化 `E2E_READY` 消息。
 服务器拥有一个系统临时目录（`agentic-meeting-e2e-*`），内含独立 SQLite 数据库、虚构会议种子、截图与任务产物。
