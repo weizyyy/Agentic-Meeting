@@ -31,7 +31,8 @@ async def test_everything_under_api_needs_a_login(guarded):
         assert offer.status_code == 401
         # 运维用的三个接口不需要登录，也不含会议内容
         for path in ("/healthz", "/readyz", "/metrics"):
-            assert (await http.get(path)).status_code == 200, path
+            # 就绪检查在服务没探测完时回 503，这里只关心它不要求登录
+            assert (await http.get(path)).status_code in (200, 503), path
 
 
 async def test_login_csrf_and_logout(guarded, inference):

@@ -40,11 +40,11 @@ async def test_transcription_survives_failing_assistant_services(app, http, meet
 
     async def degraded():
         body = (await http.get("/readyz")).json()
-        return body if body["status"] == "degraded" else None
+        tts = body["services"]["tts"]["status"]  # 慢机器上探测超时会短暂报 unknown
+        return body if body["status"] == "degraded" and tts == "unavailable" else None
 
     ready = await until(degraded, "就绪检查报告降级")
     assert ready["services"]["asr"]["status"] == "ok"
-    assert ready["services"]["tts"]["status"] == "unavailable"
 
 
 async def test_captions_resume_after_the_recognition_service_comes_back(
@@ -125,8 +125,13 @@ async def test_ctrl_c_during_a_meeting_stops_the_server(start_app, meeting_facto
 @pytest.mark.parametrize("service", ["asr", "llm"])
 async def test_health_endpoints_describe_the_services(app, http, inference, service):
     assert (await http.get("/healthz")).json() == {"status": "ok"}
-    ready = (await http.get("/readyz")).json()
-    assert ready["status"] == "ok" and ready["lifecycle"] == "running"
+
+    async def all_ok():  # 刚启动时服务还没探测完，先报 not_ready
+        body = (await http.get("/readyz")).json()
+        return body if body["status"] == "ok" else None
+
+    ready = await until(all_ok, "启动后就绪检查通过")
+    assert ready["lifecycle"] == "running"
     assert set(ready["services"]) == {"asr", "realtime", "tts", "embedding", "agent"}
     metrics = (await http.get("/metrics")).json()
     assert metrics["live_connections"] == 0 and metrics["status"] in ("ok", "partial")
