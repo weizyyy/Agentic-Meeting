@@ -95,6 +95,7 @@ test("utterance_update 和 speaker", () => {
 test("session 与 session_closed", () => {
   const session = {
     type: "session",
+    keep: false,
     id: "abc",
     title: "",
     started_at: 1790000000.5,
@@ -104,6 +105,9 @@ test("session 与 session_closed", () => {
   };
   assert.deepEqual(parseServerMessage(session), session);
   assert.equal(parseServerMessage({ ...session, resumed: "no" }), null);
+  assert.deepEqual(parseServerMessage({ ...session, keep: true }), { ...session, keep: true });
+  for (const keep of [undefined, null, 0, "false"])
+    assert.equal(parseServerMessage({ ...session, keep }), null);
   for (const reason of ["taken_over", "ended", "server_stopping"]) {
     assert.deepEqual(parseServerMessage({ type: "session_closed", reason }), {
       type: "session_closed",

@@ -28,6 +28,11 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - A pinned repository-wide Prettier formatter for client code, JSON, YAML and Markdown, with
   shared configuration, `npm run format` / `npm run format:check`, pre-commit and CI checks.
 
+- Optional independent retention periods for transcripts, screenshots, reports/digests and
+  terminal task files, disabled by default; persistent per-meeting Keep exempts automatic cleanup.
+  Complete manual deletion retries partial failures with a visible pending state. The client
+  shows a fixed transcription indicator and a configurable start notice; bilingual data governance
+  documentation explains data destinations, surviving copies and deletion limits.
 - A deployment guide (`docs/deployment.md`): Caddy and nginx examples with the headers, upload size
   and streaming the application needs, when and how to use TURN with a coturn example that relays
   only to the meeting server, a checklist before exposing an instance, and troubleshooting.

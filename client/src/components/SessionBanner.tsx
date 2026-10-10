@@ -19,6 +19,8 @@ interface Props {
   reconnectAttempt: number;
   /** 正在只读地看一场在别的设备上进行的会议 */
   watching: boolean;
+  keepPending: boolean;
+  onKeep: (id: string, keep: boolean) => void;
   onRename: (id: string, title: string) => void;
   onResume: (id: string) => void;
   onStart: () => void;
@@ -31,6 +33,8 @@ export function SessionBanner({
   reconnectAttempt,
   watching,
   onRename,
+  onKeep,
+  keepPending,
   onResume,
   onStart,
 }: Props) {
@@ -54,7 +58,7 @@ export function SessionBanner({
     if (editing !== null && editing.trim() !== session.title.trim()) onRename(session.id, editing);
     setEditing(null);
   };
-  const idle = canResume(connection) && reconnectAttempt === 0;
+  const idle = !session.deletion_pending && canResume(connection) && reconnectAttempt === 0;
   const interrupted = session.state === "interrupted" && idle;
 
   return (
@@ -65,6 +69,7 @@ export function SessionBanner({
           <button
             type="button"
             className="link"
+            disabled={session.deletion_pending}
             aria-label="重命名这场会议"
             onClick={() => setEditing(session.title)}
           >
@@ -86,34 +91,53 @@ export function SessionBanner({
           }}
         />
       )}
-      <span className={`badge badge-session-${session.state}`}>{STATE_LABELS[session.state]}</span>
+      <span className={`badge badge-session-${session.state}`}>
+        {session.deletion_pending ? "待删除" : STATE_LABELS[session.state]}
+      </span>
       <span className="banner-meta">
         开始于 {formatStartedAt(session.started_at)} · {formatDuration(session.duration_secs)} ·{" "}
         {session.utterance_count} 条发言
       </span>
-      <span className="banner-exports">
-        导出：
-        <a className="link" href={exportUrl(session.id)} download>
-          转录
-        </a>
-        <a className="link" href={exportUrl(session.id, "json")} download>
-          JSON
-        </a>
-        <a
-          className="link"
-          href={exportUrl(session.id, "zip")}
-          download
-          title="转录、JSON、报告、全部截图和任务产物，打成一个压缩包"
-        >
-          完整包
-        </a>
-      </span>
+      <button
+        type="button"
+        className="link"
+        aria-pressed={session.keep}
+        disabled={session.deletion_pending || keepPending}
+        title="免于自动清理；仍可人工删除"
+        onClick={() => onKeep(session.id, !session.keep)}
+      >
+        {keepPending ? "保存中…" : session.keep ? "已保留" : "保留"}
+      </button>
+      {session.deletion_pending && (
+        <span className="banner-hint banner-hint-warn">
+          删除尚未完成，内容可能已部分移除。请在会议列表重试删除。
+        </span>
+      )}
+      {!session.deletion_pending && (
+        <span className="banner-exports">
+          导出：
+          <a className="link" href={exportUrl(session.id)} download>
+            转录
+          </a>
+          <a className="link" href={exportUrl(session.id, "json")} download>
+            JSON
+          </a>
+          <a
+            className="link"
+            href={exportUrl(session.id, "zip")}
+            download
+            title="转录、JSON、报告、全部截图和任务产物，打成一个压缩包"
+          >
+            完整包
+          </a>
+        </span>
+      )}
       {reconnectAttempt > 0 && (
         <span className="banner-hint banner-hint-warn">
           连接断开了，正在自动重连（第 {reconnectAttempt} 次）…
         </span>
       )}
-      {watching && (
+      {watching && !session.deletion_pending && (
         <span className="banner-hint">
           正在另一台设备上进行，这里只读，每 3 秒刷新一次。
           <button type="button" className="link" onClick={() => onResume(session.id)}>

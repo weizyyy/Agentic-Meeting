@@ -13,6 +13,8 @@ export type SessionState = "live" | "interrupted" | "ended";
 export interface SessionSummary {
   id: string;
   title: string;
+  keep: boolean;
+  deletion_pending: boolean;
   started_at: number;
   ended_at: number | null;
   last_active_at: number;
@@ -74,6 +76,7 @@ export interface Api {
   currentSession(): Promise<SessionDetail | null>;
   getSession(id: string): Promise<SessionDetail>;
   renameSession(id: string, title: string): Promise<SessionSummary>;
+  keepSession(id: string, keep: boolean): Promise<SessionSummary>;
   endSession(id: string): Promise<{ id: string; ended_at: number }>;
   deleteSession(id: string): Promise<void>;
   listUtterances(sessionId: string, query?: UtteranceQuery): Promise<HistoryItem[]>;
@@ -167,6 +170,8 @@ export function createApi(
     getSession: (id) => request<SessionDetail>(`/api/sessions/${enc(id)}`),
     renameSession: (id, title) =>
       request<SessionSummary>(`/api/sessions/${enc(id)}`, json("PATCH", { title })),
+    keepSession: (id, keep) =>
+      request<SessionSummary>(`/api/sessions/${enc(id)}`, json("PATCH", { keep })),
     endSession: (id) =>
       request<{ id: string; ended_at: number }>(`/api/sessions/${enc(id)}/end`, { method: "POST" }),
     async deleteSession(id) {

@@ -43,6 +43,7 @@ def register(app: FastAPI) -> None:
         store, manager, reports = parts(request)
         if await store.get_session(session_id) is None:
             raise StarletteHTTPException(404, NOT_FOUND_SESSION)
+        await store.require_available(session_id)
         if manager.is_live(session_id):
             raise StarletteHTTPException(409, "会议正在进行，结束或断开之后才能生成报告")
         if reports is None or not reports.enabled:
@@ -60,6 +61,7 @@ def register(app: FastAPI) -> None:
         store, _, _ = parts(request)
         if await store.get_session(session_id) is None:
             raise StarletteHTTPException(404, NOT_FOUND_SESSION)
+        await store.require_available(session_id)
         report = await store.latest_report(session_id)
         if report is None:
             raise StarletteHTTPException(404, NO_REPORT)
@@ -71,6 +73,7 @@ def register(app: FastAPI) -> None:
         summary = await store.get_summary(session_id)
         if summary is None:
             raise StarletteHTTPException(404, NOT_FOUND_SESSION)
+        await store.require_available(session_id)
         report = await store.latest_report(session_id, done_only=True)
         if report is None:
             raise StarletteHTTPException(404, "这场会议还没有生成好的报告")

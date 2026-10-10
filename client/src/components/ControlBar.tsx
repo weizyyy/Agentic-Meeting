@@ -1,4 +1,5 @@
 import type { ConnectionState } from "../meetingState.ts";
+import { recordingLabel } from "../sessionView.ts";
 import { MicMeter } from "./MicMeter.tsx";
 
 const LABELS: Record<ConnectionState, string> = {
@@ -12,6 +13,7 @@ interface Props {
   connection: ConnectionState;
   /** 连接意外断开后正在自动重连：第几次；0 表示没有 */
   reconnectAttempt: number;
+  closedReason: string | null;
   micTrack: MediaStreamTrack | null;
   listOpen: boolean;
   onToggleList: () => void;
@@ -26,6 +28,7 @@ export function ControlBar({
   connection,
   reconnectAttempt,
   micTrack,
+  closedReason,
   listOpen,
   onToggleList,
   onStart,
@@ -43,6 +46,9 @@ export function ControlBar({
       <h1>组会助理</h1>
       <span className={`status status-${connection}`} role="status">
         {label}
+      </span>
+      <span className="status" role="status" aria-label="转录状态">
+        {recordingLabel(connection, closedReason, reconnectAttempt)}
       </span>
       <MicMeter track={micTrack} />
       <div className="spacer" />

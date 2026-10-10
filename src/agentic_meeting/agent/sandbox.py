@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import io
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol
@@ -30,6 +30,7 @@ from typing import Any, Protocol
 from loguru import logger
 
 from agentic_meeting.config import SandboxConfig
+from agentic_meeting.store.work import drain_io
 
 MAX_ARTIFACT_BYTES = 20 * 1024 * 1024
 INPUT_DIR = "input"
@@ -48,7 +49,9 @@ class SandboxHandle(Protocol):
 
     async def put_inputs(self, files: dict[str, bytes]) -> None: ...
 
-    async def fetch(self, names: list[str], dest: Path) -> list[str]: ...
+    async def fetch(
+        self, names: list[str], dest: Path, *, write: Callable[[Path, bytes], None] | None = None
+    ) -> list[str]: ...
 
 
 def sandbox_capabilities() -> list[Any]:
@@ -93,7 +96,9 @@ class SdkSandbox:
         for name, data in files.items():
             await self._session.write(Path(INPUT_DIR) / name, io.BytesIO(data))
 
-    async def fetch(self, names: list[str], dest: Path) -> list[str]:
+    async def fetch(
+        self, names: list[str], dest: Path, *, write: Callable[[Path, bytes], None] | None = None
+    ) -> list[str]:
         """把工作区里的这些文件读回 ``dest``。读不到的、太大的跳过并记日志；返回实际取回的文件名。"""
         fetched: list[str] = []
         for raw in names:
@@ -104,7 +109,7 @@ class SdkSandbox:
             try:
                 stream = await self._session.read(Path(name))
                 try:
-                    data = await asyncio.to_thread(stream.read, MAX_ARTIFACT_BYTES + 1)
+                    data = await drain_io(asyncio.to_thread(stream.read, MAX_ARTIFACT_BYTES + 1))
                 finally:
                     stream.close()
             except Exception as e:
@@ -114,7 +119,7 @@ class SdkSandbox:
                 logger.warning(f"产物 {name} 超过 {MAX_ARTIFACT_BYTES // (1024 * 1024)} MB，已跳过")
                 continue
             target = dest / name
-            await asyncio.to_thread(_write_file, target, data)
+            await drain_io(asyncio.to_thread(write or _write_file, target, data))
             fetched.append(name)
         return fetched
 

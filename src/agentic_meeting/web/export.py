@@ -461,6 +461,8 @@ def register(app: FastAPI) -> None:
             raise StarletteHTTPException(
                 404, "导出地址的格式是 /api/export/<会议编号>.md（或 .json、.zip）"
             )
+        if await resources.store.get_session(stem) is not None:
+            await resources.store.require_available(stem)
         data = await collect(
             resources.store, stem, live=resources.sessions.is_live(stem), now=time.time()
         )

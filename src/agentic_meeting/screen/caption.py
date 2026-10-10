@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Protocol
 
@@ -28,6 +29,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from agentic_meeting.pipeline.background import Preempted
 from agentic_meeting.pipeline.clock import format_hms
 from agentic_meeting.screen.ingest import IngestedFrame, media_type_of
+from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import ScreenFrame
 
 CAPTION_MAX_TOKENS = 200
@@ -37,10 +39,18 @@ USER_TEXT = "请按要求描述这张屏幕截图。"
 
 
 class CaptionStore(Protocol):
+    def session_work(self, session_id: str) -> AbstractAsyncContextManager[None]: ...
+
     async def get_frame(self, frame_id: int) -> ScreenFrame | None: ...
 
     async def set_frame_caption(
-        self, frame_id: int, *, status: str, caption: str | None = None
+        self,
+        frame_id: int,
+        *,
+        status: str,
+        caption: str | None = None,
+        session_id: str,
+        write_token: str,
     ) -> bool: ...
 
 
@@ -87,7 +97,10 @@ class CaptionWorker:
         self._max_tokens = max_tokens
         self._pending: IngestedFrame | None = None
         self._current: int | None = None  # 正在生成摘要的截图编号
-        self._followers: dict[int, list[int]] = {}  # 截图编号 → 画面和它一样、等着沿用它摘要的截图
+        self._followers: dict[
+            int, list[ScreenFrame]
+        ] = {}  # 截图编号 → 画面和它一样、等着沿用它摘要的截图
+        self._leases: dict[int, AbstractAsyncContextManager[None]] = {}
         self._wake = asyncio.Event()
         self._task: asyncio.Task | None = None
 
@@ -112,16 +125,62 @@ class CaptionWorker:
                 await task
             except asyncio.CancelledError:
                 pass
+        for frame_id in list(self._leases):
+            await self._release(frame_id)
+        self._pending = None
+        self._followers.clear()
+
+    def forget(self, session_id: str) -> None:
+        if self._pending is not None and self._pending.frame.session_id == session_id:
+            self._pending = None
+        self._followers = {
+            source: [frame for frame in frames if frame.session_id != session_id]
+            for source, frames in self._followers.items()
+            if any(frame.session_id != session_id for frame in frames)
+        }
+
+    async def _release(self, frame_id: int) -> None:
+        lease = self._leases.pop(frame_id, None)
+        if lease is not None:
+            await drain_io(lease.__aexit__(None, None, None))
+
+    async def _save(self, frame: ScreenFrame, status: str, caption: str | None = None) -> bool:
+        assert frame.id is not None
+        return await self._store.set_frame_caption(
+            frame.id,
+            status=status,
+            caption=caption,
+            session_id=frame.session_id,
+            write_token=frame.write_token,
+        )
 
     # ------------------------------------------------------------------ #
     # 入口
     # ------------------------------------------------------------------ #
 
     async def submit(self, ingested: IngestedFrame) -> None:
+        await drain_io(self._admit(ingested))
+
+    async def _admit(self, ingested: IngestedFrame) -> None:
+        frame = ingested.frame
+        assert frame.id is not None
+        lease = self._store.session_work(frame.session_id)
+        await lease.__aenter__()
+        self._leases[frame.id] = lease
+        try:
+            await self._submit(ingested)
+        except BaseException:
+            await self._release(frame.id)
+            raise
+
+    async def _submit(self, ingested: IngestedFrame) -> None:
         frame = ingested.frame
         assert frame.id is not None
         if self._model is None:
-            await self._store.set_frame_caption(frame.id, status="skipped")
+            try:
+                await self._save(frame, "skipped")
+            finally:
+                await self._release(frame.id)
             return
         if not ingested.changed and ingested.same_as is not None:
             if await self._follow(frame, ingested.same_as):
@@ -129,7 +188,7 @@ class CaptionWorker:
         # 新画面（或上一张的摘要没成）：它成为待处理的那一张，原来排着的不看了
         previous, self._pending = self._pending, ingested
         if previous is not None:
-            await self._settle(previous.frame.id, "skipped")
+            await self._settle(previous.frame, "skipped")
         self._wake.set()
 
     async def _follow(self, frame: ScreenFrame, source_id: int) -> bool:
@@ -139,13 +198,21 @@ class CaptionWorker:
             self._pending is not None and self._pending.frame.id == source_id
         ) or self._current == source_id
         if waiting:
-            self._followers.setdefault(source_id, []).append(frame.id)
+            self._followers.setdefault(source_id, []).append(frame)
             return True
         source = await self._store.get_frame(source_id)
-        if source is None or source.caption_status != "done" or not source.caption:
+        if (
+            source is None
+            or source.session_id != frame.session_id
+            or source.caption_status != "done"
+            or not source.caption
+        ):
             return False
-        await self._store.set_frame_caption(frame.id, status="done", caption=source.caption)
-        await self._safe_notify(frame.session_id, frame.id, source.caption)
+        try:
+            if await self._save(frame, "done", source.caption):
+                await self._safe_notify(frame.session_id, frame.id, source.caption)
+        finally:
+            await self._release(frame.id)
         return True
 
     # ------------------------------------------------------------------ #
@@ -176,7 +243,7 @@ class CaptionWorker:
         self._current = frame.id
         try:
             try:
-                url = await asyncio.to_thread(self._data_url, frame)
+                url = await drain_io(asyncio.to_thread(self._data_url, frame))
                 text = await self._model.run(
                     [LLMContext.create_image_url_message(url=url, text=USER_TEXT)],
                     system=self._prompt,
@@ -187,24 +254,30 @@ class CaptionWorker:
                     self._pending = item  # 助理应答完再做这张
                     self._wake.set()
                 else:
-                    await self._settle(frame.id, "skipped")  # 已经有更新的画面了
+                    await self._settle(frame, "skipped")  # 已经有更新的画面了
                 return
             except asyncio.CancelledError:
+                await drain_io(self._settle(frame, "pending"))
                 raise
             except Exception as e:
                 logger.warning(f"画面摘要生成失败（截图 {frame.id}）：{type(e).__name__}: {e}")
-                await self._settle(frame.id, "failed")
+                await self._settle(frame, "failed")
                 return
             caption = clean_caption(text)
             if not caption:
                 logger.warning(f"画面摘要是空的（截图 {frame.id}）")
-                await self._settle(frame.id, "failed")
+                await self._settle(frame, "failed")
                 return
-            await self._store.set_frame_caption(frame.id, status="done", caption=caption)
+            if not await self._save(frame, "done", caption):
+                await self._settle(frame, "skipped")
+                return
             await self._safe_notify(frame.session_id, frame.id, caption)
             for follower in self._followers.pop(frame.id, []):
-                await self._store.set_frame_caption(follower, status="done", caption=caption)
-                await self._safe_notify(frame.session_id, follower, caption)
+                try:
+                    if await self._save(follower, "done", caption):
+                        await self._safe_notify(follower.session_id, follower.id, caption)
+                finally:
+                    await self._release(follower.id)
             if caption != IRRELEVANT_CAPTION:
                 try:
                     await self._append_context(
@@ -212,18 +285,24 @@ class CaptionWorker:
                     )
                 except Exception:
                     logger.exception("把画面摘要追加到实时模型的上下文失败")
+            await self._release(frame.id)
         finally:
             self._current = None
+            if self._pending is not item:
+                await drain_io(self._settle(frame, "skipped"))
 
-    async def _settle(self, frame_id: int | None, status: str) -> None:
-        """一张截图不会有摘要了（跳过或失败）：连同等着沿用它的那些一起记下。"""
-        if frame_id is None:
+    async def _settle(self, frame: ScreenFrame, status: str) -> None:
+        """完成或放弃一组原始截图身份，再释放它们的生产工作登记。"""
+        if frame.id is None:
             return
-        for target in [frame_id, *self._followers.pop(frame_id, [])]:
+        for target in [frame, *self._followers.pop(frame.id, [])]:
             try:
-                await self._store.set_frame_caption(target, status=status)
-            except Exception:
-                logger.exception("更新截图的摘要状态失败")
+                if target.id in self._leases:
+                    await self._save(target, status)
+            except Exception as exc:
+                logger.warning("更新截图摘要状态失败：{}", type(exc).__name__)
+            finally:
+                await self._release(target.id)
 
     def _data_url(self, frame: ScreenFrame) -> str:
         path = self._path_of(frame)

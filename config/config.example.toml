@@ -15,6 +15,8 @@
 # ----------------------------------------------------------------------------
 [session]
 data_dir = "data"
+# 每次新建/手动继续连接就绪时提醒正在转录；关闭不隐藏录制状态。
+recording_notice = true
 # 助理的名字，同时是唤醒词。必须是英文单词（例如 Jarvis、Nova）：英文词在中文句子里边界清楚，
 # 不会与同音字混淆。请选用会议中不常出现的词。
 assistant_name = "Jarvis"
@@ -302,3 +304,12 @@ kind = "docker"             # "docker" | "local"（仅 macOS/Linux 的可信开�
 docker_image = ""           # kind = "docker" 时必填，例如带 numpy/pandas/matplotlib 的 Python 镜像
 network = false
 timeout_secs = 120.0
+
+# 四类期限独立配置，0 默认关闭；一天严格等于 86400 秒。
+# keep 标记豁免自动清理；人工删除失败仍会后台/重启重试。
+[retention]
+transcript_days = 0
+screenshots_days = 0
+reports_days = 0
+task_artifacts_days = 0
+cleanup_interval_secs = 3600

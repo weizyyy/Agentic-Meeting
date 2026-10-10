@@ -55,6 +55,7 @@ class Utterance:
     source: str = "asr"  # "asr" | "assistant" | "text"
     addressed_to_assistant: bool = False
     id: int | None = None
+    write_token: str = ""
 
 
 @dataclass(slots=True)
@@ -66,6 +67,8 @@ class Session:
     title: str = ""
     ended_at: float | None = None
     last_active_at: float = 0.0
+    keep: bool = False
+    deletion_pending: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +121,7 @@ class ScreenFrame:
     caption: str | None = None
     id: int | None = None
     caption_status: str = "pending"  # "pending" | "done" | "failed" | "skipped"
+    write_token: str = ""
 
 
 class TaskStatus(StrEnum):
@@ -207,3 +211,5 @@ class Report:
     provider: str = ""  # 由谁生成："realtime_llm" | "agent_llm"
     text_md: str = ""
     error: str | None = None
+    write_token: str = ""
+    finished_at: float | None = None
