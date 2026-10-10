@@ -99,7 +99,10 @@ async def test_meetings_survive_a_restart(start_app, inference, meeting_factory)
         assert texts == ["重启之前说的话", "重启之后接着说"]
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="Windows 上没法对子进程发 Ctrl+C")
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="已知问题只在 Ctrl+C（SIGINT）下确认过；Windows 上停应用发的是 Ctrl+Break",
+)
 @pytest.mark.xfail(
     strict=True,
     reason="已知问题：会议进行中按 Ctrl+C，uvicorn 停在关闭 HTTP 服务这一步，迟迟不进入 lifespan 收尾"

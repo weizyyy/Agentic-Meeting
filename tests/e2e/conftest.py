@@ -63,23 +63,26 @@ class App:
         return self.log.read_text(encoding="utf-8", errors="replace")
 
     def stop(self, timeout: float = 30) -> int:
-        """像用户按 Ctrl+C 一样停下。
+        """像用户按 Ctrl+C 一样停下，让应用正常收尾（数据库写回、文件句柄关闭）。
 
-        Windows 上没有对子进程发 Ctrl+C 的简单办法，直接结束进程树：虚拟环境里的 python.exe 只是个启动器，
-        真正的解释器是它的子进程，只结束启动器的话应用还在跑、还占着数据库。
+        Windows 上对子进程发不了 Ctrl+C，改发 Ctrl+Break（uvicorn 同样按退出处理）；进程是在独立的进程组里
+        启动的，信号只到应用。超时没退出才强行结束整个进程树：虚拟环境里的 python.exe 只是个启动器，
+        真正的解释器是它的子进程。
         """
         if self.process.poll() is None:
             if sys.platform == "win32":
-                subprocess.run(
-                    ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
-                    capture_output=True,
-                    check=False,
-                )
+                self.process.send_signal(signal.CTRL_BREAK_EVENT)
             else:
                 self.process.send_signal(signal.SIGINT)
             try:
                 self.process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
+                if sys.platform == "win32":
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(self.process.pid)],
+                        capture_output=True,
+                        check=False,
+                    )
                 self.process.kill()
                 self.process.wait()
         return self.process.returncode
@@ -137,6 +140,8 @@ async def start_app(inference: Inference, tmp_path: Path) -> AsyncIterator[Start
                 stderr=subprocess.STDOUT,
                 env=process_env,
                 cwd=root,
+                # Windows：独立进程组，stop() 发的 Ctrl+Break 只到应用，不会波及 pytest
+                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
             )
         app = App(f"http://127.0.0.1:{port}", data, log, process)
         apps.append(app)
