@@ -282,10 +282,17 @@ body {
   color: var(--accent-text);
 }
 
+/* 右列空间不够时助理区不再被挤没：回答文字至少留四行（行高 1.6），先让后台任务看板缩。
+   回答再长也只在框里滚动，不把面板撑高（size 包含让回答不参与面板的最小高度计算）。 */
+.column.side > .assistant-panel {
+  min-height: auto;
+}
+
 .reply {
   flex: 1;
-  min-height: 0;
+  min-height: 6.4em;
   overflow-y: auto;
+  contain: size;
 }
 
 .reply p {
@@ -448,6 +455,11 @@ body {
   gap: 8px;
   min-height: 0;
   min-width: 0;
+}
+
+/* 窗口太矮（或窄屏上下排列）放不下各面板的最小高度时，整列滚动，面板不互相压住。 */
+.column.side {
+  overflow-y: auto;
 }
 
 .column > .panel {
@@ -781,9 +793,12 @@ body {
 
 /* ---- 后台任务 ---- */
 
+/* 看板最多占右列的三分之一（窗口够高时一半多），空间不够时先缩它，
+   最矮留标题和第一个任务的开头，列表在里面滚动。 */
 .column.side > .tasks-panel {
   flex: 0 1 auto;
   max-height: 34%;
+  min-height: 7rem;
 }
 
 .tasks {

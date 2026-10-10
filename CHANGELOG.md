@@ -29,6 +29,13 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   autocomplete, which hid them while the input still held the current name, and they never loaded
   at all in the first meeting when the page was opened before any meeting existed.
 
+### Fixed
+
+- With several background tasks, the task panel no longer squeezes the assistant's answer down to a
+  single line: the answer keeps at least four lines, the task panel shrinks first (to about one
+  task in a 900-pixel-high window) and scrolls, and a window too short for everything scrolls the
+  right column instead of overlapping panels.
+
 [#47]: https://github.com/weizyyy/Agentic-Meeting/pull/47
 [#49]: https://github.com/weizyyy/Agentic-Meeting/pull/49
 
