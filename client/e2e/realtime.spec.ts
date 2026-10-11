@@ -189,6 +189,15 @@ test("选择窗口里取消、选择失败、浏览器自带停止共享之后�
   await page.evaluate(() => (window as any).e2eMedia.endScreen());
   await expect(share).toBeEnabled();
   await expect(stopShare).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).e2eMedia.tracks
+          .filter((track: MediaStreamTrack) => track.kind === "video")
+          .every((track: MediaStreamTrack) => track.readyState === "ended"),
+      ),
+    )
+    .toBe(true);
   await expect(page.getByRole("status").first()).toHaveText("已连接");
   expect(
     await page.evaluate(() =>

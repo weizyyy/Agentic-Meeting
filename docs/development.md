@@ -220,7 +220,7 @@ test bot; ASR, LLM, TTS, embeddings and screen caption models are not started. C
 use CPU WebAudio microphone tracks; Firefox uses its native fake media devices. All three engines
 use `canvas.captureStream()` screen tracks instead of capturing a desktop. The replaced picker can
 also report a cancel (`NotAllowedError`) or a failure (`NotReadableError`), and the browser's own
-stop-sharing control is simulated by ending the track; each call records whether it happened within
+stop-sharing control is simulated by firing `ended` on the track; each call records whether it happened within
 the user's click, which Safari requires. Browser requests outside
 the test server are blocked and fail the test. These checks do not validate real microphone or
 screen permissions, physical devices, model quality, external services, GPU behavior or Internet

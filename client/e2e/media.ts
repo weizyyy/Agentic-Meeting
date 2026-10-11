@@ -13,12 +13,14 @@ export function installMedia({ nativeAudio = false } = {}) {
     changeScreen: () => {
       color = "#f1d234";
     },
-    /** 模拟用户点浏览器自带的「停止共享」：轨道结束并触发 ended。 */
+    /**
+     * 模拟用户点浏览器自带的「停止共享」：只触发 ended，轨道由页面自己停止。
+     * 在 Firefox 里先 stop 再派发，页面收不到这个事件（CI 上观察到）。
+     */
     endScreen: () => {
       for (const track of tracks) {
-        if (track.kind !== "video" || track.readyState === "ended") continue;
-        track.stop();
-        track.dispatchEvent(new Event("ended"));
+        if (track.kind === "video" && track.readyState === "live")
+          track.dispatchEvent(new Event("ended"));
       }
     },
   };
