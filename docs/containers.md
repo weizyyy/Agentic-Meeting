@@ -100,7 +100,7 @@ Variables in `.env` that Compose reads:
 | `TTS_MODEL`, `TTS_CODEC`, `TTS_LANGUAGE`                                              | —, —, `Chinese`                            | Talker and codec GGUF, `tts.launch.default_language`                                |
 | `EMBEDDING_MODEL`, `EMBEDDING_POOLING`                                                | —, `last`                                  | Embedding GGUF and its pooling                                                      |
 | `AGENTIC_MEETING_UID`, `AGENTIC_MEETING_GID`                                          | `1000`                                     | User of the application container                                                   |
-| `AGENTIC_MEETING_TAG`, `AGENTIC_MEETING_TTS_TAG`                                      | `cpu`, or the variant of the override file | Image tags, for example `0.3.0-cuda` to stay on a release                           |
+| `AGENTIC_MEETING_TAG`, `AGENTIC_MEETING_TTS_TAG`                                      | `cpu`, or the variant of the override file | Image tags, for example `0.2.1-cuda` to stay on a release                           |
 | `LLAMA_SERVER_TAG`, `LLAMA_SERVER_CUDA_TAG`, `LLAMA_SERVER_VULKAN_TAG`                | the locked build                           | Tags of the llama.cpp images                                                        |
 
 The request names `realtime`, `tts` and `embedding` passed with `-a` and `--alias` match the

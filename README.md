@@ -131,7 +131,7 @@ See [docs/architecture.md](docs/architecture.md) for the design in detail.
 - [uv](https://docs.astral.sh/uv/), Python 3.12–3.14, Node.js 22.18 or later, Git
 - Model weights for ASR, diarization, TTS and embeddings ([what to download](docs/runtimes.md#4-model-files));
   the repository never downloads weights for you
-- Optional: Docker, for the background agent's code sandbox
+- Optional: Docker, for the background agent's code sandbox, or to run everything in containers
 
 A single graphics card with 12 GB of memory is enough for the local speech models: with the Q8
 quantization of the ASR model and the 0.6B speech synthesis model, all local services together use
@@ -171,6 +171,9 @@ Browsers on other machines need HTTPS — see the
 Edge 111, Firefox 114 or Safari 16.4 or newer; see
 [supported browsers](docs/user-guide.md#supported-browsers).
 
+On Linux, the application and every inference service can also run with Docker Compose from the
+published images; see [docs/containers.md](docs/containers.md).
+
 ## Documentation
 
 | Guide                                      | Contents                                                               |
@@ -207,7 +210,7 @@ Full results and methodology are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Project status
 
-The current release is 0.2.0. The project is at an early stage and changes quickly.
+The current release is 0.2.1. The project is at an early stage and changes quickly.
 
 - Verified with real models on Windows 11 with NVIDIA GPUs. The automated end-to-end tests, which
   run the whole application with fake inference services, pass on Windows and Linux, and the web
@@ -221,9 +224,10 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## Roadmap
 
-Version 0.2 added an access password, deployment guidance, health endpoints and data retention.
-Planned next, in order: verified support for more platforms and browsers, containers and lower GPU
-memory requirements; a redesigned and translated web client; live watching, per-meeting access and
+Version 0.2 added an access password, deployment guidance, health endpoints and data retention;
+0.2.1 added container images and clearer messages when a browser cannot hold a meeting. Planned
+next, in order: verified support for more platforms and browsers and lower GPU memory
+requirements; a redesigned and translated web client; live watching, per-meeting access and
 parallel meetings. See [ROADMAP.md](ROADMAP.md).
 
 ## Contributing

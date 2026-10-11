@@ -6,38 +6,56 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-11
+
+This release adds container images for the application and every inference service, and makes the
+web page explain why a browser cannot hold a meeting or play the assistant's voice.
+
+Upgrading from 0.2.0: nothing to change. Configuration, database and the native installation work
+as before; the containers are an additional way to run the same system.
+
 ### Added
 
+- Container images and a Docker Compose setup for Linux ([#49]): an application image and a speech
+  synthesis image in CPU, CUDA and Vulkan variants, with `llama-server` from llama.cpp's own images
+  at the pinned build. Each inference service runs in its own container and can be started, moved or
+  replaced separately; model weights are mounted from the host and never built into an image.
+  Override files add NVIDIA GPUs, Vulkan devices and, opt-in, the code sandbox through the host's
+  Docker. The release workflow publishes the images and the sandbox image to GHCR, starting with
+  this release (`ghcr.io/weizyyy/agentic-meeting`, `-tts` and `-sandbox`, tagged `0.2.1-cpu`,
+  `0.2.1-cuda`, `0.2.1-vulkan` and so on). The images have not yet been run with real models, and
+  the Vulkan variant is experimental. See `docs/containers.md`.
 - The web page states the supported browsers (Chrome and Edge 111, Firefox 114, Safari 16.4) and
   explains why a browser cannot hold a meeting: too old to run the page, not opened over HTTPS, or
   missing WebRTC, microphone capture or Web Audio. Starting and resuming are blocked in such a
   browser, and past meetings stay readable ([#47]).
 - When the browser's autoplay policy blocks the assistant's voice, the page says so and offers a
   button that turns it on, instead of staying silent ([#47]).
-- Container images and a Docker Compose setup for Linux ([#49]): an application image and a speech
-  synthesis image in CPU, CUDA and Vulkan variants, with `llama-server` from llama.cpp's own images
-  at the pinned build. Each inference service runs in its own container and can be started, moved or
-  replaced separately; model weights are mounted from the host and never built into an image.
-  Override files add NVIDIA GPUs, Vulkan devices and, opt-in, the code sandbox through the host's
-  Docker. The release workflow publishes the images and the sandbox image to GHCR. See
-  `docs/containers.md`.
+
+### Changed
+
+- The browser end-to-end tests cover cancelling the screen-sharing picker, a screen that fails to
+  open and stopping sharing from the browser's own control in Chromium, Firefox and WebKit ([#53]),
+  and wait for the server to accept the connection before pushing captions, which removes an
+  intermittent failure on slow runners ([#51]).
 
 ### Fixed
 
 - Names from `session.members` now show as buttons next to the rename input and the new-speaker
   input, so they can be picked with one click. They used to be offered only as browser
   autocomplete, which hid them while the input still held the current name, and they never loaded
-  at all in the first meeting when the page was opened before any meeting existed.
-
-### Fixed
-
+  at all in the first meeting when the page was opened before any meeting existed ([#48]).
 - With several background tasks, the task panel no longer squeezes the assistant's answer down to a
   single line: the answer keeps at least four lines, the task panel shrinks first (to about one
   task in a 900-pixel-high window) and scrolls, and a window too short for everything scrolls the
-  right column instead of overlapping panels.
+  right column instead of overlapping panels ([#50]).
 
 [#47]: https://github.com/weizyyy/Agentic-Meeting/pull/47
+[#48]: https://github.com/weizyyy/Agentic-Meeting/pull/48
 [#49]: https://github.com/weizyyy/Agentic-Meeting/pull/49
+[#50]: https://github.com/weizyyy/Agentic-Meeting/pull/50
+[#51]: https://github.com/weizyyy/Agentic-Meeting/pull/51
+[#53]: https://github.com/weizyyy/Agentic-Meeting/pull/53
 
 ## [0.2.0] - 2026-10-10
 
@@ -192,7 +210,8 @@ First public release.
 - The longest continuous run tested is 54 minutes.
 - The web UI, prompts and CLI messages are available in Chinese only.
 
-[Unreleased]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/weizyyy/Agentic-Meeting/releases/tag/v0.1.0

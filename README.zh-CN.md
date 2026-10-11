@@ -111,7 +111,7 @@ flowchart LR
 - [uv](https://docs.astral.sh/uv/)、Python 3.12–3.14、Node.js 22.18 及以上、Git
 - 语音识别、说话人区分、语音合成和嵌入模型的权重（[需要哪些文件](docs/zh-CN/runtimes.md#4-模型文件)）；
   本仓库不会自动下载权重
-- 可选：Docker，用于后台 agent 的代码沙箱
+- 可选：Docker，用于后台 agent 的代码沙箱，或在容器里运行全部服务
 
 本地语音模型用一块 12 GB 显存的显卡即可运行：识别模型用 Q8 量化、语音合成用 0.6B 时，
 全部本地服务合计占用略高于 10 GB。性能实测所用的配置（识别 f16、语音合成 1.7B）约占 15 GB。
@@ -149,6 +149,9 @@ uv run agentic-meeting serve --with-services
 [入门指南](docs/zh-CN/getting-started.md#从其他设备访问)。网页需要 Chrome 或 Edge 111、Firefox 114、
 Safari 16.4 及以上版本，见[支持的浏览器](docs/zh-CN/user-guide.md#支持的浏览器)。
 
+在 Linux 上，也可以用已发布的镜像通过 Docker Compose 运行应用和全部推理服务，见
+[docs/zh-CN/containers.md](docs/zh-CN/containers.md)。
+
 ## 文档
 
 | 文档                                      | 内容                                            |
@@ -185,7 +188,7 @@ Safari 16.4 及以上版本，见[支持的浏览器](docs/zh-CN/user-guide.md#�
 
 ## 项目状态
 
-当前版本为 0.2.0。项目处于早期阶段，变化较快。
+当前版本为 0.2.1。项目处于早期阶段，变化较快。
 
 - 已在 Windows 11 + NVIDIA 显卡上用真实模型完成验证。自动化端到端测试（用假推理服务运行整个应用）在 Windows 和 Linux 上全部通过，网页客户端在 Chromium、Firefox 和 WebKit 中测试；Linux 上尚未用真实模型运行完整系统，macOS 未经测试。
 - 已测试的最长连续运行时间为 54 分钟。
@@ -195,8 +198,8 @@ Safari 16.4 及以上版本，见[支持的浏览器](docs/zh-CN/user-guide.md#�
 
 ## 路线图
 
-0.2 版本加入了访问口令、部署指南、健康检查和数据保留。接下来依次规划：更多平台和浏览器的实机验证、
-容器化、降低显存需求；网页客户端的重新设计与多语言；实时旁听、按会议授权和并行会议。
+0.2 版本加入了访问口令、部署指南、健康检查和数据保留；0.2.1 加入了容器镜像，并在浏览器无法开会时说明原因。
+接下来依次规划：更多平台和浏览器的实机验证、降低显存需求；网页客户端的重新设计与多语言；实时旁听、按会议授权和并行会议。
 详见 [ROADMAP.zh-CN.md](ROADMAP.zh-CN.md)。
 
 ## 参与贡献
