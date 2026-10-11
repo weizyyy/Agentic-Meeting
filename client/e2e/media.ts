@@ -13,13 +13,21 @@ export function installMedia({ nativeAudio = false } = {}) {
     changeScreen: () => {
       color = "#f1d234";
     },
-    /** 模拟用户点浏览器自带的「停止共享」：只触发 ended，轨道由页面自己停止；返回派发前各画面轨道的状态。 */
+    /** 最近一次交给页面的屏幕流。 */
+    screen: null as MediaStream | null,
+    /**
+     * 模拟用户点浏览器自带的「停止共享」：在交给页面的那条画面轨道上触发 ended，轨道由页面自己停止。
+     * 返回派发前的轨道状态和事件是否送达，便于各引擎上定位。
+     */
     endScreen: () => {
-      const video = tracks.filter((track) => track.kind === "video");
-      const states = video.map((track) => track.readyState);
-      for (const track of video)
-        if (track.readyState === "live") track.dispatchEvent(new Event("ended"));
-      return states;
+      const tracks = media.screen?.getVideoTracks() ?? [];
+      return tracks.map((track) => {
+        const state = track.readyState;
+        let delivered = false;
+        track.addEventListener("ended", () => (delivered = true), { once: true });
+        track.dispatchEvent(new Event("ended"));
+        return { state, delivered };
+      });
     },
   };
   Object.assign(window, { e2eMedia: media });
@@ -75,6 +83,7 @@ export function installMedia({ nativeAudio = false } = {}) {
         stop();
       };
     }
+    media.screen = stream;
     return stream;
   };
 }
