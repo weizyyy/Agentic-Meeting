@@ -234,8 +234,8 @@ local picture changes and the default 60-second heartbeat. Microphone assertions
 current peer's audio sender, not the last acquired track (SDK permission probes acquire temporary
 tracks). The server counts received 16-bit PCM frames with RMS at least 300 as non-silent; packet
 counts alone do not establish useful input. The autoplay recovery test observes remote PCM as well
-as the playback element; actual audibility still requires a native check. See the
-[browser matrix](user-guide.md#supported-browsers) for completed validation and remaining limits.
+as the playback element; actual audibility still requires a native check. See
+[Supported browsers](user-guide.md#supported-browsers) for which browsers have been checked by hand.
 
 For native desktop checks, run `uv run python -m tests.browser.server` at the repository root
 and open the URL printed after `E2E_READY` in an installed browser. This does not run the

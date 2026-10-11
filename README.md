@@ -214,11 +214,9 @@ The current release is 0.2.1. The project is at an early stage and changes quick
 
 - Verified with real models on Windows 11 with NVIDIA GPUs. The automated end-to-end tests, which
   run the whole application with fake inference services, pass on Windows and Linux, and the web
-  client is tested in Chromium, Firefox and WebKit in CI. On macOS 27.0.1, manual acceptance of
-  installed Chrome, Edge, Firefox and Safari passed for browser media and meeting recovery;
-  [the browser matrix](docs/user-guide.md#supported-browsers) separates that acceptance from
-  automated results, including the blocked macOS Playwright Firefox run. The full system with
-  real models has not been verified on Linux or macOS.
+  client is tested in Chromium, Firefox and WebKit. On macOS the web client has been checked by hand
+  in Chrome, Edge, Firefox and Safari; the full system with real models has not been run on Linux or
+  macOS yet.
 - The longest continuous run tested so far is 54 minutes.
 - Latency figures were measured with the realtime LLM behind an OpenAI-compatible endpoint; the
   llama.cpp deployment mode is covered by the end-to-end tests but has no published benchmark yet.

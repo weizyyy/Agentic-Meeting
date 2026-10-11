@@ -10,7 +10,6 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Automatic peer replacement keeps the microphone track used by the new peer instead of stopping
   it while closing the old connection. Ending the meeting still releases sender tracks.
-
 - Starting or resuming after microphone permission is restored retries device initialization
   without requiring a page reload.
 - Screen sharing releases streams returned after the meeting ends or disconnects, and repeated

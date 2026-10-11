@@ -24,36 +24,12 @@ Use a desktop browser no older than:
 | Firefox | 114             |
 | Safari  | 16.4            |
 
-These are the existing support and build targets (`client/src/browserSupport.ts`), not a record of
-testing every historical minimum version. The latest validation below was on 2026-10-11,
-macOS 27.0.1 (26A434), Apple silicon, with browser code at commit
-`32f6be869b861bfeac9b2a4617897236c23682db`.
-
-| Installed browser | Tested version            | Manual acceptance               |
-| ----------------- | ------------------------- | ------------------------------- |
-| Chrome            | 155.0.8059.39             | Passed, confirmed by the tester |
-| Edge              | 155.0.4283.45, Stable     | Passed, confirmed by the tester |
-| Firefox           | 157.0.1, release          | Passed, confirmed by the tester |
-| Safari            | 27.0.1 / 22625.1.29.11.28 | Passed, confirmed by the tester |
-
-Manual acceptance covers browser media and meeting use. Recorded checks in all four installed
-browsers show same-meeting automatic peer recovery with actual speech reaching the server, and
-normal meeting termination releasing capture. Additional recorded checks cover selected refresh,
-retry, screen and playback paths; a separate instrumented record was not collected for every
-permission, screen surface and autoplay combination. The tester confirmed overall manual success,
-including Firefox. Controlled captions and output PCM exercise transport, not ASR or TTS quality.
-
-| Environment                                            | Result and scope                                                                                                                                                      |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS Playwright Chromium 156.0.8078.4 and WebKit 27.2 | 52 controlled-media scenarios passed, 26 per engine                                                                                                                   |
-| macOS Playwright Firefox 157.0, revision 1555          | Full 26-scenario run blocked by initial local ICE connectivity; bounded checks received no ICE responses. Installed Firefox's manual pass does not change this result |
-| Local Linux                                            | Not run: no existing container or VM environment was available                                                                                                        |
-| Ubuntu CI                                              | Runs all three Playwright engines with controlled media; reported separately from local Linux testing                                                                 |
-| Windows                                                | Not tested in this browser validation; earlier project tests remain separate                                                                                          |
-
-Safari is a current native target on macOS only. These checks do not establish Internet STUN/TURN
-or NAT behavior, GPU inference, or the full macOS system with real models. Historical minimum
-browser versions were not individually retested.
+These are the versions the page is built for (`client/src/browserSupport.ts`); older versions down to
+these minimums are not retested one by one. The automated browser tests run the current Chromium,
+Firefox and WebKit engines on Linux. On macOS, installed Chrome, Edge, Firefox and Safari have been
+checked by hand for microphone input, screen sharing, automatic reconnection and ending a meeting;
+browsers on Windows have not yet been checked by hand. These checks do not cover Internet STUN/TURN
+or NAT, or the full system with real models.
 
 When a browser cannot hold a meeting, the page says why instead of failing on connect:
 

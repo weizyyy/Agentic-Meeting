@@ -200,7 +200,7 @@ CI 在 Ubuntu CPU 上运行三个引擎；其他系统的平台相关浏览器�
 接管与结束、等待中的屏幕选择清理、局部画面变化及默认 60 秒心跳。麦克风断言观察实际当前 peer 的音频
 sender，不取最后一次采集的轨道（SDK 权限探针会取得临时轨道）。服务端将 RMS 不低于 300 的 16 位 PCM
 帧计为非静音；包计数本身不证明有效输入。自动播放恢复测试同时观察远端 PCM 和播放元素，实际可听仍需
-原生检查。已完成的验证与剩余限制见[浏览器矩阵](user-guide.md#支持的浏览器)。
+原生检查。人工检查过哪些浏览器见[支持的浏览器](user-guide.md#支持的浏览器)。
 
 原生桌面检查可在仓库根目录运行 `uv run python -m tests.browser.server`，然后在安装版浏览器打开
 `E2E_READY` 后的 URL。这不运行 Playwright 夹具，也不替换 `getUserMedia` / `getDisplayMedia`。
