@@ -150,3 +150,62 @@ test("合成麦克风与屏幕经过真实采集上传流程并释放轨道", as
     .poll(async () => (await (await request.get("/__test/state")).json()).live)
     .toBeNull();
 });
+
+test("选择窗口里取消、选择失败、浏览器自带停止共享之后都能再次共享", async ({ page, request }) => {
+  const media = (mode: "share" | "cancel" | "fail") =>
+    page.evaluate((value) => ((window as any).e2eMedia.screenMode = value), mode);
+  const calls = () => page.evaluate(() => (window as any).e2eMedia.displayCalls.length);
+  await page.goto("/");
+  await page.getByRole("button", { name: "开始新会议", exact: true }).first().click();
+  await expect(page.getByRole("status").first()).toHaveText("已连接");
+  await serverReady(request, 1);
+  const id = (await (await request.get("/__test/state")).json()).live;
+  const share = page.getByRole("button", { name: "共享屏幕", exact: true });
+  const stopShare = page.getByRole("button", { name: "停止共享", exact: true });
+  const errors = page.locator(".notice-error");
+
+  // 用户在选择窗口里点取消：各浏览器都抛 NotAllowedError，不算出错。
+  await media("cancel");
+  await share.click();
+  await expect.poll(calls).toBe(1);
+  await expect(share).toBeEnabled();
+  await expect(errors).toHaveCount(0);
+
+  // 浏览器读不到所选画面：说明原因，按钮仍可再点。
+  await media("fail");
+  await share.click();
+  await expect(errors).toHaveText(/无法共享屏幕：无法读取所选窗口/);
+  await expect(share).toBeEnabled();
+  await errors.getByRole("button", { name: "关闭提示" }).click();
+  await expect(errors).toHaveCount(0);
+
+  // 正常共享后，用户点浏览器自带的「停止共享」。
+  await media("share");
+  await share.click();
+  await expect(stopShare).toBeVisible();
+  const frames = () =>
+    request.get(`/api/frames?session_id=${id}`).then((response) => response.json());
+  await expect.poll(async () => (await frames()).items.length).toBe(1);
+  await page.evaluate(() => (window as any).e2eMedia.endScreen());
+  await expect(share).toBeEnabled();
+  await expect(stopShare).toHaveCount(0);
+  await expect(page.getByRole("status").first()).toHaveText("已连接");
+  expect(
+    await page.evaluate(() =>
+      (window as any).e2eMedia.tracks.some(
+        (track: MediaStreamTrack) => track.kind === "audio" && track.readyState === "live",
+      ),
+    ),
+  ).toBe(true);
+
+  // 同一场会议里可以再次共享；每次请求共享都发生在用户点击之内（Safari 要求）。
+  await share.click();
+  await expect(stopShare).toBeVisible();
+  await stopShare.click();
+  await expect(share).toBeEnabled();
+  expect(await page.evaluate(() => (window as any).e2eMedia.displayCalls)).toEqual(
+    Array(4).fill(true),
+  );
+  await page.getByRole("button", { name: "结束会议", exact: true }).click();
+  await expect(page.getByRole("status").first()).toHaveText("未连接");
+});

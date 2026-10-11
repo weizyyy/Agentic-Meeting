@@ -6,8 +6,20 @@ export function installMedia({ nativeAudio = false } = {}) {
   const media = {
     tracks,
     contexts,
+    /** 下一次选择窗口的结果：选中画面、用户点取消，或浏览器读不到所选画面。 */
+    screenMode: "share" as "share" | "cancel" | "fail",
+    /** 每次 getDisplayMedia 调用时页面是否处于用户手势中（Safari 只在手势里允许共享）。 */
+    displayCalls: [] as (boolean | null)[],
     changeScreen: () => {
       color = "#f1d234";
+    },
+    /** 模拟用户点浏览器自带的「停止共享」：轨道结束并触发 ended。 */
+    endScreen: () => {
+      for (const track of tracks) {
+        if (track.kind !== "video" || track.readyState === "ended") continue;
+        track.stop();
+        track.dispatchEvent(new Event("ended"));
+      }
     },
   };
   Object.assign(window, { e2eMedia: media });
@@ -40,6 +52,10 @@ export function installMedia({ nativeAudio = false } = {}) {
   };
   if (!nativeAudio) navigator.mediaDevices.enumerateDevices = async () => [];
   navigator.mediaDevices.getDisplayMedia = async () => {
+    media.displayCalls.push(navigator.userActivation?.isActive ?? null);
+    if (media.screenMode === "cancel")
+      throw new DOMException("Permission denied", "NotAllowedError");
+    if (media.screenMode === "fail") throw new DOMException("无法读取所选窗口", "NotReadableError");
     const canvas = document.createElement("canvas");
     canvas.width = 640;
     canvas.height = 360;
