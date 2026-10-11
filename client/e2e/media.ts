@@ -13,21 +13,20 @@ export function installMedia({ nativeAudio = false } = {}) {
     changeScreen: () => {
       color = "#f1d234";
     },
-    /** 最近一次交给页面的屏幕流。 */
-    screen: null as MediaStream | null,
+    /** 页面在屏幕轨道上注册的 ended 监听。 */
+    screenEnded: [] as { track: MediaStreamTrack; listener: EventListenerOrEventListenerObject }[],
     /**
-     * 模拟用户点浏览器自带的「停止共享」：在交给页面的那条画面轨道上触发 ended，轨道由页面自己停止。
-     * 返回派发前的轨道状态和事件是否送达，便于各引擎上定位。
+     * 模拟用户点浏览器自带的「停止共享」：把 ended 交给页面注册的监听，轨道由页面自己停止。
+     * Firefox 不把脚本派发的 ended 送到轨道的监听上，所以直接调用监听。返回调用了几个监听。
      */
     endScreen: () => {
-      const tracks = media.screen?.getVideoTracks() ?? [];
-      return tracks.map((track) => {
-        const state = track.readyState;
-        let delivered = false;
-        track.addEventListener("ended", () => (delivered = true), { once: true });
-        track.dispatchEvent(new Event("ended"));
-        return { state, delivered };
-      });
+      const pending = media.screenEnded.splice(0);
+      for (const { track, listener } of pending) {
+        const event = new Event("ended");
+        if (typeof listener === "function") listener.call(track, event);
+        else listener.handleEvent(event);
+      }
+      return pending.length;
     },
   };
   Object.assign(window, { e2eMedia: media });
@@ -77,13 +76,21 @@ export function installMedia({ nativeAudio = false } = {}) {
     const timer = setInterval(paint, 100);
     for (const track of stream.getTracks()) {
       tracks.push(track);
+      const add = track.addEventListener.bind(track);
+      track.addEventListener = (
+        type: string,
+        listener: EventListenerOrEventListenerObject | null,
+        options?: boolean | AddEventListenerOptions,
+      ) => {
+        if (type === "ended" && listener) media.screenEnded.push({ track, listener });
+        add(type, listener, options);
+      };
       const stop = track.stop.bind(track);
       track.stop = () => {
         clearInterval(timer);
         stop();
       };
     }
-    media.screen = stream;
     return stream;
   };
 }

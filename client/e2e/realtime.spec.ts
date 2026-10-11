@@ -186,9 +186,7 @@ test("选择窗口里取消、选择失败、浏览器自带停止共享之后�
   const frames = () =>
     request.get(`/api/frames?session_id=${id}`).then((response) => response.json());
   await expect.poll(async () => (await frames()).items.length).toBe(1);
-  expect(await page.evaluate(() => (window as any).e2eMedia.endScreen())).toEqual([
-    { state: "live", delivered: true },
-  ]);
+  expect(await page.evaluate(() => (window as any).e2eMedia.endScreen())).toBe(1);
   await expect(share).toBeEnabled();
   await expect(stopShare).toHaveCount(0);
   await expect

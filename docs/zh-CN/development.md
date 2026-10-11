@@ -191,7 +191,7 @@ WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS=1 npm run test:e2e --prefix client
 Chromium 与 WebKit 使用 CPU WebAudio 麦克风轨道，Firefox 使用浏览器原生的假媒体设备。
 三个引擎都使用 `canvas.captureStream()` 屏幕轨道替代真实桌面采集。
 替代的选择窗口也能模拟用户点取消（`NotAllowedError`）和读取失败（`NotReadableError`），
-浏览器自带的「停止共享」用在轨道上触发 `ended` 来模拟；每次调用都记录是否发生在用户点击之内（Safari 要求如此）。
+浏览器自带的「停止共享」用直接调用页面在轨道上注册的 `ended` 监听来模拟（Firefox 不会把脚本派发的 `ended` 送到这些监听上）；每次调用都记录是否发生在用户点击之内（Safari 要求如此）。
 浏览器对测试服务器之外的请求会被阻断并使测试失败。
 这些检查不验证真实麦克风或屏幕授权、物理设备、模型效果、外部服务、GPU 行为或互联网 ICE 连通性。
 CI 在 Ubuntu CPU 上运行三个引擎；其他系统的平台相关浏览器启动或 ICE 故障需要定位，不能通过跳过引擎绕过。
