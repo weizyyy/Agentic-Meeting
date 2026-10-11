@@ -13,15 +13,13 @@ export function installMedia({ nativeAudio = false } = {}) {
     changeScreen: () => {
       color = "#f1d234";
     },
-    /**
-     * 模拟用户点浏览器自带的「停止共享」：只触发 ended，轨道由页面自己停止。
-     * 在 Firefox 里先 stop 再派发，页面收不到这个事件（CI 上观察到）。
-     */
+    /** 模拟用户点浏览器自带的「停止共享」：只触发 ended，轨道由页面自己停止；返回派发前各画面轨道的状态。 */
     endScreen: () => {
-      for (const track of tracks) {
-        if (track.kind === "video" && track.readyState === "live")
-          track.dispatchEvent(new Event("ended"));
-      }
+      const video = tracks.filter((track) => track.kind === "video");
+      const states = video.map((track) => track.readyState);
+      for (const track of video)
+        if (track.readyState === "live") track.dispatchEvent(new Event("ended"));
+      return states;
     },
   };
   Object.assign(window, { e2eMedia: media });
