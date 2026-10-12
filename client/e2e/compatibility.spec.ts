@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { test, expect, serverReady, botAudioProbe, expectMicrophoneFlow } from "./fixtures.ts";
 
-const MIN_BROWSERS = "Chrome 111、Edge 111、Firefox 114、Safari 16.4";
+const MIN_BROWSERS = "Chrome 111、Edge 111、Firefox 128、Safari 16.4";
 
 /** 不能开会的浏览器里：说明原因，开始和继续都不发起连接，历史会议照常可看。 */
 async function expectHistoryOnly(page: Page, reason: string | RegExp) {
@@ -65,9 +65,7 @@ test("麦克风拒绝后说明失败，恢复授权后同页能开始会议", as
     if (message.text().includes("[Pipecat Client] Initializing devices")) initializations += 1;
   });
   await page.goto("/");
-  const start = page
-    .locator("header.topbar")
-    .getByRole("button", { name: "开始新会议", exact: true });
+  const start = page.getByRole("banner").getByRole("button", { name: "开始新会议", exact: true });
   await page.evaluate(() => ((window as any).e2eMedia.micDenied = true));
   await start.click();
   await expect(page.locator(".notice-error").filter({ hasText: "麦克风不可用" })).toContainText(
@@ -124,10 +122,7 @@ test("浏览器拦下助理声音时提示，点一下恢复播放", async ({ pa
     );
   });
   await page.goto("/");
-  await page
-    .locator("header.topbar")
-    .getByRole("button", { name: "开始新会议", exact: true })
-    .click();
+  await page.getByRole("banner").getByRole("button", { name: "开始新会议", exact: true }).click();
   await expect(page.getByRole("status").first()).toHaveText("已连接");
   await serverReady(request, 1);
 

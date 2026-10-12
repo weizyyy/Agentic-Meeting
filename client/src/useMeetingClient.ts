@@ -54,10 +54,7 @@ function errorText(error: unknown): string {
 }
 
 /** 创建 Pipecat 客户端，并把它的回调接到界面状态的 dispatch 上。 */
-export function createMeetingClient(
-  dispatch: Dispatch<Action>,
-  onMicTrack: (track: MediaStreamTrack | null) => void = () => undefined,
-): PipecatClient {
+export function createMeetingClient(dispatch: Dispatch<Action>): PipecatClient {
   // 不用默认的 DailyMediaManager：它要从 c.daily.co 下载脚本，浏览器上不了外网就连不上（pipecat-notes.md §12）。
   const transport = new MeetingTransport({ mediaManager: new WavMediaManager() });
   return new PipecatClient({
@@ -137,10 +134,6 @@ export function createMeetingClient(
         );
         // 浏览器的自动增益 / 降噪有没有开，直接影响麦克风有多轻（docs/pipecat-notes.md §12）。
         console.info("麦克风轨道设置：", describeTrackSettings(track.getSettings()));
-        onMicTrack(track);
-      },
-      onTrackStopped: (track, participant) => {
-        if (participant?.local && track.kind === "audio") onMicTrack(null);
       },
       onDeviceError: (error) =>
         dispatch({ type: "notice", level: "error", text: `麦克风不可用：${errorText(error)}` }),
@@ -157,8 +150,6 @@ export function createMeetingClient(
 export interface MeetingClient {
   client: PipecatClient;
   state: MeetingState;
-  /** 本机麦克风轨道（连接期间有值），给电平条用 */
-  micTrack: MediaStreamTrack | null;
   /** 开始一场新会议（别的没结束的会议原样留着，之后还能继续） */
   start: () => Promise<void>;
   /** 继续一场已有的会议（已中断、已结束、或正在别的设备上进行的） */
@@ -203,9 +194,8 @@ export function useMeetingClient(): MeetingClient {
   const [state, dispatch] = useReducer(reduce, initialState);
   const [keepPending, setKeepPending] = useState<ReadonlySet<string>>(new Set());
   const keepInFlight = useRef(new Set<string>());
-  const [micTrack, setMicTrack] = useState<MediaStreamTrack | null>(null);
   // 客户端只建一次，开始 / 结束只是对它 connect / disconnect。
-  const [client] = useState(() => createMeetingClient(dispatch, setMicTrack));
+  const [client] = useState(() => createMeetingClient(dispatch));
   const api: Api = useMemo(() => createApi(), []);
   // 页面打开时查一次：浏览器能力在页面生命周期里不会变。
   const [unsupported] = useState(() => meetingUnsupportedReason());
@@ -783,7 +773,6 @@ export function useMeetingClient(): MeetingClient {
   return {
     client,
     state,
-    micTrack,
     start,
     resume,
     watching: watchingId !== null,

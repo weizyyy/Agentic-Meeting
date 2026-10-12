@@ -9,11 +9,11 @@
 export const MIN_BROWSERS = [
   { name: "Chrome", version: "111", target: "chrome111" },
   { name: "Edge", version: "111", target: "edge111" },
-  { name: "Firefox", version: "114", target: "firefox114" },
+  { name: "Firefox", version: "128", target: "firefox128" },
   { name: "Safari", version: "16.4", target: "safari16.4" },
 ] as const;
 
-/** 「Chrome 111、Edge 111、Firefox 114、Safari 16.4」 */
+/** 「Chrome 111、Edge 111、Firefox 128、Safari 16.4」 */
 export function minBrowsersText(): string {
   return MIN_BROWSERS.map((b) => `${b.name} ${b.version}`).join("、");
 }

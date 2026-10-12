@@ -1,0 +1,207 @@
+/* 设计系统：Tailwind v4 + shadcn（base-nova 风格）+ Pipecat UI（ui.pipecat.ai）的组件。
+   src/components/ui/ 是 shadcn 的基础组件，src/components/pipecat/ 是 Pipecat UI 的组件，
+   都由 shadcn 命令行复制进来（components.json，docs/development.md「Web client」）。
+   颜色全部是这里的变量：shadcn 的中性色，加 Pipecat UI 的语义色（active / inactive / agent / client），
+   再加本项目自己的几个（subtle、success、warning）。深色主题由 <html class="dark"> 切换（src/theme.ts）。 */
+
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+/* 以下变体出自 shadcn 的 tailwind.css（MIT），组件用它们匹配 Base UI 的 data-* 状态。
+   只抄了用到的部分，免得为一个样式文件装上 shadcn 命令行和它的依赖。 */
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-unchecked {
+  &:where([data-state="unchecked"]),
+  &:where([data-unchecked]:not([data-unchecked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans:
+    "Geist Variable", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei",
+    "Noto Sans CJK SC", sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", Consolas, "Roboto Mono", "PingFang SC", "Microsoft YaHei", monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-active: var(--active-background);
+  --color-active-background: var(--active-background);
+  --color-active-foreground: var(--active-foreground);
+  --color-inactive: var(--inactive-background);
+  --color-inactive-background: var(--inactive-background);
+  --color-inactive-foreground: var(--inactive-foreground);
+  --color-agent: var(--agent-background);
+  --color-agent-foreground: var(--agent-foreground);
+  --color-client: var(--client-background);
+  --color-client-foreground: var(--client-foreground);
+
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-success: var(--success-background);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning-background);
+  --color-warning-foreground: var(--warning-foreground);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+:root {
+  --radius: 0.625rem;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+
+  /* Pipecat UI 的语义色（ui.pipecat.ai/docs/theming）：
+     active 接通、inactive 静音或断开、agent 助理、client 用户 */
+  --active-background: oklch(0.696 0.17 162.48);
+  --active-foreground: oklch(0.979 0.021 166.113);
+  --inactive-background: oklch(0.702 0.189 22.23);
+  --inactive-foreground: oklch(0.971 0.013 17.38);
+  --agent-background: oklch(0.606 0.25 292.717 / 10%);
+  --agent-foreground: oklch(0.541 0.281 293.009);
+  --client-background: oklch(0.623 0.214 259.815 / 10%);
+  --client-foreground: oklch(0.546 0.245 262.881);
+
+  /* 本项目补充：浅一档的说明文字、可以当文字用的绿色、提醒用的黄色 */
+  --subtle-foreground: oklch(0.708 0 0);
+  --success-background: oklch(0.696 0.17 162.48 / 12%);
+  --success-foreground: oklch(0.508 0.118 165.612);
+  --warning-background: oklch(0.879 0.169 91.605 / 25%);
+  --warning-foreground: oklch(0.555 0.163 48.998);
+  --destructive-background: oklch(0.577 0.245 27.325 / 10%);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+
+  --active-background: oklch(0.702 0.158 160.44);
+  --active-foreground: oklch(0.979 0.021 166.11);
+  --agent-background: oklch(0.606 0.25 292.717 / 22%);
+  --agent-foreground: oklch(0.702 0.183 293.541);
+  --client-background: oklch(0.623 0.214 259.815 / 20%);
+  --client-foreground: oklch(0.707 0.165 254.624);
+
+  --subtle-foreground: oklch(0.556 0 0);
+  --success-background: oklch(0.696 0.17 162.48 / 18%);
+  --success-foreground: oklch(0.765 0.177 163.223);
+  --warning-background: oklch(0.795 0.184 86.047 / 15%);
+  --warning-foreground: oklch(0.828 0.189 84.429);
+  --destructive-background: oklch(0.704 0.191 22.216 / 15%);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply font-sans;
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}

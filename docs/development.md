@@ -118,6 +118,15 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
 - A new configuration key is added in `config.py`, `config/config.example.toml`, interfaces.md §1
   and [configuration.md](configuration.md), with a test.
 - New dependencies are added with `uv add` and justified in the commit message.
+- The web client is styled with Tailwind CSS 4 and the shadcn conventions (`base-nova` style, Base UI
+  primitives). Colors are the CSS variables in `client/src/index.css`: shadcn's neutrals, the semantic
+  colors of [Pipecat UI](https://ui.pipecat.ai) (active, inactive, agent, client) and a few of the
+  project's own (subtle, success, warning). `client/src/components/ui/` holds shadcn components and
+  `client/src/components/pipecat/` holds Pipecat UI components; both are source copied in by the
+  shadcn CLI and may be edited (their UI text is translated to Chinese). Add more with
+  `npx shadcn@latest add <component>` or `npx shadcn@latest add @pipecat/<component>` from
+  `client/`, then run root `npm run format`. Components not yet migrated keep their rules in
+  `client/src/styles.css`, which uses the same variables.
 
 ## Testing
 

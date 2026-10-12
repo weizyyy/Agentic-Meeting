@@ -21,10 +21,11 @@ Use a desktop browser no older than:
 | ------- | --------------- |
 | Chrome  | 111             |
 | Edge    | 111             |
-| Firefox | 114             |
+| Firefox | 128             |
 | Safari  | 16.4            |
 
-These are the versions the page is built for (`client/src/browserSupport.ts`). The automated browser
+These are the versions the page is built for (`client/src/browserSupport.ts`); Firefox needs 128
+because the page's stylesheet (Tailwind CSS 4) relies on features it added. The automated browser
 tests run the current Chromium, Firefox and WebKit engines on Linux. On macOS, installed Chrome,
 Edge, Firefox and Safari have been checked by hand for microphone input, screen sharing, automatic
 reconnection and ending a meeting.
@@ -70,6 +71,14 @@ new label. Use **合并到…** (Merge into…) on the speaker chip to merge the
 **Following along.** Open the same address on another device to watch a live meeting read-only;
 the view refreshes every three seconds. **在这台设备上继续** (Continue on this device) moves the
 connection there.
+
+**Microphone.** During a meeting, **麦克风** (Microphone) in the top bar mutes the microphone; it then
+reads **已静音** (Muted) until you click it again. The arrow next to it picks the microphone and the
+speaker, and the bars on the button move with the sound it picks up.
+
+**Appearance.** **主题** (Theme) in the top bar switches between **跟随系统** (Follow system),
+**浅色** (Light) and **深色** (Dark). The choice is kept in this browser and also applies to the
+password page.
 
 ## Captions and speakers
 

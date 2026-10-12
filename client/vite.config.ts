@@ -1,4 +1,6 @@
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
 import { MIN_BROWSERS, minBrowsersText } from "./src/browserSupport.ts";
@@ -10,12 +12,17 @@ const backend = process.env.AGENTIC_MEETING_BACKEND ?? "http://localhost:7860";
 export default defineConfig({
   plugins: [
     react(),
+    tailwindcss(),
     {
       // index.html 里兜底提示的最低版本和构建目标出自同一处（src/browserSupport.ts）。
       name: "min-browsers",
       transformIndexHtml: (html) => html.replaceAll("%MIN_BROWSERS%", minBrowsersText()),
     },
   ],
+  resolve: {
+    // shadcn 和 Pipecat UI 的组件用 @/ 指向 src/
+    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
   server: {
     port: 5173,
     proxy: {

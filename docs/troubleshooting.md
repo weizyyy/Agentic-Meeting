@@ -117,8 +117,8 @@ The usual cause is a microphone that is too quiet. Voice activity detection has 
 only the loudest syllables pass it, each sentence is cut into fragments and ASR receives only a few
 words.
 
-The server applies automatic gain by default (`[audio]`), and the meter at the top of the page
-shows the input level before gain. Fixing the level at the source works best:
+The server applies automatic gain by default (`[audio]`), and the bars on the microphone button at the
+top of the page follow the input level before gain. Fixing the level at the source works best:
 
 1. Raise the input volume of the microphone in the operating system's sound settings.
 2. If the driver offers a microphone boost, set it to about +20 dB. More than that amplifies noise.

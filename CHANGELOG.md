@@ -6,6 +6,21 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- The web client is rebuilt on Tailwind CSS 4, shadcn components and [Pipecat UI](https://ui.pipecat.ai),
+  starting with the top bar: connection status, a theme menu (follow system, light or dark), and
+  Pipecat's microphone control, which mutes and unmutes and picks the microphone and speaker. The
+  rest of the page takes the same colors and themes and moves to the new components in later
+  releases.
+
+### Changed
+
+- Firefox 128 is now the oldest supported Firefox (was 114), because the stylesheet uses features
+  it added. Chrome, Edge and Safari minimums are unchanged.
+- The microphone level meter and its quiet-input chip in the top bar are replaced by the bars on
+  the microphone button. A microphone that stays too quiet is still reported by the server's notice.
+
 ## [0.3.0] - 2026-10-12
 
 This release completes the v0.3 milestone: the web client keeps working across microphone

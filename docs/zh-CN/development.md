@@ -103,6 +103,13 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
 - 新增配置项时同步修改 `config.py`、`config/config.example.toml`、interfaces.md §1 和
   [configuration.md](configuration.md)，并补充测试。
 - 新依赖用 `uv add` 添加，并在提交说明中说明用途。
+- 网页客户端的样式用 Tailwind CSS 4 和 shadcn 的约定（`base-nova` 风格，Base UI 基础组件）。
+  颜色都是 `client/src/index.css` 中的 CSS 变量：shadcn 的中性色、[Pipecat UI](https://ui.pipecat.ai)
+  的语义色（active、inactive、agent、client）和本项目补充的几个（subtle、success、warning）。
+  `client/src/components/ui/` 是 shadcn 组件，`client/src/components/pipecat/` 是 Pipecat UI 组件，
+  都是 shadcn 命令行复制进来的源码，可以修改（界面文字已改成中文）。在 `client/` 下用
+  `npx shadcn@latest add <组件>` 或 `npx shadcn@latest add @pipecat/<组件>` 添加新组件，再在根目录执行
+  `npm run format`。还没迁移的组件，样式仍在 `client/src/styles.css`，使用同一套变量。
 
 ## 测试
 

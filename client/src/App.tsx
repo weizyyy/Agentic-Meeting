@@ -60,7 +60,6 @@ export function App({ onLogout }: Props = {}) {
         <ControlBar
           connection={state.connection}
           reconnectAttempt={state.reconnectAttempt}
-          micTrack={meeting.micTrack}
           closedReason={state.closedReason}
           listOpen={listOpen}
           onToggleList={() => {

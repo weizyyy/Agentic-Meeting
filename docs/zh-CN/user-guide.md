@@ -20,10 +20,11 @@
 | ------- | -------- |
 | Chrome  | 111      |
 | Edge    | 111      |
-| Firefox | 114      |
+| Firefox | 128      |
 | Safari  | 16.4     |
 
-这些是页面的构建目标（`client/src/browserSupport.ts`）。自动化浏览器测试在 Linux 上运行当前的
+这些是页面的构建目标（`client/src/browserSupport.ts`）；Firefox 需要 128，是因为页面样式（Tailwind CSS 4）
+用到了它从这个版本开始支持的特性。自动化浏览器测试在 Linux 上运行当前的
 Chromium、Firefox 和 WebKit 引擎。macOS 上，安装版 Chrome、Edge、Firefox 和 Safari 已人工检查过麦克风输入、
 屏幕共享、断线自动恢复和结束会议。
 
@@ -62,6 +63,12 @@ Chromium、Firefox 和 WebKit 引擎。macOS 上，安装版 Chrome、Edge、Fir
 
 **旁观。** 在另一台设备上打开同一地址，可以只读方式观看进行中的会议，页面每三秒刷新一次；
 点击「在这台设备上继续」可把连接接管过来。
+
+**麦克风。** 会议进行中，点击顶部栏的「麦克风」可静音，按钮变为「已静音」，再点一次恢复；
+旁边的箭头可选择麦克风和扬声器；按钮上的跳动条随收到的声音变化。
+
+**外观。** 顶部栏的「主题」可在「跟随系统」「浅色」「深色」之间切换，
+选择保存在当前浏览器中，口令页面也按此显示。
 
 ## 字幕与说话人
 
