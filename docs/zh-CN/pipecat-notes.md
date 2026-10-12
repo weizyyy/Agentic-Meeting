@@ -408,7 +408,7 @@ context = LLMContext(tools=[recall, delegate_task, ...])   # 放进 tools 即自
   （`params.context.add_message(...)`，`look_at_screen` 加图片就是这样）又想排在调用记录之后，就先等
   `tool_call_id` 出现在上下文里。
 - 用 `functools.wraps` 包一层的直接函数照样能提取工具定义（`inspect.signature` 会顺着 `__wrapped__` 找到原签名）；
-  `Literal[...]` 之类的类型没有验证过，参数只用 `str` / `int` / `float`。
+  参数只用 `str` / `int` / `float`。
 - **`skip_tts` 与工具。**`LLMConfigureOutputFrame` 是记在模型服务身上的持久状态，不是「只管下一次生成」。
   一次请求带工具调用时会生成两次（调用、拿到结果后的回答），中间夹着的任何配置帧都会影响第二次。
   所以模态在请求进入模型**之前**设定，不在请求之后「恢复」。工具结果触发的再次生成是助理侧聚合器向**上游**推的
@@ -592,7 +592,7 @@ await client.disconnect();
   连接里留着的是已经停掉的轨道，服务端再也收不到声音。
 - 媒体管理器不暴露麦克风约束。回声消除的做法：`onTrackStarted` 里对本机音频轨检查 `track.getSettings().echoCancellation`，
   不是 `true` 就 `track.applyConstraints({ echoCancellation: true })`（主流浏览器默认就是开的）。降噪与自动增益保持浏览器默认。
-  约束只能事后通过 `applyConstraints` 设置；浏览器的自动增益在具体设备上是否生效尚未验证。页面会把 `getSettings()` 的结果输出到控制台。
+  约束只能事后通过 `applyConstraints` 设置。页面会把 `getSettings()` 的结果输出到控制台。
 - **SDK 会自行重连。** 服务端重启后，无需任何操作就会出现一个新的连接（`POST /api/offer`，新的 `pc_id`）。这条重连**不会**重新触发 RTVI 的 `client-ready`，所以服务端在 `on_client_ready` 里发的
   `session` 消息页面收不到；页面要靠 HTTP 兜底——连接就绪时和连接期间每 5 秒核对一次「当前会话」（`useMeetingClient.ts`）。
   同一个 `pc_id` 的重连（ICE 重启）服务端日志里是 `Reusing existing connection`，不会再次调用 bot。

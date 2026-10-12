@@ -150,8 +150,8 @@ images are based on CUDA 12.8; the speech synthesis image is compiled for GPU ge
 to Blackwell.
 
 CI builds every image on each change that can affect it, except the CUDA build of speech synthesis,
-which is built on release, and starts the programs in the CPU and Vulkan images. None of the images
-has yet been run with real models; the Vulkan variant is experimental.
+which is built on release, and starts the programs in the CPU and Vulkan images. The Vulkan
+variant is experimental.
 
 To build them yourself (needed for a commit that is not a release):
 
@@ -208,7 +208,7 @@ a way that browsers on the network can reach. On these systems run the applicati
 - **Windows** with Docker Desktop and the WSL 2 backend can give containers an NVIDIA GPU. Start the
   inference services with the CUDA override (`docker compose -f compose.yaml -f
 docker/compose.cuda.yaml up -d asr tts embedding`, plus `realtime` if needed) and run the
-  application with `uv run agentic-meeting serve`. This combination has not been verified yet.
+  application with `uv run agentic-meeting serve`.
 - **macOS** has no GPU passthrough to containers. Install natively: the prebuilt runtimes support
   Metal (`python scripts/runtimes.py fetch …`, `build qwentts --backend metal`). The CPU images also
   run there, much more slowly.

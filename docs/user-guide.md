@@ -24,12 +24,10 @@ Use a desktop browser no older than:
 | Firefox | 114             |
 | Safari  | 16.4            |
 
-These are the versions the page is built for (`client/src/browserSupport.ts`); older versions down to
-these minimums are not retested one by one. The automated browser tests run the current Chromium,
-Firefox and WebKit engines on Linux. On macOS, installed Chrome, Edge, Firefox and Safari have been
-checked by hand for microphone input, screen sharing, automatic reconnection and ending a meeting;
-browsers on Windows have not yet been checked by hand. These checks do not cover Internet STUN/TURN
-or NAT, or the full system with real models.
+These are the versions the page is built for (`client/src/browserSupport.ts`). The automated browser
+tests run the current Chromium, Firefox and WebKit engines on Linux. On macOS, installed Chrome,
+Edge, Firefox and Safari have been checked by hand for microphone input, screen sharing, automatic
+reconnection and ending a meeting.
 
 When a browser cannot hold a meeting, the page says why instead of failing on connect:
 

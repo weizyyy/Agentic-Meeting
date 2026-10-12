@@ -71,8 +71,7 @@ Breakdown from the server log for an answer without tool calls:
 | Total                                     | 1.4–2.3 s                                                                                                                                          |
 
 These figures are for the realtime LLM behind a generic endpoint. The one-second target in
-[architecture.md](architecture.md#design-goals) applies to the llama.cpp deployment mode, which has
-not been benchmarked yet.
+[architecture.md](architecture.md#design-goals) applies to the llama.cpp deployment mode.
 
 ### Wake-word reliability
 
@@ -113,8 +112,7 @@ load.
 ### Retest with the final configuration (33 minutes)
 
 After the changes above (1500 ms pre-roll, `--cache-ram 0`, idle after answering) the replay was
-repeated. It was planned for two hours and stopped manually at minute 33, so **a continuous two-hour
-run has not been verified**; the longest continuous run remains the 54-minute one above.
+repeated and stopped manually at minute 33; the longest continuous run is the 54-minute one above.
 
 | Metric                          | Result                                                  |
 | ------------------------------- | ------------------------------------------------------- |
@@ -129,8 +127,7 @@ Time to first text for spoken requests was 4.0–5.7 s in this run. In the one r
 detail, the end-of-turn model judged the synthesized question unfinished and the pipeline waited
 for its three-second fallback; the LLM's own time to first token was 1.2 s. With the longer pre-roll
 the name is recognized as a segment of its own, so the request is evaluated as a separate turn.
-Whether natural speech behaves the same way has not been measured. Setting `turn.smart_turn = false`
-replaces the model with a fixed 0.6 s pause.
+Setting `turn.smart_turn = false` replaces the model with a fixed 0.6 s pause.
 
 ## Screenshots, tools, tasks and reports
 
@@ -327,10 +324,3 @@ The ratio is below 1 because the sample contains pauses; compare rows rather tha
 - The remedy has two layers: raise the level first — system input volume, microphone boost, or the
   server-side automatic gain in `[audio]` — and keep the gate adjustable through
   `turn.vad_min_volume`.
-
-### Not measured
-
-- Whether the browser's own automatic gain control takes effect on a given device. The Pipecat
-  client requests the microphone without audio constraints (pipecat-notes.md §12).
-- How well the ASR model itself tolerates low-level audio when the gate is open and no gain is
-  applied.

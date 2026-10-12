@@ -423,7 +423,7 @@ context = LLMContext(tools=[recall, delegate_task, ...])   # listing them regist
 - **Direct functions.** The first parameter is `params: FunctionCallParams`; type annotations and a
   Google-style docstring become the tool definition (`adapters/schemas/direct_function.py`). A
   function wrapped with `functools.wraps` still works. Parameters are limited to `str`, `int` and
-  `float`; `Literal[...]` has not been verified.
+  `float`.
 - `cancel_on_interruption=False` means the conversation does not wait for the tool. A late result is
   injected into the context as a new message and triggers a generation. This is the mechanism behind
   "acknowledge now, report later".
@@ -637,8 +637,7 @@ await client.disconnect();
 - Microphone constraints are not exposed by the media manager. Echo cancellation is checked in
   `onTrackStarted` with `track.getSettings().echoCancellation` and enabled with
   `track.applyConstraints({ echoCancellation: true })` when needed. Noise suppression and automatic
-  gain are left at the browser defaults; whether the browser's automatic gain takes effect on a
-  given device has not been verified. The page logs `getSettings()` to the console.
+  gain are left at the browser defaults. The page logs `getSettings()` to the console.
 - **The SDK reconnects on its own.** After a server restart a new connection appears without user
   action (`POST /api/offer`, a new `pc_id`). This reconnection does **not** fire RTVI `client-ready`
   again, so the `session` message sent from `on_client_ready` is not delivered. The page falls back

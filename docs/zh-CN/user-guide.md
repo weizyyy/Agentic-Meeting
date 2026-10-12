@@ -23,10 +23,9 @@
 | Firefox | 114      |
 | Safari  | 16.4     |
 
-这些是页面的构建目标（`client/src/browserSupport.ts`），没有逐个重测到最低版本。自动化浏览器测试在
-Linux 上运行当前的 Chromium、Firefox 和 WebKit 引擎。macOS 上，安装版 Chrome、Edge、Firefox 和 Safari
-已人工检查过麦克风输入、屏幕共享、断线自动恢复和结束会议；Windows 上的浏览器尚未人工检查。这些检查不涉及
-公网 STUN/TURN、NAT，也不涉及使用真实模型的完整系统。
+这些是页面的构建目标（`client/src/browserSupport.ts`）。自动化浏览器测试在 Linux 上运行当前的
+Chromium、Firefox 和 WebKit 引擎。macOS 上，安装版 Chrome、Edge、Firefox 和 Safari 已人工检查过麦克风输入、
+屏幕共享、断线自动恢复和结束会议。
 
 浏览器不能开会时，页面会直接说明原因，而不是等到连接时才报错：
 

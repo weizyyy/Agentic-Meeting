@@ -30,7 +30,6 @@ Verify the system beyond the platform it was developed on and make it easier to 
 | Desktop browser compatibility: Chrome, Edge, Safari and Firefox                     | [#13](https://github.com/weizyyy/Agentic-Meeting/issues/13) |
 | Browser end-to-end tests in CI (done in 0.2.0)                                      | [#14](https://github.com/weizyyy/Agentic-Meeting/issues/14) |
 | Containers for the application and all inference services (done in 0.2.1)           | [#15](https://github.com/weizyyy/Agentic-Meeting/issues/15) |
-| Lower GPU memory requirements while keeping most of the quality                     | [#16](https://github.com/weizyyy/Agentic-Meeting/issues/16) |
 | Condition-based waits in the test suite (done in 0.2.0)                             | [#17](https://github.com/weizyyy/Agentic-Meeting/issues/17) |
 
 ## [v0.4 – Frontend redesign](https://github.com/weizyyy/Agentic-Meeting/milestone/3)
@@ -57,9 +56,10 @@ Move beyond one device and one meeting at a time.
 
 ## Not scheduled
 
-| Item                                                                     | Issue                                                       |
-| ------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| Meetings held in languages other than Mandarin (prompts, wake word, ASR) | [#26](https://github.com/weizyyy/Agentic-Meeting/issues/26) |
+| Item                                                                             | Issue                                                       |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Meetings held in languages other than Mandarin (prompts, wake word, ASR)         | [#26](https://github.com/weizyyy/Agentic-Meeting/issues/26) |
+| Lower GPU memory requirements while keeping most of the quality (long-term goal) | [#16](https://github.com/weizyyy/Agentic-Meeting/issues/16) |
 
 Running across several machines is not planned: parallel meetings on one well-equipped machine
 cover the intended use.

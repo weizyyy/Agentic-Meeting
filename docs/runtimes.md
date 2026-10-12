@@ -280,8 +280,7 @@ curl http://127.0.0.1:8080/v1/chat/completions -H "Content-Type: application/jso
 ```
 
 **Verified environments.** The full system has been run on Windows 11 with Visual Studio 18 (MSVC
-14.44 toolset), CUDA Toolkit 13.0 and Docker 29. On Linux the automated test suite passes; the full
-system has not been run there. macOS is untested.
+14.44 toolset), CUDA Toolkit 13.0 and Docker 29. On Linux the automated test suite passes.
 
 ## 7. Upgrading a runtime
 

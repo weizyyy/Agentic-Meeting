@@ -28,7 +28,6 @@
 | 桌面浏览器兼容：Chrome、Edge、Safari、Firefox                         | [#13](https://github.com/weizyyy/Agentic-Meeting/issues/13) |
 | 接入 CI 的浏览器端到端测试（已在 0.2.0 完成）                         | [#14](https://github.com/weizyyy/Agentic-Meeting/issues/14) |
 | 应用与全部推理服务的容器化（已在 0.2.1 完成）                         | [#15](https://github.com/weizyyy/Agentic-Meeting/issues/15) |
-| 在保留大部分效果的前提下降低显存需求                                  | [#16](https://github.com/weizyyy/Agentic-Meeting/issues/16) |
 | 测试中的固定等待改为等待条件成立（已在 0.2.0 完成）                   | [#17](https://github.com/weizyyy/Agentic-Meeting/issues/17) |
 
 ## [v0.4 – 前端重构](https://github.com/weizyyy/Agentic-Meeting/milestone/3)
@@ -55,9 +54,10 @@
 
 ## 未排期
 
-| 事项                                         | 议题                                                        |
-| -------------------------------------------- | ----------------------------------------------------------- |
-| 以其他语言进行的会议（提示词、唤醒词、识别） | [#26](https://github.com/weizyyy/Agentic-Meeting/issues/26) |
+| 事项                                             | 议题                                                        |
+| ------------------------------------------------ | ----------------------------------------------------------- |
+| 以其他语言进行的会议（提示词、唤醒词、识别）     | [#26](https://github.com/weizyyy/Agentic-Meeting/issues/26) |
+| 在保留大部分效果的前提下降低显存需求（长期目标） | [#16](https://github.com/weizyyy/Agentic-Meeting/issues/16) |
 
 暂不考虑跨多台机器运行：在一台配置足够的机器上并行多场会议，已能覆盖预期的使用场景。
 

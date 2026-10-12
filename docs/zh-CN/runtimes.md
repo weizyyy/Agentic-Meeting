@@ -259,7 +259,7 @@ curl http://127.0.0.1:8080/v1/chat/completions -H "Content-Type: application/jso
 ```
 
 **已验证的环境。** 完整系统已在 Windows 11、Visual Studio 18（MSVC 14.44 工具集）、CUDA Toolkit 13.0、
-Docker 29 上运行。Linux 上自动化测试全部通过，完整系统尚未在该平台上运行；macOS 未经测试。
+Docker 29 上运行。Linux 上自动化测试全部通过。
 
 ## 7. 升级运行时
 

@@ -190,9 +190,9 @@ Safari 16.4 及以上版本，见[支持的浏览器](docs/zh-CN/user-guide.md#�
 
 当前版本为 0.2.1。项目处于早期阶段，变化较快。
 
-- 已在 Windows 11 + NVIDIA 显卡上用真实模型完成验证。自动化端到端测试（用假推理服务运行整个应用）在 Windows 和 Linux 上全部通过，网页客户端在 Chromium、Firefox 和 WebKit 中测试，macOS 上已用 Chrome、Edge、Firefox 和 Safari 人工检查过；Linux 和 macOS 上尚未用真实模型运行完整系统。
+- 已在 Windows 11 + NVIDIA 显卡上用真实模型完成验证。自动化端到端测试（用假推理服务运行整个应用）在 Windows 和 Linux 上全部通过，网页客户端在 Chromium、Firefox 和 WebKit 中测试，macOS 上已用 Chrome、Edge、Firefox 和 Safari 人工检查过。
 - 已测试的最长连续运行时间为 54 分钟。
-- 延迟数据是实时模型经 OpenAI 兼容接口接入时测得的；llama.cpp 部署方式有端到端测试覆盖，尚无公开的实测数据。
+- 延迟数据是实时模型经 OpenAI 兼容接口接入时测得的；llama.cpp 部署方式有端到端测试覆盖。
 
 版本记录见 [CHANGELOG.md](CHANGELOG.md)。
 

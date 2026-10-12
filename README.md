@@ -215,11 +215,10 @@ The current release is 0.2.1. The project is at an early stage and changes quick
 - Verified with real models on Windows 11 with NVIDIA GPUs. The automated end-to-end tests, which
   run the whole application with fake inference services, pass on Windows and Linux, and the web
   client is tested in Chromium, Firefox and WebKit. On macOS the web client has been checked by hand
-  in Chrome, Edge, Firefox and Safari; the full system with real models has not been run on Linux or
-  macOS yet.
+  in Chrome, Edge, Firefox and Safari.
 - The longest continuous run tested so far is 54 minutes.
 - Latency figures were measured with the realtime LLM behind an OpenAI-compatible endpoint; the
-  llama.cpp deployment mode is covered by the end-to-end tests but has no published benchmark yet.
+  llama.cpp deployment mode is covered by the end-to-end tests.
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 

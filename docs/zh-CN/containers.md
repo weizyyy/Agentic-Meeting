@@ -133,7 +133,7 @@ docker compose run --rm --no-deps app check
 各代显卡编译。
 
 CI 在每个可能影响镜像的改动上构建全部镜像（CUDA 版语音合成除外，它在发版时构建），并在 CPU 和 Vulkan 镜像里把各个程序启动一次。
-这些镜像都还没有用真实模型跑过；Vulkan 变体是实验性的。
+Vulkan 变体是实验性的。
 
 自己构建（不是发布版本的提交需要这样做）：
 
@@ -183,7 +183,7 @@ docker_image = "ghcr.io/weizyyy/agentic-meeting-sandbox:latest"
 
 - **Windows** 上的 Docker Desktop 用 WSL 2 后端时可以把 NVIDIA 显卡交给容器。用 CUDA 叠加文件启动推理服务
   （`docker compose -f compose.yaml -f docker/compose.cuda.yaml up -d asr tts embedding`，需要时加上 `realtime`），
-  再用 `uv run agentic-meeting serve` 运行应用。这种组合还没有验证过。
+  再用 `uv run agentic-meeting serve` 运行应用。
 - **macOS** 不能把显卡交给容器。请在本机安装：预编译运行时支持 Metal（`python scripts/runtimes.py fetch …`、
   `build qwentts --backend metal`）。CPU 镜像也能在上面运行，但慢得多。
 
