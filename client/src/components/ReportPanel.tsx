@@ -1,3 +1,6 @@
+import { DownloadIcon } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
 import type { SessionSummary } from "../api.ts";
 import {
   generateLabel,
@@ -17,33 +20,37 @@ interface Props {
 export function ReportPanel({ session, report, onGenerate }: Props) {
   const blocker = reportBlocker(session, report);
   return (
-    <section className="panel report-panel" aria-label="会后报告">
-      <div className="report-head">
-        <p className={report?.status === "failed" ? "notice notice-error" : "report-status"}>
+    <section className="flex min-h-0 flex-1 flex-col gap-3 px-4 py-3" aria-label="会后报告">
+      <div className="flex flex-wrap items-center gap-3">
+        <p
+          className={`mr-auto text-sm ${
+            report?.status === "failed" ? "text-destructive" : "text-muted-foreground"
+          }`}
+        >
           {reportHeadline(report)}
         </p>
-        <span className="spacer" />
         {session && report?.status === "done" && (
-          <a className="link" href={reportDownloadUrl(session.id)} download>
+          <Button
+            variant="outline"
+            nativeButton={false}
+            render={<a href={reportDownloadUrl(session.id)} download />}
+          >
+            <DownloadIcon data-icon="inline-start" />
             下载 .md
-          </a>
+          </Button>
         )}
-        <button
-          type="button"
-          className="button button-start button-small"
-          disabled={blocker !== null}
-          title={blocker ?? undefined}
-          onClick={onGenerate}
-        >
+        <Button disabled={blocker !== null} title={blocker ?? undefined} onClick={onGenerate}>
           {generateLabel(report)}
-        </button>
+        </Button>
       </div>
       {blocker !== null && report?.status !== "running" && (
-        <p className="report-hint">{blocker}。</p>
+        <p className="text-sm text-muted-foreground">{blocker}。</p>
       )}
       {report?.status === "done" && (
         // 模型写的内容按纯文字显示，不当 HTML 解释
-        <pre className="report-text">{report.text_md}</pre>
+        <pre className="min-h-0 flex-1 overflow-auto font-sans text-[0.9375rem] leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
+          {report.text_md}
+        </pre>
       )}
     </section>
   );

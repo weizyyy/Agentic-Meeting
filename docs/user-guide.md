@@ -49,19 +49,19 @@ If the server has an access password, the page asks for it first; **退出登录
 bar is shown when no meeting is running on this page. If the login expires during a meeting, a
 password prompt covers the page and the meeting continues underneath.
 
-| Action    | How                                                 | What happens                                  |
-| --------- | --------------------------------------------------- | --------------------------------------------- |
-| Start     | **开始新会议** (Start meeting)                      | Creates a meeting and connects the microphone |
-| End       | **结束会议** (End meeting)                          | Marks the meeting as ended and disconnects    |
-| Interrupt | Close or refresh the page, lose the network         | The meeting is kept and marked _interrupted_  |
-| Resume    | **继续** (Resume) in the banner or the meeting list | Reconnects to the same meeting                |
-| Browse    | Meeting list                                        | View, rename or delete past meetings          |
+| Action    | How                                                              | What happens                                  |
+| --------- | ---------------------------------------------------------------- | --------------------------------------------- |
+| Start     | **开始新会议** (Start meeting)                                   | Creates a meeting and connects the microphone |
+| End       | **结束会议** (End meeting)                                       | Marks the meeting as ended and disconnects    |
+| Interrupt | Close or refresh the page, lose the network                      | The meeting is kept and marked _interrupted_  |
+| Resume    | **继续** (Resume) under the meeting title or in the meeting list | Reconnects to the same meeting                |
+| Browse    | Meeting list                                                     | View, rename or delete past meetings          |
 
 **One connection at a time.** Starting or resuming a meeting in another tab or on another device
 takes over the connection; the previous page is notified and switches to read-only.
 
 **Resuming.** The timeline continues where it left off, and the gap is shown in the captions
-(for example "— 中断了 12 分钟 —"). Speaker names, screenshots and tasks are kept, and the assistant
+(for example a **中断了 12 分钟** (Paused for 12 minutes) divider). Speaker names, screenshots and tasks are kept, and the assistant
 remembers the earlier discussion through the running summary and the last ten minutes of transcript.
 After a short network drop the page reconnects on its own, up to five attempts.
 
@@ -82,8 +82,10 @@ password page.
 
 ## Captions and speakers
 
-Each caption row shows two times: the wall-clock time in the browser's time zone, and below it the
-elapsed meeting time. Short pauses do not split a caption: consecutive segments from the same
+Each caption starts with a line naming the speaker, the wall-clock time in the browser's time zone
+and the elapsed meeting time (`+12:04`); the text follows below. The assistant's answers have a violet
+background. While you scroll back through earlier captions, new ones do not pull the view down;
+**跟随最新** (Follow latest) returns to the newest caption. Short pauses do not split a caption: consecutive segments from the same
 speaker within two seconds are merged into one row.
 
 Speakers appear as chips above the captions.
@@ -93,8 +95,7 @@ Speakers appear as chips above the captions.
   applies to the whole meeting, including what the assistant sees.
 - **Merge** — **合并到…** moves all of one speaker's captions to another speaker. This cannot be
   undone.
-- **Reassign individual captions** — click the time-and-speaker block at the left of a row to
-  select it, or drag across rows to select a range. The speaker chips turn into targets: click one
+- **Reassign individual captions** — click the speaker-and-time line of a caption to select it, or drag across rows to select a range. The speaker chips turn into targets: click one
   to assign the selected captions to that speaker, or choose **＋ 新说话人** (New speaker) and type
   a name or pick one from `session.members`. Press `Esc` to cancel. The text area of a row is not
   part of the selection, so you can still select and copy text.
@@ -152,9 +153,10 @@ click **生成报告** (Generate report). The report has six sections — summar
 decisions, action items, background tasks and a screenshot index — and can be downloaded as
 Markdown or regenerated.
 
-**Export.** The meeting banner offers three downloads, also available while the meeting is live:
+**Export.** **导出** (Export) next to the meeting title offers three downloads, also available while
+the meeting is live:
 
-| Link                      | Contents                                                                             |
+| Item                      | Contents                                                                             |
 | ------------------------- | ------------------------------------------------------------------------------------ |
 | **转录** (Transcript)     | Markdown: running summary, captions and screen summaries in time order, task results |
 | **JSON**                  | All structured data                                                                  |

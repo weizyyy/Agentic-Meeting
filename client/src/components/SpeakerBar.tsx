@@ -1,4 +1,8 @@
+import { PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 import type { SpeakerInfo } from "../api.ts";
 import { assignTargets } from "../selection.ts";
@@ -6,6 +10,19 @@ import { mergeTargets, nameSuggestions, renamableSpeakers } from "../sessionView
 
 /** 把选中的发言归给谁：已有的说话人，或者新建一个（给名字）。 */
 export type AssignTarget = { speakerIdx: number } | { newSpeaker: string };
+
+/** 这一排的布局；字幕卡片里，标题下面一行 */
+const ROW = "flex flex-wrap items-center gap-1.5 border-b px-4 py-2.5";
+/** 说话人小圆角按钮 */
+const CHIP = "rounded-full px-2.5 font-normal";
+/** 改名 / 新建时那一组：输入框、成员名单、合并到… */
+const EDITING = "inline-flex flex-wrap items-center gap-1.5";
+const NAME_INPUT = "h-6 w-36 rounded-full px-2.5 text-xs md:text-xs";
+
+/** 名字前面的小圆点：说话人的颜色（与字幕里一致） */
+function Dot() {
+  return <span aria-hidden className="size-1.5 rounded-full bg-client-foreground" />;
+}
 
 interface Props {
   speakers: readonly SpeakerInfo[];
@@ -47,36 +64,43 @@ export function SpeakerBar({
       if (name) onAssign({ newSpeaker: name });
     };
     return (
-      <div className="speakers speakers-assigning" role="group" aria-label="把选中的发言归到">
-        <span className="speakers-label">已选 {selectedCount} 条，归到</span>
+      <div className={ROW} role="group" aria-label="把选中的发言归到">
+        <span className="text-xs font-medium text-client-foreground">
+          已选 {selectedCount} 条，归到
+        </span>
         {assignTargets(speakers).map((p) => (
-          <button
+          <Button
             key={p.idx}
-            type="button"
-            className="chip chip-target"
+            variant="outline"
+            size="xs"
+            className={`${CHIP} border-client-foreground/50 hover:bg-client`}
             title={`把选中的 ${selectedCount} 条发言归到「${p.display_name}」名下`}
             onClick={() => onAssign({ speakerIdx: p.idx })}
           >
+            <Dot />
             {p.display_name}
-          </button>
+          </Button>
         ))}
         {adding === null ? (
-          <button
-            type="button"
-            className="chip chip-target chip-new"
+          <Button
+            variant="outline"
+            size="xs"
+            className={`${CHIP} border-dashed border-client-foreground/50 hover:bg-client`}
             title="新建一个说话人，把选中的发言归到他名下"
             onClick={() => setAdding("")}
           >
-            ＋ 新说话人
-          </button>
+            <PlusIcon data-icon="inline-start" />
+            新说话人
+          </Button>
         ) : (
           <span
-            className="chip chip-editing"
+            className={EDITING}
             onBlur={(event) => {
               if (!event.currentTarget.contains(event.relatedTarget)) setAdding(null);
             }}
           >
-            <input
+            <Input
+              className={NAME_INPUT}
               aria-label="新说话人的名字"
               placeholder="名字，回车确认"
               list="speaker-names"
@@ -107,9 +131,10 @@ export function SpeakerBar({
             />
           </span>
         )}
-        <button type="button" className="link" onClick={onClearSelection}>
+        <Button variant="ghost" size="xs" onClick={onClearSelection}>
+          <XIcon data-icon="inline-start" />
           取消选择
-        </button>
+        </Button>
       </div>
     );
   }
@@ -127,19 +152,20 @@ export function SpeakerBar({
   };
 
   return (
-    <div className="speakers" role="group" aria-label="说话人">
-      <span className="speakers-label">说话人</span>
+    <div className={ROW} role="group" aria-label="说话人">
+      <span className="text-xs text-muted-foreground">说话人</span>
       {people.map((p) =>
         editing?.idx === p.idx ? (
           <span
             key={p.idx}
-            className="chip chip-editing"
+            className={EDITING}
             onBlur={(event) => {
               // 焦点还在这个小面板里（从输入框移到「合并到…」）就不收起
               if (!event.currentTarget.contains(event.relatedTarget)) commit();
             }}
           >
-            <input
+            <Input
+              className={NAME_INPUT}
               aria-label={`给「${p.display_name}」改名`}
               list="speaker-names"
               value={editing.name}
@@ -166,6 +192,7 @@ export function SpeakerBar({
             />
             {mergeTargets(speakers, p.idx).length > 0 && (
               <select
+                className="h-6 rounded-full border border-input bg-background px-2 text-xs text-foreground dark:bg-input/30"
                 aria-label={`把「${p.display_name}」合并到另一个说话人`}
                 value=""
                 onChange={(event) => {
@@ -192,15 +219,17 @@ export function SpeakerBar({
             )}
           </span>
         ) : (
-          <button
+          <Button
             key={p.idx}
-            type="button"
-            className="chip"
+            variant="outline"
+            size="xs"
+            className={CHIP}
             title="点击改名，或合并到另一个说话人"
             onClick={() => setEditing({ idx: p.idx, name: p.display_name })}
           >
+            <Dot />
             {p.display_name}
-          </button>
+          </Button>
         ),
       )}
     </div>
@@ -222,12 +251,13 @@ function MemberChoices({
 }) {
   if (names.length === 0) return null;
   return (
-    <span className="member-choices" role="group" aria-label="成员名单">
+    <span className="inline-flex flex-wrap gap-1" role="group" aria-label="成员名单">
       {names.map((name) => (
-        <button
+        <Button
           key={name}
-          type="button"
-          className="chip chip-member"
+          variant="outline"
+          size="xs"
+          className={`${CHIP} border-dashed text-muted-foreground hover:border-client-foreground`}
           title={label(name)}
           aria-label={label(name)}
           // 不抢输入框的焦点：Safari 点按钮不给按钮焦点，失焦会先把编辑框收起来，点击就落空了
@@ -235,7 +265,7 @@ function MemberChoices({
           onClick={() => onPick(name)}
         >
           {name}
-        </button>
+        </Button>
       ))}
     </span>
   );

@@ -234,7 +234,8 @@ test("真实下载转录和 JSON 导出，核对会议身份与内容", async ({
   await openEndedMeeting(page);
   const banner = page.getByRole("group", { name: "当前查看的会议" });
   const markdownDownload = page.waitForEvent("download");
-  await banner.getByRole("link", { name: "转录", exact: true }).click();
+  await banner.getByRole("button", { name: "导出", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^转录/ }).click();
   const markdown = await downloadText(await markdownDownload);
   expect(markdown).toContain("星河项目复盘");
   expect(markdown).toContain("测试同学1");
@@ -243,7 +244,8 @@ test("真实下载转录和 JSON 导出，核对会议身份与内容", async ({
   expect(markdown).not.toContain("月面计划保留的历史字幕");
 
   const jsonDownload = page.waitForEvent("download");
-  await banner.getByRole("link", { name: "JSON", exact: true }).click();
+  await banner.getByRole("button", { name: "导出", exact: true }).click();
+  await page.getByRole("menuitem", { name: "JSON", exact: true }).click();
   const exported = JSON.parse(await downloadText(await jsonDownload));
   expect(exported.session).toMatchObject({
     id: seeds.ended,

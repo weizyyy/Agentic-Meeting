@@ -1,4 +1,7 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { ArrowDownIcon } from "lucide-react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
+import { Button } from "@/components/ui/button";
 
 import type { ConnectionSpan } from "../api.ts";
 import { formatClock, type CaptionLine } from "../captions.ts";
@@ -38,9 +41,9 @@ interface Drag {
 }
 
 /**
- * 字幕：定稿的文字正常颜色，还没定稿的尾巴灰色；助理的话和键入的文字有各自的样式。
- * 每行左边是两条轨的时间（会议进行到哪、当时的钟点）和说话人——这一块可以点（选中 / 取消）、
- * 可以按住往上下拖（连选一段）；文字那一块不参与，照常可以划选复制。
+ * 字幕：定稿的文字正常颜色，还没定稿的尾巴灰色；助理的话底色是助理的紫色，键入的文字带「文字」标记。
+ * 每条上面一行是说话人、当时的钟点和会议进行到哪——这一行可以点（选中 / 取消）、
+ * 可以按住往上下拖（连选一段）；下面的文字不参与，照常可以划选复制。
  */
 export function CaptionList({
   lines,
@@ -109,13 +112,18 @@ export function CaptionList({
   const divider = (index: number) => {
     const secs = gaps.get(index);
     return secs === undefined ? null : (
-      <p className="caption-gap" role="separator">
-        — 中断了 {formatSpan(secs)} —
+      <p
+        className="my-3 flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border"
+        role="separator"
+      >
+        中断了 {formatSpan(secs)}
       </p>
     );
   };
   const scroller = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
+  // 往上翻看时显示「跟随最新」，点一下回到底部
+  const [following, setFollowing] = useState(true);
   const before = useRef<{ height: number; firstKey: string | null }>({ height: 0, firstKey: null });
 
   // 内容变化后：向上加载了更早的发言就保持原来看到的位置；否则在「跟着走」时滚到底。
@@ -133,52 +141,71 @@ export function CaptionList({
   }, [lines]);
 
   return (
-    <section className="panel" aria-label="字幕">
-      <h2>字幕</h2>
+    <section className="relative flex min-h-0 flex-1 flex-col" aria-label="字幕">
       <div
-        className="captions"
+        className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
         ref={scroller}
         onScroll={(event) => {
           const el = event.currentTarget;
           stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX;
+          setFollowing(stuck.current);
         }}
       >
         {hasOlder && (
-          <button type="button" className="link older" onClick={onLoadOlder}>
+          <Button variant="link" size="sm" className="mx-auto mb-2 flex" onClick={onLoadOlder}>
             加载更早的发言
-          </button>
+          </Button>
         )}
         {lines.length === 0 ? (
-          <p className="empty">{emptyText}</p>
+          <p className="px-2 py-1 text-sm text-subtle-foreground">{emptyText}</p>
         ) : (
           lines.map((line, index) => {
             const id = selectableId(line);
             const picked = id !== null && selected.has(id);
             const wall = wallClockLabel(line.tStart, timeBase);
+            const assistant = line.source === "assistant";
             const head = (
               <>
-                <time className="wall" title="当时的时间">
-                  {wall}
+                <span
+                  aria-hidden
+                  className={`size-1.5 shrink-0 rounded-full ${
+                    assistant ? "bg-agent-foreground" : "bg-client-foreground"
+                  }`}
+                />
+                <span
+                  className={`max-w-48 truncate text-sm font-medium ${
+                    assistant ? "text-agent-foreground" : "text-foreground"
+                  }${line.source === "text" ? " italic" : ""}`}
+                >
+                  {line.speakerName}
+                </span>
+                {wall && (
+                  <time className="font-mono text-xs text-muted-foreground" title="当时的时间">
+                    {wall}
+                  </time>
+                )}
+                <time className="font-mono text-xs text-subtle-foreground" title="会议进行到">
+                  +{formatClock(line.tStart)}
                 </time>
-                <time className="elapsed" title="会议进行到">
-                  {formatClock(line.tStart)}
-                </time>
-                <span className="speaker">{line.speakerName}</span>
               </>
             );
             return (
               <Fragment key={lineKey(line, index)}>
                 {divider(index)}
-                <p
-                  className={`caption caption-${line.source}${line.final ? "" : " caption-live"}${
-                    picked ? " caption-selected" : ""
+                <div
+                  className={`mb-1 rounded-lg px-3 py-2 ${
+                    picked
+                      ? "bg-client ring-1 ring-client-foreground/40"
+                      : assistant
+                        ? "bg-agent"
+                        : ""
                   }`}
                   onMouseEnter={() => dragOver(index)}
                 >
                   {id !== null ? (
                     <button
                       type="button"
-                      className="caption-head caption-handle"
+                      className="-mx-1 inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md px-1 select-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none aria-pressed:bg-client-foreground/15"
                       aria-pressed={picked}
                       aria-label={`${picked ? "取消选中" : "选中"} ${line.speakerName} 在 ${formatClock(line.tStart)} 的发言`}
                       title="点一下选中，按住上下拖可以连选；选中后点上方的说话人，就归到他名下"
@@ -192,20 +219,40 @@ export function CaptionList({
                       {head}
                     </button>
                   ) : (
-                    <span className="caption-head">{head}</span>
+                    <span className="inline-flex max-w-full items-center gap-2">{head}</span>
                   )}
-                  <span className="text">
-                    {line.source === "text" && <span className="tag">文字</span>}
+                  <p className="mt-0.5 text-[0.9375rem] leading-relaxed [overflow-wrap:anywhere]">
+                    {line.source === "text" && (
+                      <span className="mr-1.5 rounded bg-muted px-1.5 py-px text-xs text-muted-foreground">
+                        文字
+                      </span>
+                    )}
                     {line.stable}
-                    <span className="unstable">{line.unstable}</span>
-                  </span>
-                </p>
+                    <span className="text-subtle-foreground">{line.unstable}</span>
+                  </p>
+                </div>
               </Fragment>
             );
           })
         )}
         {lines.length > 0 && divider(lines.length)}
       </div>
+      {!following && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="absolute right-4 bottom-3 shadow-sm"
+          onClick={() => {
+            const el = scroller.current;
+            if (el) el.scrollTop = el.scrollHeight;
+            stuck.current = true;
+            setFollowing(true);
+          }}
+        >
+          <ArrowDownIcon data-icon="inline-start" />
+          跟随最新
+        </Button>
+      )}
     </section>
   );
 }

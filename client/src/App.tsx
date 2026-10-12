@@ -1,6 +1,7 @@
 import { PipecatClientProvider } from "@pipecat-ai/client-react";
 import { useEffect, useMemo, useState } from "react";
 
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AssistantAudio } from "./components/AssistantAudio.tsx";
 import { AssistantPanel } from "./components/AssistantPanel.tsx";
 import { CaptionList } from "./components/CaptionList.tsx";
@@ -90,44 +91,41 @@ export function App({ onLogout }: Props = {}) {
         />
         {!state.viewing?.deletion_pending && (
           <main className="layout">
-            <div className="column">
-              <SpeakerBar
-                speakers={state.speakers}
-                members={state.members}
-                onRename={(idx, name) => void meeting.renameSpeaker(idx, name)}
-                onMerge={(idx, into) => void meeting.mergeSpeakers(idx, into)}
-                selectedCount={tab === "captions" ? selected.size : 0}
-                onAssign={(target) => {
-                  void meeting.assignSpeaker([...selected], target).then((done) => {
-                    if (done) setSelected(new Set());
-                  });
-                }}
-                onClearSelection={() => setSelected(new Set())}
-              />
-              <div className="tabs" role="tablist" aria-label="字幕和报告">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === "captions"}
-                  className={`tab${tab === "captions" ? " tab-current" : ""}`}
-                  onClick={() => setTab("captions")}
-                >
-                  字幕
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === "report"}
-                  className={`tab${tab === "report" ? " tab-current" : ""}`}
-                  onClick={() => setTab("report")}
-                >
-                  报告
-                  {state.report?.status === "running" && (
-                    <span className="tab-dot" aria-label="生成中" />
-                  )}
-                </button>
+            <Tabs
+              value={tab}
+              onValueChange={(value: "captions" | "report") => setTab(value)}
+              className="min-h-0 min-w-0 gap-0 overflow-hidden rounded-xl border bg-card"
+            >
+              <div className="flex items-center gap-2 border-b px-4 py-2">
+                <TabsList aria-label="字幕和报告">
+                  <TabsTrigger value="captions" className="px-3">
+                    字幕
+                  </TabsTrigger>
+                  <TabsTrigger value="report" className="px-3">
+                    报告
+                    {state.report?.status === "running" && (
+                      <span
+                        className="size-1.5 rounded-full bg-warning-foreground"
+                        aria-label="生成中"
+                      />
+                    )}
+                  </TabsTrigger>
+                </TabsList>
               </div>
-              {tab === "captions" ? (
+              <TabsContent value="captions" className="flex min-h-0 flex-col">
+                <SpeakerBar
+                  speakers={state.speakers}
+                  members={state.members}
+                  onRename={(idx, name) => void meeting.renameSpeaker(idx, name)}
+                  onMerge={(idx, into) => void meeting.mergeSpeakers(idx, into)}
+                  selectedCount={selected.size}
+                  onAssign={(target) => {
+                    void meeting.assignSpeaker([...selected], target).then((done) => {
+                      if (done) setSelected(new Set());
+                    });
+                  }}
+                  onClearSelection={() => setSelected(new Set())}
+                />
                 <CaptionList
                   lines={state.captions}
                   hasOlder={state.hasOlder}
@@ -138,14 +136,15 @@ export function App({ onLogout }: Props = {}) {
                   selected={selected}
                   onSelect={setSelected}
                 />
-              ) : (
+              </TabsContent>
+              <TabsContent value="report" className="flex min-h-0 flex-col">
                 <ReportPanel
                   session={state.viewing}
                   report={state.report}
                   onGenerate={() => void meeting.generateReport()}
                 />
-              )}
-            </div>
+              </TabsContent>
+            </Tabs>
             <div className="column side">
               <AssistantPanel
                 state={state.assistantState}
