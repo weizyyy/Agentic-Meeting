@@ -8,7 +8,10 @@ async function expectHistoryOnly(page: Page, reason: string | RegExp) {
   const request = page.request;
   await page.goto("/");
   await expect(page.getByRole("alert")).toContainText(reason);
-  await expect(page.getByRole("button", { name: "开始新会议", exact: true })).toBeDisabled();
+  // 只看顶部栏：查看的是中断的会议时，标题下方的提示里也有一个「开始新会议」
+  await expect(
+    page.getByRole("banner").getByRole("button", { name: "开始新会议", exact: true }),
+  ).toBeDisabled();
 
   await page.getByRole("button", { name: "会议列表", exact: true }).click();
   await page.getByRole("button", { name: "继续：月面计划讨论", exact: true }).click();
@@ -55,7 +58,9 @@ test("主脚本无法运行的旧浏览器显示最低版本，而不是白页",
 test("能开会的浏览器不显示兼容提示", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "组会助理" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "开始新会议", exact: true })).toBeEnabled();
+  await expect(
+    page.getByRole("banner").getByRole("button", { name: "开始新会议", exact: true }),
+  ).toBeEnabled();
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
