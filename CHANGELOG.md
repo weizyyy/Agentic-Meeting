@@ -13,6 +13,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Pipecat's microphone control, which mutes and unmutes and picks the microphone and speaker. The
   rest of the page takes the same colors and themes and moves to the new components in later
   releases.
+- The meeting title, speakers and captions move to the new components. The title row has
+  **保留** (Keep) and an **导出** (Export) menu; each caption puts the speaker and times on one line
+  above the text, assistant answers are tinted, and **跟随最新** (Follow latest) appears while you
+  scroll back through earlier captions.
 
 ### Changed
 

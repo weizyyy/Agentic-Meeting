@@ -55,6 +55,9 @@ export function ControlBar({
   // 自动重连的间隙里连接是断开的，但用户仍然「在会议里」：按钮还是「结束会议」
   const active = connection === "connected" || connection === "connecting" || reconnectAttempt > 0;
   const reconnecting = reconnectAttempt > 0 && connection !== "connected";
+  // 麦克风按钮等接通（或接通过、正在重连）再出现：它一挂上就列设备，列设备会再要一次麦克风权限，
+  // 连接还在请求权限时挂上，拒绝授权就会多出一次请求和一条重复的「麦克风不可用」
+  const micControl = connection === "connected" || reconnectAttempt > 0;
   const label = reconnecting ? `正在重连（第 ${reconnectAttempt} 次）…` : LABELS[connection];
   return (
     <header className="mb-3 flex flex-wrap items-center gap-2 border-b py-3">
@@ -83,7 +86,7 @@ export function ControlBar({
         {recordingLabel(connection, closedReason, reconnectAttempt)}
       </span>
       <ThemeMenu />
-      {active && (
+      {micControl && (
         <UserAudioControl
           variant="secondary"
           activeText="麦克风"
