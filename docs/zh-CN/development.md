@@ -38,19 +38,17 @@ CI 在 Windows 和 Linux 上分别用 Python 3.12、3.13 和 3.14 运行 Python 
 并不是每次改动都跑全部任务：_Classify changes_ 任务读取改动的文件，只启动可能受影响的任务。
 Prettier 检查总是运行。
 
-| 改动的文件                                                                        | Python（6 个任务） | Web client | Browser end-to-end | Container images |
-| --------------------------------------------------------------------------------- | ------------------ | ---------- | ------------------ | ---------------- |
-| `src/`、`config/`（含提示词）、`.python-version`                                  | 跑                 |            | 跑                 |                  |
-| `pyproject.toml`、`uv.lock`                                                       | 跑                 |            | 跑                 | 跑               |
-| `tests/browser/`                                                                  | 跑                 |            | 跑                 |                  |
-| `docker/`、`compose.yaml`                                                         | 跑                 |            |                    | 跑               |
-| 子模块、`runtimes.lock.toml`、`scripts/runtimes.py`、`scripts/container.py`       | 跑                 |            |                    | 跑               |
-| `tests/` 和 `scripts/` 下其他文件                                                 | 跑                 |            |                    |                  |
-| `client/e2e/`、`client/playwright.config.ts`                                      |                    |            | 跑                 |                  |
-| `client/` 下其他文件                                                              |                    | 跑         | 跑                 |                  |
-| 其他 Markdown 文件、`docs/`、`LICENSE`、issue 模板、格式化工具设置                |                    |            |                    |                  |
-| `.github/dependabot.yml`、`.pre-commit-config.yaml`、`.gitignore`、`.env.example` |                    |            |                    |                  |
-| 其他文件，包括工作流文件                                                          | 跑                 | 跑         | 跑                 | 跑               |
+| 改动的文件                                                                        | Python（6 个任务） | Web client | Container images |
+| --------------------------------------------------------------------------------- | ------------------ | ---------- | ---------------- |
+| `src/`、`config/`（含提示词）、`.python-version`                                  | 跑                 |            |                  |
+| `pyproject.toml`、`uv.lock`                                                       | 跑                 |            | 跑               |
+| `docker/`、`compose.yaml`                                                         | 跑                 |            | 跑               |
+| 子模块、`runtimes.lock.toml`、`scripts/runtimes.py`、`scripts/container.py`       | 跑                 |            | 跑               |
+| `tests/` 和 `scripts/` 下其他文件                                                 | 跑                 |            |                  |
+| `client/`                                                                         |                    | 跑         |                  |
+| 其他 Markdown 文件、`docs/`、`LICENSE`、issue 模板、格式化工具设置                |                    |            |                  |
+| `.github/dependabot.yml`、`.pre-commit-config.yaml`、`.gitignore`、`.env.example` |                    |            |                  |
+| 其他文件，包括工作流文件                                                          | 跑                 | 跑         | 跑               |
 
 只有分类结果表明不需要时，_All checks_ 才把跳过的任务算作通过。新增的顶层文件或目录在加入
 `.github/workflows/ci.yml` 的分类之前会跑全部任务。
@@ -81,7 +79,7 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
 7. **转录不因故障中断。** 应答、任务、截图、存储中的错误不得使识别和字幕停止（architecture.md §9）。
    对外部服务的调用设有超时，失败时记录日志并降级，不把异常抛到管线顶层。
 8. **密钥来自环境变量。** 配置中只保存变量名（`*_env` 字段）。密钥不出现在代码、模板、日志和数据库中。
-9. **测试是端到端的。** 新测试写成 `tests/e2e/` 或 `client/e2e/` 中的场景（见[测试](#测试)）。
+9. **测试是端到端的。** 新测试写成 `tests/e2e/` 中的场景（见[测试](#测试)）。
    不添加针对单个函数或类的单元测试，包括开发时“先写测试再写代码”留下的测试；唯一的例外是运行中的系统发现不了的仓库规则检查，
    并在 PR 说明里写明理由。
 
@@ -132,113 +130,7 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
 
 新测试请写成用户认得出的场景：他们在会议页面或命令行上做了什么，之后通过接口、数据通道或文件看到了什么。
 不要给单个函数或类写测试：那只会把代码现在的形状固定下来，并不能证明系统能用。`npm run build` 对网页客户端做类型检查，
-它收发的每一种消息在服务端一侧由 `tests/e2e/` 覆盖，下面的浏览器测试则在真实浏览器里操作构建好的页面。
-
-### 浏览器端到端测试
-
-浏览器测试使用客户端 lockfile 中的 Playwright 1.64.0、Python 3.12–3.14 和 Node.js 24（CI 版本）。
-在仓库根目录安装锁定依赖、构建真实客户端并安装三个浏览器引擎：
-
-```bash
-uv sync --frozen --extra agent
-npm ci
-npm ci --prefix client
-npm run build --prefix client
-cd client
-npx playwright install --with-deps chromium firefox webkit
-cd ..
-```
-
-浏览器安装会下载浏览器二进制文件，在 Linux 上安装系统包可能需要管理员权限；不会下载模型权重。
-修改客户端代码后先重新构建，再运行测试，因为测试服务器提供的是 `client/dist/`。
-
-```bash
-# 三个引擎：Chromium、Firefox 和 WebKit
-npm run test:e2e --prefix client
-# 单个引擎
-npm run test:e2e --prefix client -- --project=chromium
-# 单个引擎中的一个用例
-npm run test:e2e --prefix client -- --project=chromium --grep '真实页面、WebRTC、RTVI 与合成媒体探针'
-```
-
-无界面的 Linux 还需要音频输出后端，否则 Firefox 原生 `AudioContext.resume()` 可能一直等待，
-尚未开始 WebRTC 协商。CI 启动 PulseAudio 的 CPU null sink，丢弃输出，不需要物理声卡。
-在无界面的 Ubuntu 上，先准备这个后端再运行浏览器测试：
-
-```bash
-sudo apt-get install -y pulseaudio pulseaudio-utils
-pulseaudio --start --exit-idle-time=-1
-pactl load-module module-null-sink sink_name=e2e
-pactl set-default-sink e2e
-```
-
-当前锁定的 Linux WebKit 会挂起文档外的静音 MediaStream video，包括测试中的原生屏幕帧消费端。
-CI 使用 WebKit 的测试环境变量允许播放。本地 Linux 准备好 PulseAudio 后运行：
-
-```bash
-WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS=1 npm run test:e2e --prefix client
-```
-
-锁定的浏览器包含 [WebKit 319380 上游修复](https://github.com/WebKit/WebKit/commit/f2797a15c336841f348b94902c3dd556a0cd5540)
-后移除此临时措施。原生媒体轨道、视频解码、截图上传及断言均保持不变。
-
-这是测试环境准备，不替换 AudioContext 或 SDK。CI runner 在 job 结束后销毁。
-本地运行结束后，用 `pactl load-module` 打印的 ID 卸载模块（`pactl unload-module <id>`）；
-只有 PulseAudio 专为这次测试启动时才停止它。
-
-三个引擎运行相同的核心用例，单 worker，不重试。每个用例启动独立的 `tests.browser.server` Python 子进程，
-监听动态分配的回环端口。夹具等待服务器启动完成后输出的结构化 `E2E_READY` 消息。
-服务器拥有一个系统临时目录（`agentic-meeting-e2e-*`），内含独立 SQLite 数据库、虚构会议种子、截图与任务产物。
-收尾时停止子进程、关闭 Store 并删除该目录，不读取或写入 `config/config.toml`、`.env` 或 `data/`。
-强制终止进程可能留下临时文件；确认测试进程已退出后，只删除系统临时目录中属于该用例的
-`agentic-meeting-e2e-*` 目录。
-
-测试覆盖生产 `create_app`、Store、HTTP 业务接口，以及真实 SmallWebRTC 传输、Pipecat 管线和 RTVI 数据通道。
-推理由受控测试 bot 替代，不启动 ASR、LLM、TTS、向量嵌入或屏幕描述模型。
-Chromium 与 WebKit 使用 CPU WebAudio 麦克风轨道，Firefox 使用浏览器原生的假媒体设备。
-三个引擎都使用 `canvas.captureStream()` 屏幕轨道替代真实桌面采集。
-替代的选择窗口也能模拟用户点取消（`NotAllowedError`）和读取失败（`NotReadableError`），
-浏览器自带的「停止共享」用直接调用页面在轨道上注册的 `ended` 监听来模拟（Firefox 不会把脚本派发的 `ended` 送到这些监听上）；每次调用都记录是否发生在用户点击之内（Safari 要求如此）。
-浏览器对测试服务器之外的请求会被阻断并使测试失败。
-这些检查不验证真实麦克风或屏幕授权、物理设备、模型效果、外部服务、GPU 行为或互联网 ICE 连通性。
-CI 在 Ubuntu CPU 上运行三个引擎；其他系统的平台相关浏览器启动或 ICE 故障需要定位，不能通过跳过引擎绕过。
-
-`mediaRecovery.spec.ts` 还通过关闭真实服务端 peer 验证自动恢复、同会话 offer、有限重试与手动继续、
-接管与结束、等待中的屏幕选择清理、局部画面变化及默认 60 秒心跳。麦克风断言观察实际当前 peer 的音频
-sender，不取最后一次采集的轨道（SDK 权限探针会取得临时轨道）。服务端将 RMS 不低于 300 的 16 位 PCM
-帧计为非静音；包计数本身不证明有效输入。自动播放恢复测试同时观察远端 PCM 和播放元素，实际可听仍需
-原生检查。人工检查过哪些浏览器见[支持的浏览器](user-guide.md#支持的浏览器)。
-
-原生桌面检查可在仓库根目录运行 `uv run python -m tests.browser.server`，然后在安装版浏览器打开
-`E2E_READY` 后的 URL。这不运行 Playwright 夹具，也不替换 `getUserMedia` / `getDisplayMedia`。
-回环测试服务提供以下控制：
-
-| 测试操作                                            | 效果                                                                                                                       |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `GET /__test/state`                                 | 会话、peer、入站 PCM/非静音帧计数和每个新建 peer 的 offer 带的会话编号（对在用 peer 的重新协商不计）；不存储麦克风原始录音 |
-| `POST /__test/emit`，`{"text":"虚构字幕"}`          | 通过 RTVI 推受控字幕，不是 ASR                                                                                             |
-| `POST /__test/disconnect`                           | 关闭真实 peer 并等待会话收尾，不结束会议                                                                                   |
-| `POST /__test/offers`，`{"enabled":false}` / `true` | 让新 offer 返回 503 / 恢复协商，用于有限重试场景                                                                           |
-| `POST /__test/tone`                                 | 向输出管线入队一秒低音量 440 Hz、24 kHz 单声道 PCM，不是 TTS                                                               |
-
-这些控制只存在于 `tests/browser/server.py`，生产不挂载。先等待活动 peer，再推字幕或声音，否则返回 409。
-重连检查观察当前 peer 和入站音频，不要求又一次 RTVI client-ready：SDK 重连可能不重复发送它。
-SDK 重试与页面的五次退避是两层机制（pipecat-notes.md §12）。回环 peer 关闭不证明公网 ICE 或 NAT 连通。
-原生检查记录浏览器/系统版本、授权过程、实际图片内容、说话时电平变化以及测试音是否可听。
-三个 Playwright 引擎和合成轨道不能代替这些观察。结束时按 Ctrl+C 停止服务。
-
-失败时的 trace、截图与每个用例的 `server.log` 保存在 `client/test-results/`，HTML 报告位于
-`client/playwright-report/`。调试命令：
-
-```bash
-cd client
-npx playwright show-report playwright-report
-# 将示例替换为失败用例的实际 trace 路径
-npx playwright show-trace 'test-results/<failed-test>/trace.zip'
-```
-
-这两个产物目录已被 Git 忽略，调试完成后可以删除。CI 只在失败或取消时上传这两个目录，保留三天。
-E2E job 接入必需的 `All checks`，其失败、取消或跳过都会传播为检查失败。
+它收发的每一种消息在服务端一侧由 `tests/e2e/` 覆盖；只在会议页面上才看得到的行为在浏览器里人工检查。
 
 ### 使用真实模型的检查
 

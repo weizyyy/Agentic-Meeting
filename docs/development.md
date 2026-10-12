@@ -41,19 +41,17 @@ builds the client on Linux, and builds the container images and starts the progr
 every change runs every job: the _Classify changes_ job reads the changed files and starts only the
 jobs they can affect. The Prettier check always runs.
 
-| Changed files                                                                     | Python (6 jobs) | Web client | Browser end-to-end | Container images |
-| --------------------------------------------------------------------------------- | --------------- | ---------- | ------------------ | ---------------- |
-| `src/`, `config/` (prompts included), `.python-version`                           | yes             |            | yes                |                  |
-| `pyproject.toml`, `uv.lock`                                                       | yes             |            | yes                | yes              |
-| `tests/browser/`                                                                  | yes             |            | yes                |                  |
-| `docker/`, `compose.yaml`                                                         | yes             |            |                    | yes              |
-| Submodules, `runtimes.lock.toml`, `scripts/runtimes.py`, `scripts/container.py`   | yes             |            |                    | yes              |
-| Other files in `tests/` and `scripts/`                                            | yes             |            |                    |                  |
-| `client/e2e/`, `client/playwright.config.ts`                                      |                 |            | yes                |                  |
-| Other files in `client/`                                                          |                 | yes        | yes                |                  |
-| Other Markdown files, `docs/`, `LICENSE`, issue templates, formatter settings     |                 |            |                    |                  |
-| `.github/dependabot.yml`, `.pre-commit-config.yaml`, `.gitignore`, `.env.example` |                 |            |                    |                  |
-| Anything else, workflow files included                                            | yes             | yes        | yes                | yes              |
+| Changed files                                                                     | Python (6 jobs) | Web client | Container images |
+| --------------------------------------------------------------------------------- | --------------- | ---------- | ---------------- |
+| `src/`, `config/` (prompts included), `.python-version`                           | yes             |            |                  |
+| `pyproject.toml`, `uv.lock`                                                       | yes             |            | yes              |
+| `docker/`, `compose.yaml`                                                         | yes             |            | yes              |
+| Submodules, `runtimes.lock.toml`, `scripts/runtimes.py`, `scripts/container.py`   | yes             |            | yes              |
+| Other files in `tests/` and `scripts/`                                            | yes             |            |                  |
+| `client/`                                                                         |                 | yes        |                  |
+| Other Markdown files, `docs/`, `LICENSE`, issue templates, formatter settings     |                 |            |                  |
+| `.github/dependabot.yml`, `.pre-commit-config.yaml`, `.gitignore`, `.env.example` |                 |            |                  |
+| Anything else, workflow files included                                            | yes             | yes        | yes              |
 
 _All checks_ accepts a skipped job only when the classification said the change does not need it.
 A new top-level file or directory runs every job until it is added to the classification in
@@ -92,8 +90,7 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
    and failures are logged and degraded rather than raised to the top of the pipeline.
 8. **Secrets come from environment variables.** Configuration holds variable names (`*_env` fields)
    only. Keys never appear in code, templates, logs or the database.
-9. **Tests are end-to-end.** New tests are scenarios in `tests/e2e/` or `client/e2e/` (see
-   [Testing](#testing)). Unit tests of single functions or classes are not added, including ones
+9. **Tests are end-to-end.** New tests are scenarios in `tests/e2e/` (see [Testing](#testing)). Unit tests of single functions or classes are not added, including ones
    written test-first during development; the only exception is a repository rule that a running
    system cannot reveal, explained in the pull request.
 
@@ -154,132 +151,9 @@ The test suite is end-to-end. It runs without a GPU, model weights or network ac
 Write a new test as a scenario a user would recognize: what they do in the meeting page or on the
 command line, and what they then see through the API, the data channel or the files. Avoid tests of
 single functions or classes; they bind the code's current shape without proving that the system
-works. `npm run build` type-checks the web client, the server side of every message it exchanges
-is covered by `tests/e2e/`, and the browser suite below drives the built page in real browsers.
-
-### Browser end-to-end tests
-
-The browser suite uses Playwright 1.64.0 from the client lockfile, Python 3.12–3.14 and Node.js
-24 (the CI version). From the repository root, install the locked dependencies, build the real
-client and install all three browser engines:
-
-```bash
-uv sync --frozen --extra agent
-npm ci
-npm ci --prefix client
-npm run build --prefix client
-cd client
-npx playwright install --with-deps chromium firefox webkit
-cd ..
-```
-
-Browser installation downloads browser binaries and may need administrator privileges for system
-packages on Linux; it does not download model weights. After changing client code, rebuild before
-running these tests because the server serves `client/dist/`.
-
-```bash
-# All three engines: Chromium, Firefox and WebKit
-npm run test:e2e --prefix client
-# One engine
-npm run test:e2e --prefix client -- --project=chromium
-# One test in one engine
-npm run test:e2e --prefix client -- --project=chromium --grep '真实页面、WebRTC、RTVI 与合成媒体探针'
-```
-
-Headless Linux also needs an audio output backend: Firefox's native `AudioContext.resume()`
-can otherwise remain pending before WebRTC negotiation starts. CI starts PulseAudio with a CPU
-null sink, which discards output and needs no physical audio device. On a headless Ubuntu machine,
-prepare it before running the browser suite:
-
-```bash
-sudo apt-get install -y pulseaudio pulseaudio-utils
-pulseaudio --start --exit-idle-time=-1
-pactl load-module module-null-sink sink_name=e2e
-pactl set-default-sink e2e
-```
-
-The pinned Linux WebKit build suspends muted MediaStream video outside the document, including
-our native screen-frame consumer. CI uses WebKit's test environment switch to allow playback.
-For local Linux runs after preparing PulseAudio:
-
-```bash
-WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS=1 npm run test:e2e --prefix client
-```
-
-Remove this workaround when the pinned browser includes the
-[upstream fix for WebKit 319380](https://github.com/WebKit/WebKit/commit/f2797a15c336841f348b94902c3dd556a0cd5540).
-Native media tracks, video decoding, screenshot uploads and assertions remain unchanged.
-
-This is test environment setup, not an AudioContext or SDK replacement. The CI runner is discarded
-after the job. On a local machine, unload the module using the ID printed by `pactl load-module`
-(`pactl unload-module <id>`); stop PulseAudio only if it was started solely for this test run.
-
-The same core cases run in each engine, with one worker and no retries. Each test starts its own
-`tests.browser.server` Python subprocess on a dynamically allocated loopback port. The fixture
-waits for the structured `E2E_READY` message after server startup. The server owns a system
-temporary directory (`agentic-meeting-e2e-*`) containing a separate SQLite database and fictional
-seed meetings, screenshots and task artifacts. Teardown stops the subprocess, closes the Store
-and removes that directory; it never reads or writes `config/config.toml`, `.env` or `data/`.
-Forced process termination can leave temporary files behind; after ensuring the test process has
-exited, remove only its `agentic-meeting-e2e-*` directory from the system temporary directory.
-
-Tests exercise production `create_app`, Store and HTTP business endpoints, the real
-SmallWebRTC transport, Pipecat pipeline and RTVI data channel. Inference is replaced by a controlled
-test bot; ASR, LLM, TTS, embeddings and screen caption models are not started. Chromium and WebKit
-use CPU WebAudio microphone tracks; Firefox uses its native fake media devices. All three engines
-use `canvas.captureStream()` screen tracks instead of capturing a desktop. The replaced picker can
-also report a cancel (`NotAllowedError`) or a failure (`NotReadableError`), and the browser's own
-stop-sharing control is simulated by calling the `ended` listeners the page put on the track
-(Firefox does not deliver a script-dispatched `ended` to them); each call records whether it happened within
-the user's click, which Safari requires. Browser requests outside
-the test server are blocked and fail the test. These checks do not validate real microphone or
-screen permissions, physical devices, model quality, external services, GPU behavior or Internet
-ICE connectivity. CI runs the three engines on Ubuntu CPU; platform-specific browser startup or
-ICE failures on other operating systems must be investigated rather than skipping an engine.
-
-`mediaRecovery.spec.ts` also closes the real server peer to test automatic recovery, same-session
-offers, bounded retries and manual resume, takeover and termination, pending screen-picker cleanup,
-local picture changes and the default 60-second heartbeat. Microphone assertions inspect the actual
-current peer's audio sender, not the last acquired track (SDK permission probes acquire temporary
-tracks). The server counts received 16-bit PCM frames with RMS at least 300 as non-silent; packet
-counts alone do not establish useful input. The autoplay recovery test observes remote PCM as well
-as the playback element; actual audibility still requires a native check. See
-[Supported browsers](user-guide.md#supported-browsers) for which browsers have been checked by hand.
-
-For native desktop checks, run `uv run python -m tests.browser.server` at the repository root
-and open the URL printed after `E2E_READY` in an installed browser. This does not run the
-Playwright fixture or replace `getUserMedia` / `getDisplayMedia`. The loopback test server exposes:
-
-| Test operation                                          | Effect                                                                                                                                                                                  |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /__test/state`                                     | Session, peer, received PCM/non-silent frame counts and the session ID of each offer that opens a peer (renegotiating the live peer is not counted); raw microphone audio is not stored |
-| `POST /__test/emit` with `{"text":"fictional caption"}` | Sends a controlled caption through RTVI; this is not ASR                                                                                                                                |
-| `POST /__test/disconnect`                               | Closes the actual peer and waits for session cleanup without ending the meeting                                                                                                         |
-| `POST /__test/offers` with `{"enabled":false}` / `true` | Rejects new offers with 503 / restores negotiation, for bounded retry tests                                                                                                             |
-| `POST /__test/tone`                                     | Queues one second of low-level 440 Hz, 24 kHz mono PCM in the output pipeline; this is not TTS                                                                                          |
-
-The controls exist only in `tests/browser/server.py`; production does not mount them. Wait for
-an active peer before sending captions or tones (otherwise 409). Reconnection checks observe
-the current peer and incoming audio rather than requiring another RTVI client-ready: the SDK
-can reconnect without repeating it. SDK retries and the page's five backoff attempts are
-separate (pipecat-notes.md §12). A peer closed on loopback is not a test of Internet ICE or NAT.
-For native checks, record browser/OS versions, permissions, actual picture contents, microphone
-level changes while speaking and whether the tone is audible. The three Playwright engines and
-their synthetic tracks do not replace these observations. Stop the server with Ctrl+C.
-
-Failure traces and screenshots, plus per-test `server.log`, are written under
-`client/test-results/`; the HTML report is in `client/playwright-report/`. Inspect them with:
-
-```bash
-cd client
-npx playwright show-report playwright-report
-# Replace the example with a failed test's actual trace path
-npx playwright show-trace 'test-results/<failed-test>/trace.zip'
-```
-
-Both output directories are ignored by Git and can be deleted after debugging. CI uploads only
-these two directories after a failure or cancellation, with a three-day retention period. The
-E2E job is required by `All checks`, including failure, cancellation and skipped-job propagation.
+works. `npm run build` type-checks the web client and the server side of every message it
+exchanges is covered by `tests/e2e/`; behavior that only shows in the meeting page is checked by
+hand in a browser.
 
 ### Checks with real models
 

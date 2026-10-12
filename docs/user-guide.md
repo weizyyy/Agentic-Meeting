@@ -25,8 +25,7 @@ Use a desktop browser no older than:
 | Safari  | 16.4            |
 
 These are the versions the page is built for (`client/src/browserSupport.ts`); Firefox needs 128
-because the page's stylesheet (Tailwind CSS 4) relies on features it added. The automated browser
-tests run the current Chromium, Firefox and WebKit engines on Linux. On macOS, installed Chrome,
+because the page's stylesheet (Tailwind CSS 4) relies on features it added. On macOS, installed Chrome,
 Edge, Firefox and Safari have been checked by hand for microphone input, screen sharing, automatic
 reconnection and ending a meeting.
 

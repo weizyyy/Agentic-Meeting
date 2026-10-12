@@ -59,7 +59,6 @@ it runs every job. Keep a change's documentation in the same pull request as its
 | `docker/`, `compose.yaml`           | Container images (application, speech synthesis, sandbox) and Compose files; see `docs/containers.md`        |
 | `scripts/`                          | Runtime fetch/build, headless replay, realtime-LLM evaluation, microphone check                              |
 | `tests/`                            | End-to-end tests in `tests/e2e/`; fake inference services are in `tests/e2e/inference.py`                    |
-| `client/e2e/`, `tests/browser/`     | Browser end-to-end tests (Playwright) and the test server they start                                         |
 | `docs/`, `docs/zh-CN/`              | Documentation in English and Chinese with identical file names and section numbers                           |
 
 Read these before changing behavior:
@@ -95,7 +94,7 @@ Read these before changing behavior:
 9. **Document interfaces first.** A change to a data format, configuration key, HTTP endpoint or
    message is made in `docs/interfaces.md` before the code.
 10. **Tests are end-to-end; do not add unit tests.** A pull request adds or changes scenarios in
-    `tests/e2e/` or `client/e2e/` and nothing else under test. Do not write tests first for single
+    `tests/e2e/` and nothing else under test. Do not write tests first for single
     functions, classes or helpers, and do not keep the unit tests you wrote while developing. The
     only exception is a repository rule that a running system cannot reveal, like the checks in
     `tests/test_repository_rules.py`; explain in the pull request why it is needed. Pull requests
@@ -155,9 +154,8 @@ Tests are end-to-end scenarios: start the application with the `start_app` fixtu
 it through HTTP and `tests/e2e/meeting_client.py` (WebRTC with a real speech recording). A test
 describes what a user or operator sees, not how a function is built (hard rule 10). Do not add
 tests that require a GPU, weights or network access unless they are marked `@pytest.mark.gpu`.
-Behavior that only shows in the meeting page belongs in the Playwright suite under `client/e2e/`
-(`npm run test:e2e --prefix client`, see [docs/development.md](docs/development.md)); it serves the
-built client from `tests/browser/server.py`.
+Behavior that only shows in the meeting page has no automated browser tests: check it by hand in a
+browser against plain `agentic-meeting serve`.
 
 ## Before you finish
 

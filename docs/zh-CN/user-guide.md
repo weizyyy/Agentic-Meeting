@@ -24,8 +24,7 @@
 | Safari  | 16.4     |
 
 这些是页面的构建目标（`client/src/browserSupport.ts`）；Firefox 需要 128，是因为页面样式（Tailwind CSS 4）
-用到了它从这个版本开始支持的特性。自动化浏览器测试在 Linux 上运行当前的
-Chromium、Firefox 和 WebKit 引擎。macOS 上，安装版 Chrome、Edge、Firefox 和 Safari 已人工检查过麦克风输入、
+用到了它从这个版本开始支持的特性。macOS 上，安装版 Chrome、Edge、Firefox 和 Safari 已人工检查过麦克风输入、
 屏幕共享、断线自动恢复和结束会议。
 
 浏览器不能开会时，页面会直接说明原因，而不是等到连接时才报错：

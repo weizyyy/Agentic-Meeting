@@ -577,8 +577,6 @@ await client.disconnect();
 - **传输状态 `ready` 早于服务端就绪。** `SmallWebRTCTransport`（1.10.8）在 `sendReadyMessage()` 里、
   发出 `client-ready` 的那一刻就把状态设成 `ready`，而不是等 `bot-ready` 回来。页面据此显示「已连接」，
   这时服务端可能还没处理 `client-ready`、没跑 `on_client_ready`，甚至还没把这一路连接挂到会话上。
-  一次 CI 里，页面已经显示「已连接」，受控测试管线对 `POST /__test/emit` 却返回了 409。
-  浏览器测试推字幕前先等服务端就绪（`client/e2e/fixtures.ts` 里的 `serverReady()`）。
 - **助理的语音要自己挂到 `<audio>` 上**：传输层不会自动播放。用 `@pipecat-ai/client-react` 的
   `<PipecatClientProvider client={client}>` 包住界面，里面放一个 `<PipecatClientAudio />` 即可。
   客户端对象建一次，开始 / 结束只是对它 `connect()` / `disconnect()`。
@@ -623,10 +621,3 @@ await client.disconnect();
   `mediaState.mic.state === "uninitialized"`，授权被拒绝后的 `"error"` 不会触发重新初始化。
   `connectTo()` 在下一次主动开始或继续时，在现有错误处理里调用公开的 `client.initDevices()`。
   健康麦克风照常复用，首次拒绝不会在同一次点击里再次初始化。
-- 浏览器测试控制使用官方 **v1.12.0** 与已安装源码确认的 API：
-  [`SmallWebRTCConnection.pc`](https://github.com/pipecat-ai/pipecat/blob/v1.12.0/src/pipecat/transports/smallwebrtc/connection.py)
-  是真实 aiortc peer。`await connection.pc.close()` 触发传输关闭回调和 worker 清理，不发送主动离开的
-  `peerLeft` 或 `session_closed` 消息，用于验证实际传输恢复。
-  [`OutputAudioRawFrame`](https://github.com/pipecat-ai/pipecat/blob/v1.12.0/src/pipecat/frames/frames.py)
-  携带 16 位 PCM、采样率和声道数；测试 bot 通过已有 pipeline worker 排入音频帧，经过助理的真实远端
-  WebRTC 音轨。这些受控信号不运行语音识别或合成。

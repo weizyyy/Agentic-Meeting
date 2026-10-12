@@ -46,7 +46,7 @@ Python 单独使用 `uv run ruff format src tests scripts` 格式化。
 
 1. 小修小补以外的改动，请先开一个议题讨论方案。
 2. 从 `main` 创建分支，每个合并请求只做一件事。
-3. 补充或更新 `tests/e2e/` 中的端到端场景（会议页面的行为放在 `client/e2e/`）。
+3. 补充或更新 `tests/e2e/` 中的端到端场景。
    不要添加针对单个函数或类的单元测试，见下文。
 4. 行为或配置发生变化时，同时更新 `docs/` 与 `docs/zh-CN/` 下的文档，并在 `CHANGELOG.md` 的
    _Unreleased_ 一节中添加条目。

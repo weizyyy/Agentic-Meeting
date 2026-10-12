@@ -50,7 +50,7 @@ how to test changes that involve real models.
 
 1. Open an issue first for anything larger than a small fix, so the approach can be agreed on.
 2. Create a branch from `main` and keep each pull request focused on one change.
-3. Add or update end-to-end scenarios in `tests/e2e/` (or `client/e2e/` for the meeting page).
+3. Add or update end-to-end scenarios in `tests/e2e/`.
    Do not add unit tests of single functions or classes; see below.
 4. Update the documentation in both `docs/` and `docs/zh-CN/` when behavior or configuration
    changes, and add an entry under _Unreleased_ in `CHANGELOG.md`.

@@ -17,8 +17,6 @@
 client/node_modules/
 client/dist/
 client/.vite/
-client/test-results/
-client/playwright-report/
 
 **/.git
 **/__pycache__/

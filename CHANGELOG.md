@@ -21,6 +21,12 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The microphone level meter and its quiet-input chip in the top bar are replaced by the bars on
   the microphone button. A microphone that stays too quiet is still reported by the server's notice.
 
+### Removed
+
+- The Playwright browser end-to-end tests, their test server and the _Browser end-to-end_ CI job.
+  In 14 failed runs they caught one product defect; the other 13 were problems in the tests
+  themselves, and the job was the slowest in CI. Server behavior stays covered by `tests/e2e/`.
+
 ## [0.3.0] - 2026-10-12
 
 This release completes the v0.3 milestone: the web client keeps working across microphone

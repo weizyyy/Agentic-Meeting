@@ -24,7 +24,6 @@ jobs:
     outputs:
       python: ${{ steps.classify.outputs.python }}
       client: ${{ steps.classify.outputs.client }}
-      browser: ${{ steps.classify.outputs.browser }}
       images: ${{ steps.classify.outputs.images }}
     steps:
       - uses: actions/checkout@v7
@@ -38,16 +37,14 @@ jobs:
         run: |
           # A pull request is checked out as a merge commit whose first parent is the base branch.
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then base=HEAD^1; else base="$BEFORE"; fi
-          python=false client=false browser=false images=false
+          python=false client=false images=false
           if changed=$(git diff --name-only "$base" HEAD); then
             while IFS= read -r path; do
               case "$path" in
                 "") ;;
-                # Server code and runtime input: Python suite and the browser tests' real server.
-                src/* | config/* | .python-version) python=true browser=true ;;
-                pyproject.toml | uv.lock) python=true browser=true images=true ;;
-                # The browser tests' server is also linted with the Python suite.
-                tests/browser/*) python=true browser=true ;;
+                # Server code and runtime input.
+                src/* | config/* | .python-version) python=true ;;
+                pyproject.toml | uv.lock) python=true images=true ;;
                 # Container images and Compose files; a rule test compares their runtime versions.
                 docker/* | compose.yaml) python=true images=true ;;
                 # Locked dependencies and runtimes, which the images also install.
@@ -55,22 +52,21 @@ jobs:
                   python=true images=true ;;
                 # Python tests, scripts (linted and rule-checked), fixtures from submodules.
                 tests/* | scripts/*) python=true ;;
-                client/e2e/* | client/playwright.config.ts) browser=true ;;
-                client/*) client=true browser=true ;;
+                client/*) client=true ;;
                 # Documentation, formatter settings and files no test reads: Prettier only.
                 docs/* | *.md | LICENSE | .github/ISSUE_TEMPLATE/* | .github/dependabot.yml) ;;
                 package.json | package-lock.json | .prettierrc.json | .prettierignore) ;;
                 .pre-commit-config.yaml | .gitignore | .env.example) ;;
-                *) python=true client=true browser=true images=true ;;
+                *) python=true client=true images=true ;;
               esac
             done <<< "$changed"
             printf '%s\n' "$changed"
           else
             echo "Cannot list the changed files; running every job."
-            python=true client=true browser=true images=true
+            python=true client=true images=true
           fi
-          echo "python=$python client=$client browser=$browser images=$images" | tee -a "$GITHUB_STEP_SUMMARY"
-          printf 'python=%s\nclient=%s\nbrowser=%s\nimages=%s\n' "$python" "$client" "$browser" "$images" >> "$GITHUB_OUTPUT"
+          echo "python=$python client=$client images=$images" | tee -a "$GITHUB_STEP_SUMMARY"
+          printf 'python=%s\nclient=%s\nimages=%s\n' "$python" "$client" "$images" >> "$GITHUB_OUTPUT"
 
   formatting:
     name: Prettier
@@ -149,67 +145,6 @@ jobs:
 
       - name: Type-check and build
         run: npm run build
-
-  e2e:
-    name: Browser end-to-end
-    needs: changes
-    if: needs.changes.outputs.browser == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      UV_PYTHON: "3.12"
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            client/package-lock.json
-
-      - name: Install locked dependencies
-        run: |
-          uv sync --frozen --extra agent
-          npm ci
-          npm ci --prefix client
-
-      - name: Build web client
-        run: npm run build --prefix client
-
-      - name: Install browser engines and system dependencies
-        working-directory: client
-        run: npx playwright install --with-deps chromium firefox webkit
-
-      - name: Start virtual audio output
-        run: |
-          sudo apt-get install -y pulseaudio pulseaudio-utils
-          pulseaudio --start --exit-idle-time=-1
-          pactl load-module module-null-sink sink_name=e2e
-          pactl set-default-sink e2e
-          pactl list short sinks
-
-      - name: Test all browser engines
-        env:
-          # shortcut: 锁定的 Linux WebKit 会挂起离屏静音流；包含上游 319380 修复后移除。
-          WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS: "1"
-        run: npm run test:e2e --prefix client
-
-      - name: Upload failure diagnostics
-        if: failure() || cancelled()
-        uses: actions/upload-artifact@v4
-        with:
-          name: browser-e2e-diagnostics
-          path: |
-            client/playwright-report/
-            client/test-results/
-          retention-days: 3
-          if-no-files-found: ignore
 
   # The container images build and their programs start, without weights or a GPU. Only the CUDA
   # build of speech synthesis, which compiles for an hour, is left to the release (images.yml).
@@ -303,7 +238,7 @@ jobs:
   all-checks:
     name: All checks
     if: always()
-    needs: [changes, formatting, python, client, e2e, images]
+    needs: [changes, formatting, python, client, images]
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless every needed job succeeded
@@ -312,6 +247,5 @@ jobs:
           contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') ||
           (needs.python.result == 'skipped' && needs.changes.outputs.python != 'false') ||
           (needs.client.result == 'skipped' && needs.changes.outputs.client != 'false') ||
-          (needs.e2e.result == 'skipped' && needs.changes.outputs.browser != 'false') ||
           (needs.images.result == 'skipped' && needs.changes.outputs.images != 'false')
         run: exit 1

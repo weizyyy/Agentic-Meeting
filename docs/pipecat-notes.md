@@ -611,10 +611,7 @@ await client.disconnect();
 - **Transport state `ready` comes before the server is ready.** `SmallWebRTCTransport` (1.10.8) sets
   `ready` inside `sendReadyMessage()`, the moment it sends `client-ready`, not when `bot-ready`
   comes back. The page shows 已连接 from this state, so at that point the server may not have
-  processed `client-ready`, run `on_client_ready` or even attached the connection to a session. A CI
-  run showed the controlled test bot answering `POST /__test/emit` with 409 while the page already
-  showed 已连接. Browser tests wait for the server side (`serverReady()` in `client/e2e/fixtures.ts`)
-  before pushing captions.
+  processed `client-ready`, run `on_client_ready` or even attached the connection to a session.
 - **The assistant's audio must be attached to an `<audio>` element.** The transport does not play
   it. Wrap the UI in `<PipecatClientProvider client={client}>` and include `<PipecatClientAudio />`.
   The client object is created once; starting and ending a meeting call `connect()` and
@@ -674,12 +671,3 @@ await client.disconnect();
 - Screenshots do not use the SDK's `enableScreenShare`, which would create a WebRTC video track. The
   page calls `navigator.mediaDevices.getDisplayMedia()`, draws the picture onto a `<canvas>` and
   uploads still images.
-- Browser test controls use APIs verified in both the official **v1.12.0** and installed source:
-  [`SmallWebRTCConnection.pc`](https://github.com/pipecat-ai/pipecat/blob/v1.12.0/src/pipecat/transports/smallwebrtc/connection.py)
-  exposes the real aiortc peer. Closing that peer with `await connection.pc.close()` triggers the
-  transport's closed callback and worker cleanup, without sending the intentional `peerLeft` or
-  `session_closed` messages. This exercises transport recovery rather than changing page state.
-  [`OutputAudioRawFrame`](https://github.com/pipecat-ai/pipecat/blob/v1.12.0/src/pipecat/frames/frames.py)
-  carries 16-bit PCM, sample rate and channel count; the test bot queues it through the existing
-  pipeline worker to exercise the assistant's real remote WebRTC audio track. These controlled
-  signals do not exercise speech recognition or synthesis.
