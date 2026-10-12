@@ -250,13 +250,13 @@ For native desktop checks, run `uv run python -m tests.browser.server` at the re
 and open the URL printed after `E2E_READY` in an installed browser. This does not run the
 Playwright fixture or replace `getUserMedia` / `getDisplayMedia`. The loopback test server exposes:
 
-| Test operation                                          | Effect                                                                                                        |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `GET /__test/state`                                     | Session, peer, received PCM/non-silent frame counts and offer session IDs; raw microphone audio is not stored |
-| `POST /__test/emit` with `{"text":"fictional caption"}` | Sends a controlled caption through RTVI; this is not ASR                                                      |
-| `POST /__test/disconnect`                               | Closes the actual peer and waits for session cleanup without ending the meeting                               |
-| `POST /__test/offers` with `{"enabled":false}` / `true` | Rejects new offers with 503 / restores negotiation, for bounded retry tests                                   |
-| `POST /__test/tone`                                     | Queues one second of low-level 440 Hz, 24 kHz mono PCM in the output pipeline; this is not TTS                |
+| Test operation                                          | Effect                                                                                                                                                                                  |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /__test/state`                                     | Session, peer, received PCM/non-silent frame counts and the session ID of each offer that opens a peer (renegotiating the live peer is not counted); raw microphone audio is not stored |
+| `POST /__test/emit` with `{"text":"fictional caption"}` | Sends a controlled caption through RTVI; this is not ASR                                                                                                                                |
+| `POST /__test/disconnect`                               | Closes the actual peer and waits for session cleanup without ending the meeting                                                                                                         |
+| `POST /__test/offers` with `{"enabled":false}` / `true` | Rejects new offers with 503 / restores negotiation, for bounded retry tests                                                                                                             |
+| `POST /__test/tone`                                     | Queues one second of low-level 440 Hz, 24 kHz mono PCM in the output pipeline; this is not TTS                                                                                          |
 
 The controls exist only in `tests/browser/server.py`; production does not mount them. Wait for
 an active peer before sending captions or tones (otherwise 409). Reconnection checks observe

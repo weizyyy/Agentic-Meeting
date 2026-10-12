@@ -93,6 +93,12 @@ async def ice_candidate(request: SmallWebRTCPatchRequest):
   the camel-case key, while the `SmallWebRTCRequest` field is `request_data`: letting FastAPI parse
   the body as in the skeleton above silently drops it. Read the raw JSON and use
   `SmallWebRTCRequest.from_dict(payload)`, which accepts both spellings, as `web/app.py` does.
+- **A renegotiation follows right after connecting.** When the peer has a video transceiver,
+  `SmallWebRTCConnection.connect()` can ask the browser to renegotiate, and the SDK answers with
+  another `POST /api/offer` carrying the same `pc_id` (`restart_pc` false) and the same
+  `requestData`. The handler reuses the existing connection and does not call the connection
+  callback, so this request picks no meeting. It can arrive before the page knows its session ID,
+  so it may carry no `session_id` even when the page continues a meeting later.
 - `IceServer` is aiortc's `RTCIceServer(urls, username, credential, credentialType)`.
   `SmallWebRTCRequestHandler(ice_servers=None)` offers host candidates only, which is enough on a
   single LAN. The handler's ICE servers apply to the server's peer connection only; the browser

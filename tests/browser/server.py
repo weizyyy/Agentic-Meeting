@@ -194,7 +194,17 @@ def application(cfg: AppConfig, store: Store, seeds: dict[str, Any]) -> FastAPI:
                 return await call_next(request)
             data = body.get("requestData", {}) if isinstance(body, dict) else {}
             wanted = data.get("session_id") if isinstance(data, dict) else None
-            bot.offer_sessions.append(wanted if isinstance(wanted, str) else None)
+            # 对当前在用 peer 的重新协商（同一个 pc_id、不重建）不新建连接、不选会议，不记：
+            # 服务端连上后会要求重新协商，页面这时可能还不知道自己的会议编号，记下来就成了一条「另开一场」的假记录。
+            live_pc = bot.connection.pc_id if bot.connection else None
+            renegotiation = (
+                isinstance(body, dict)
+                and live_pc is not None
+                and body.get("pc_id") == live_pc
+                and not body.get("restart_pc")
+            )
+            if not renegotiation:
+                bot.offer_sessions.append(wanted if isinstance(wanted, str) else None)
             if not bot.offers_enabled:
                 return JSONResponse({"detail": "测试协商暂不可用"}, status_code=503)
         return await call_next(request)

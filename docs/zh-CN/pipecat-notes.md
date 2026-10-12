@@ -86,6 +86,9 @@ async def ice_candidate(request: SmallWebRTCPatchRequest):
   驼峰的 `requestData`，而 `SmallWebRTCRequest` 的字段是 `request_data`——像上面骨架那样让 FastAPI 直接按
   `SmallWebRTCRequest` 解析请求体，驼峰那个键会被忽略（`request_data` 恒为 `None`）。要拿到它，读原始 JSON 后用
   `SmallWebRTCRequest.from_dict(payload)`（它同时接受两种写法）。`web/app.py` 就是这么做的。
+- **连上之后紧跟一次重新协商。** peer 带视频收发器时，`SmallWebRTCConnection.connect()` 可能让浏览器重新协商，
+  SDK 再发一次 `POST /api/offer`，带同一个 `pc_id`（`restart_pc` 为 false）和同一份 `requestData`。
+  处理器复用已有连接，不调用连接回调，所以这次请求不选会议。它可能早于页面得知自己的会议编号，因此可能不带 `session_id`。
 - `IceServer` 就是 aiortc 的 `RTCIceServer(urls, username, credential, credentialType)`；
   `SmallWebRTCRequestHandler(ice_servers=None)` 只提供 host 候选，同一局域网内够用。处理器里的 ICE 服务器
   只作用于服务端这一端的连接，浏览器那一端要另外给（§12）。
