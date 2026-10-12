@@ -21,6 +21,7 @@ from agentic_meeting.config import (
     AppConfig,
     check_ready,
     check_warnings,
+    gpu_weights,
     load_config,
     load_env_file,
     server_warnings,
@@ -55,6 +56,31 @@ def _load_cfg(config_path: str | None) -> AppConfig | None:
     return None
 
 
+def _size_text(size: int) -> str:
+    gib = size / 1024**3
+    return f"{gib:.1f} GB" if gib >= 1 else f"{size / 1024**2:.0f} MB"
+
+
+def _print_gpu_weights(cfg: AppConfig) -> None:
+    """显存估算：本机拉起的 GPU 服务的权重有多大（docs/runtimes.md §4）。"""
+    weights = gpu_weights(cfg)
+    if not weights:
+        print("显存估算：没有由本项目拉起、使用 GPU 的推理服务。")
+        return
+    print("显存估算（只算模型权重文件，实际占用更高）：")
+    width = max(_width(label) for label, _ in weights) + 2
+    for label, size in weights:
+        text = "权重文件未就绪，未计入" if size is None else _size_text(size)
+        print(f"  {_pad(label, width)}{text}")
+    known = [size for _, size in weights if size is not None]
+    total = _size_text(sum(known)) if known else "—"
+    print(f"  {_pad('合计', width)}{total}")
+    print(
+        "  上下文缓存和运行时缓冲另需显存；语音合成按 GPU 版计算。"
+        "已测配置的实际占用见 docs/runtimes.md §4。"
+    )
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     cfg = _load_cfg(args.config)
     if cfg is None:
@@ -66,6 +92,8 @@ def cmd_check(args: argparse.Namespace) -> int:
     )
     for warning in [*server_warnings(cfg), *check_warnings(cfg)]:
         print(f"提醒：{warning}")
+
+    _print_gpu_weights(cfg)
 
     problems = check_ready(cfg)
     if problems:
@@ -221,6 +249,8 @@ def _check_before_start(cfg: AppConfig) -> bool:
     """打印数据外发提醒，核对缺项。有缺项返回 False（调用方以退出码 1 结束）。"""
     for warning in check_warnings(cfg):
         print(f"提醒：{warning}")
+    _print_gpu_weights(cfg)
+
     problems = check_ready(cfg)
     if problems:
         print(f"还有 {len(problems)} 项未就绪，先补齐再启动：")

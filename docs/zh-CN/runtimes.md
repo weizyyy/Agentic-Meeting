@@ -178,6 +178,12 @@ Linux + CUDA + Python 3.12）。要看的文件：
 
 填完后运行 `uv run agentic-meeting check`，它会列出所有还没准备好的文件。
 
+`check` 还会打印显存估算：列出由本项目在 GPU 上拉起的每个服务的权重文件大小及合计。
+留在 CPU 上的服务不计入：`llama-server` 的 `gpu_layers = "0"` 或 `extra_args` 里有 `--device none`，
+以及 `diarization.gpu = -1`。语音合成按 GPU 版计算，因为从配置里看不出 `tts-server` 是怎么编译的。
+估算只算权重，是下限：上下文缓存和运行时缓冲另需显存；例如上面的 0.6B 语音合成模型实际约占
+2.4 GB。请对照上表的硬件档位判断。
+
 ## 5. 多显卡分配
 
 `llama-server --list-devices` 给出的编号是 llama.cpp 自己的编号。分配方式二选一：

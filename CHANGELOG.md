@@ -6,6 +6,12 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `agentic-meeting check` prints a GPU memory estimate: the size of the weight files of every
+  service it launches on the GPU, and their total. Context caches and runtime buffers come on top,
+  so the figure is a lower bound.
+
 ### Fixed
 
 - Automatic peer replacement keeps the microphone track used by the new peer instead of stopping

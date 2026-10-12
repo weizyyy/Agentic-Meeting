@@ -722,6 +722,50 @@ def check_ready(cfg: AppConfig) -> list[str]:
     return problems
 
 
+def _on_gpu(launch: LlamaServerLaunch) -> bool:
+    """llama-server 会不会把权重放到 GPU 上：-ngl 0 或 --device none 时不会。"""
+    args = launch.extra_args
+    device_none = any(
+        a == "--device" and i + 1 < len(args) and args[i + 1].strip().lower() == "none"
+        for i, a in enumerate(args)
+    )
+    return launch.gpu_layers.strip() != "0" and not device_none
+
+
+def gpu_weights(cfg: AppConfig) -> list[tuple[str, int | None]]:
+    """由本项目拉起、会用 GPU 的推理服务，以及它们的权重文件大小（字节）。
+
+    只算权重文件本身，是显存占用的下限：上下文缓存和运行时缓冲另算。
+    有文件没填或不存在时大小记 None（缺项由 :func:`check_ready` 报告）。
+    语音合成是否用 GPU 取决于编译方式，配置里看不出来，按 GPU 版计。
+    """
+    services: list[tuple[str, list[str]]] = []
+    rt = cfg.realtime_llm
+    if rt.managed and rt.llama_server is not None and _on_gpu(rt.llama_server.launch):
+        launch = rt.llama_server.launch
+        files = [launch.model_path]
+        if rt.llama_server.supports_vision:
+            files.append(launch.mmproj_path)
+        services.append(("实时模型", files))
+    if cfg.asr.launch.enabled and _on_gpu(cfg.asr.launch):
+        services.append(("语音识别", [cfg.asr.launch.model_path, cfg.asr.launch.mmproj_path]))
+    if cfg.diarization.backend != "none" and cfg.diarization.gpu >= 0:
+        services.append(("说话人区分", [cfg.diarization.model_path]))
+    if cfg.tts.enabled and cfg.tts.launch.enabled:
+        services.append(("语音合成", [cfg.tts.launch.model_path, cfg.tts.launch.codec_path]))
+    if cfg.embedding.enabled and cfg.embedding.launch.enabled and _on_gpu(cfg.embedding.launch):
+        services.append(("向量嵌入", [cfg.embedding.launch.model_path]))
+
+    result: list[tuple[str, int | None]] = []
+    for label, files in services:
+        paths = [cfg.resolve(f) for f in files if f]
+        if len(paths) < len(files) or not all(p.is_file() for p in paths):
+            result.append((label, None))
+        else:
+            result.append((label, sum(p.stat().st_size for p in paths)))
+    return result
+
+
 def is_loopback(url: str) -> bool:
     """地址的主机是否是本机回环地址（localhost / 127.x / ::1）。"""
     return is_loopback_host(urlparse(url).hostname or "")

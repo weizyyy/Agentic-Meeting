@@ -193,6 +193,14 @@ Notes:
 
 Run `uv run agentic-meeting check` afterwards; it lists every file that is still missing.
 
+`check` also prints a GPU memory estimate: the size of the weight files of every service it launches
+on the GPU, and their total. Services kept on the CPU are left out: `gpu_layers = "0"` or
+`--device none` in `extra_args` for `llama-server`, and `diarization.gpu = -1`. Speech synthesis is
+counted as the GPU build, because the configuration does not show how `tts-server` was built. Only
+the weights are counted, so the estimate is a lower bound: context caches and runtime buffers come
+on top. For example, the 0.6B speech synthesis model above uses about 2.4 GB in total. Compare the
+estimate with the hardware tiers in the table above.
+
 ## 5. Multiple GPUs
 
 `llama-server --list-devices` prints llama.cpp's own device ids. A service is assigned to a GPU in
