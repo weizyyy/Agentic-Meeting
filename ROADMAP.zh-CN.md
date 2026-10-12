@@ -20,15 +20,15 @@
 
 ## [v0.3 – 全平台](https://github.com/weizyyy/Agentic-Meeting/milestone/2)
 
-在开发所用平台之外完成验证，并降低部署难度。
+在开发所用平台之外完成验证，并降低部署难度。**已在 [0.3.0](CHANGELOG.md#030---2026-10-12) 发布。**
 
-| 事项                                                                  | 议题                                                        |
-| --------------------------------------------------------------------- | ----------------------------------------------------------- |
-| Linux 与 macOS 上的完整系统验证、长时间运行、llama.cpp 方式的实时模型 | [#12](https://github.com/weizyyy/Agentic-Meeting/issues/12) |
-| 桌面浏览器兼容：Chrome、Edge、Safari、Firefox                         | [#13](https://github.com/weizyyy/Agentic-Meeting/issues/13) |
-| 接入 CI 的浏览器端到端测试（已在 0.2.0 完成）                         | [#14](https://github.com/weizyyy/Agentic-Meeting/issues/14) |
-| 应用与全部推理服务的容器化（已在 0.2.1 完成）                         | [#15](https://github.com/weizyyy/Agentic-Meeting/issues/15) |
-| 测试中的固定等待改为等待条件成立（已在 0.2.0 完成）                   | [#17](https://github.com/weizyyy/Agentic-Meeting/issues/17) |
+| 事项                                                                                     | 议题                                                        |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Linux 与 macOS 上的完整系统验证、长时间运行、llama.cpp 方式的实时模型（已在 0.3.0 完成） | [#12](https://github.com/weizyyy/Agentic-Meeting/issues/12) |
+| 桌面浏览器兼容：Chrome、Edge、Safari、Firefox（已在 0.3.0 完成）                         | [#13](https://github.com/weizyyy/Agentic-Meeting/issues/13) |
+| 接入 CI 的浏览器端到端测试（已在 0.2.0 完成）                                            | [#14](https://github.com/weizyyy/Agentic-Meeting/issues/14) |
+| 应用与全部推理服务的容器化（已在 0.2.1 完成）                                            | [#15](https://github.com/weizyyy/Agentic-Meeting/issues/15) |
+| 测试中的固定等待改为等待条件成立（已在 0.2.0 完成）                                      | [#17](https://github.com/weizyyy/Agentic-Meeting/issues/17) |
 
 ## [v0.4 – 前端重构](https://github.com/weizyyy/Agentic-Meeting/milestone/3)
 

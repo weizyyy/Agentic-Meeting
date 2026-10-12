@@ -22,15 +22,15 @@ Make it safe to let other people reach an instance. **Released in [0.2.0](CHANGE
 
 ## [v0.3 – Runs everywhere](https://github.com/weizyyy/Agentic-Meeting/milestone/2)
 
-Verify the system beyond the platform it was developed on and make it easier to deploy.
+Verify the system beyond the platform it was developed on and make it easier to deploy. **Released in [0.3.0](CHANGELOG.md#030---2026-10-12).**
 
-| Item                                                                                | Issue                                                       |
-| ----------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| Full-system verification on Linux and macOS, long runs, the llama.cpp realtime mode | [#12](https://github.com/weizyyy/Agentic-Meeting/issues/12) |
-| Desktop browser compatibility: Chrome, Edge, Safari and Firefox                     | [#13](https://github.com/weizyyy/Agentic-Meeting/issues/13) |
-| Browser end-to-end tests in CI (done in 0.2.0)                                      | [#14](https://github.com/weizyyy/Agentic-Meeting/issues/14) |
-| Containers for the application and all inference services (done in 0.2.1)           | [#15](https://github.com/weizyyy/Agentic-Meeting/issues/15) |
-| Condition-based waits in the test suite (done in 0.2.0)                             | [#17](https://github.com/weizyyy/Agentic-Meeting/issues/17) |
+| Item                                                                                                | Issue                                                       |
+| --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Full-system verification on Linux and macOS, long runs, the llama.cpp realtime mode (done in 0.3.0) | [#12](https://github.com/weizyyy/Agentic-Meeting/issues/12) |
+| Desktop browser compatibility: Chrome, Edge, Safari and Firefox (done in 0.3.0)                     | [#13](https://github.com/weizyyy/Agentic-Meeting/issues/13) |
+| Browser end-to-end tests in CI (done in 0.2.0)                                                      | [#14](https://github.com/weizyyy/Agentic-Meeting/issues/14) |
+| Containers for the application and all inference services (done in 0.2.1)                           | [#15](https://github.com/weizyyy/Agentic-Meeting/issues/15) |
+| Condition-based waits in the test suite (done in 0.2.0)                                             | [#17](https://github.com/weizyyy/Agentic-Meeting/issues/17) |
 
 ## [v0.4 – Frontend redesign](https://github.com/weizyyy/Agentic-Meeting/milestone/3)
 

@@ -6,20 +6,47 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-12
+
+This release completes the v0.3 milestone: the web client keeps working across microphone
+permission changes, reconnections and screen-sharing interruptions in Chrome, Edge, Firefox and
+Safari, and `agentic-meeting check` estimates the GPU memory of the configured local services.
+
+Upgrading from 0.2.1: nothing to change. Configuration, database and containers work as before.
+
 ### Added
 
 - `agentic-meeting check` prints a GPU memory estimate: the size of the weight files of every
   service it launches on the GPU, and their total. Context caches and runtime buffers come on top,
-  so the figure is a lower bound.
+  so the figure is a lower bound ([#57]).
+
+### Changed
+
+- The browser end-to-end tests cover a connection that closes unexpectedly, a manual resume after
+  automatic retries give up, a meeting taken over by a second page, microphone permission granted
+  after a refusal, the assistant's voice blocked by autoplay, and screen captures that arrive after
+  the meeting ended ([#55], by [@gad-en1nd]).
+- The user guide and README state which desktop browsers have been checked by hand on macOS
+  ([#55], [#56]).
+- Lowering GPU memory requirements ([#16]) is now a long-term goal outside any release; the roadmap
+  lists it under Not scheduled ([#59]).
 
 ### Fixed
 
 - Automatic peer replacement keeps the microphone track used by the new peer instead of stopping
-  it while closing the old connection. Ending the meeting still releases sender tracks.
+  it while closing the old connection. Ending the meeting still releases sender tracks ([#55], by
+  [@gad-en1nd]).
 - Starting or resuming after microphone permission is restored retries device initialization
-  without requiring a page reload.
+  without requiring a page reload ([#55], by [@gad-en1nd]).
 - Screen sharing releases streams returned after the meeting ends or disconnects, and repeated
-  clicks while the screen picker is open no longer request another capture.
+  clicks while the screen picker is open no longer request another capture ([#55], by
+  [@gad-en1nd]).
+
+[#16]: https://github.com/weizyyy/Agentic-Meeting/issues/16
+[#55]: https://github.com/weizyyy/Agentic-Meeting/pull/55
+[#56]: https://github.com/weizyyy/Agentic-Meeting/pull/56
+[#57]: https://github.com/weizyyy/Agentic-Meeting/pull/57
+[#59]: https://github.com/weizyyy/Agentic-Meeting/pull/59
 
 ## [0.2.1] - 2026-10-11
 
@@ -225,7 +252,8 @@ First public release.
 - The longest continuous run tested is 54 minutes.
 - The web UI, prompts and CLI messages are available in Chinese only.
 
-[Unreleased]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.1.0...v0.1.1

@@ -210,7 +210,7 @@ Full results and methodology are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Project status
 
-The current release is 0.2.1. The project is at an early stage and changes quickly.
+The current release is 0.3.0. The project is at an early stage and changes quickly.
 
 - Verified with real models on Windows 11 with NVIDIA GPUs. The automated end-to-end tests, which
   run the whole application with fake inference services, pass on Windows and Linux, and the web
@@ -225,10 +225,11 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 ## Roadmap
 
 Version 0.2 added an access password, deployment guidance, health endpoints and data retention;
-0.2.1 added container images and clearer messages when a browser cannot hold a meeting. Planned
-next, in order: verified support for more platforms and browsers and lower GPU memory
-requirements; a redesigned and translated web client; live watching, per-meeting access and
-parallel meetings. See [ROADMAP.md](ROADMAP.md).
+0.2.1 added container images and clearer messages when a browser cannot hold a meeting; 0.3.0
+completed desktop browser compatibility and added a GPU memory estimate to `agentic-meeting check`.
+Planned next, in order: a redesigned and translated web client; live watching, per-meeting access
+and parallel meetings. Lower GPU memory requirements remain a long-term goal. See
+[ROADMAP.md](ROADMAP.md).
 
 ## Contributing
 
