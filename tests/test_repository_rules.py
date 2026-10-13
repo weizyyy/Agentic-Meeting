@@ -13,6 +13,7 @@ import tomllib
 import pytest
 
 from agentic_meeting.config import EXAMPLE_CONFIG_PATH, REPO_ROOT, load_asr_profile, load_config
+from agentic_meeting.messages import NOTICES, REASONS
 from agentic_meeting.pipeline.tools import realtime_tools
 
 MODEL_NAMES = ("ornith", "confucius", "nemotron", "qwen3", "sortformer")
@@ -88,3 +89,47 @@ def test_realtime_eval_cases_cover_exactly_the_realtime_tools():
     names = {tool.__name__ for tool in realtime_tools(cfg)}
     assert {case["expect_tool"] for case in cases} - {None} == names
     assert sum(case["expect_tool"] is None for case in cases) >= 3
+
+
+def _notice_tables(path) -> tuple[dict[str, dict[str, str]], set[str]]:
+    """interfaces.md §6.1.1 的两张表：提示代码 → 参数及类型，以及 reason 的取值。"""
+    text = path.read_text(encoding="utf-8")
+    section = text[text.index("### 6.1.1") :]
+    section = section[: section.index("\n### ", 1)]
+    codes: dict[str, dict[str, str]] = {}
+    reasons: set[str] = set()
+    for row in re.findall(r"^\| `([a-z_.]+)` +\|([^\n]*)$", section, re.M):
+        name, rest = row
+        if name in ("code", "reason"):
+            continue  # 表头
+        if "." in name:
+            params = rest.split("|")[1]
+            codes[name] = dict(re.findall(r"`(\w+)`[:：] *(string|number)", params))
+        else:
+            reasons.add(name)
+    return codes, reasons
+
+
+def test_notice_codes_agree_between_docs_server_and_page():
+    """服务端提示的代码（interfaces.md §6.1.1）：文档、服务端和页面的表一致。
+
+    页面认不出代码时退回服务端的中文，端到端测试看不出来少了一条翻译；
+    很多代码只在服务出错时才发，也不是每一条都有场景覆盖。
+    """
+    page = (REPO_ROOT / "client" / "src" / "i18n" / "serverNotices.ts").read_text(encoding="utf-8")
+    block = page[page.index("NOTICE_PARAMS = {") : page.index("} as const satisfies")]
+    page_codes = {
+        code: dict(re.findall(r"(\w+): \"(string|number)\"", params))
+        for code, params in re.findall(r"^ +\"([a-z_.]+)\": \{([^}]*)\},$", block, re.M)
+    }
+    reasons_block = page[page.index("NOTICE_REASONS = [") :]
+    page_reasons = set(re.findall(r"\"(\w+)\"", reasons_block[: reasons_block.index("]")]))
+
+    for doc in (
+        REPO_ROOT / "docs" / "interfaces.md",
+        REPO_ROOT / "docs" / "zh-CN" / "interfaces.md",
+    ):
+        doc_codes, doc_reasons = _notice_tables(doc)
+        assert doc_codes == page_codes, f"{doc.relative_to(REPO_ROOT)} 与页面的提示表不一致"
+        assert doc_reasons == page_reasons == set(REASONS), doc.relative_to(REPO_ROOT)
+    assert set(NOTICES) == set(page_codes)

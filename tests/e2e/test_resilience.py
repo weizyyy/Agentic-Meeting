@@ -22,9 +22,13 @@ async def test_transcription_survives_failing_assistant_services(app, http, meet
     await client.speak()
     await client.next_message("utterance")
     await client.wait_for(
-        lambda: any("助理暂不可用" in n["text"] for n in client.of_type("notice")),
+        lambda: any(n["code"] == "llm.unavailable" for n in client.of_type("notice")),
         "提示助理暂不可用",
     )
+    notice = next(n for n in client.of_type("notice") if n["code"] == "llm.unavailable")
+    assert notice["level"] == "warn" and "助理暂不可用" in notice["text"]
+    # 停掉的服务回 503：页面按 reason 翻译，不带原始错误
+    assert notice["params"] == {"reason": "server_error", "status": 503, "detail": ""}
 
     inference.asr.say("模型挂了字幕还在继续")
     await client.speak()

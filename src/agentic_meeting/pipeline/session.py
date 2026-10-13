@@ -35,6 +35,7 @@ from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
 from agentic_meeting.config import RetentionConfig
 from agentic_meeting.diar.base import Diarizer, NullDiarizer
 from agentic_meeting.diar.stream import SessionDiarizer
+from agentic_meeting.messages import Notice, message
 from agentic_meeting.store.db import CleanupPlan, SessionBusy, Store
 from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import Session
@@ -42,7 +43,6 @@ from agentic_meeting.types import Session
 TAKEOVER_TIMEOUT_SECS = 10.0
 SHUTDOWN_TIMEOUT_SECS = 3.0  # 应用退出时等活动连接收尾的时间
 NOTIFY_GRACE_SECS = 0.2  # 发出 session_closed 之后，等这么久再取消管线，让消息有机会送达
-RENUMBERED_NOTICE = "服务重启过，说话人编号可能与之前不同；认错的可以在说话人那里用「合并到…」收拾"
 
 
 class SessionNotFound(LookupError):
@@ -239,7 +239,7 @@ class SessionManager:
         self,
         live: LiveConnection,
         build: Callable[[], Awaitable[Diarizer]],
-        notice: Callable[[str, str], Awaitable[None]] | None = None,
+        notice: Notice | None = None,
     ) -> Diarizer:
         """这路连接用的说话人区分。
 
@@ -262,7 +262,7 @@ class SessionManager:
             except Exception:
                 logger.exception("读取已有的说话人编号失败，新流的编号不加偏移")
             if offset > 0 and notice is not None:
-                await notice("info", RENUMBERED_NOTICE)
+                await notice("info", message("speakers.renumbered"))
         stream = SessionDiarizer(inner, session_id=live.session.id, speaker_offset=offset)
         stream.begin_connection(live.base_secs)
         self._stream = stream

@@ -13,6 +13,7 @@ import { login } from "./login.ts";
 import { notices } from "./notices.ts";
 import { report } from "./report.ts";
 import { screen } from "./screen.ts";
+import { serverNotices, serverNoticeText, type NoticeParams } from "./serverNotices.ts";
 import { session } from "./session.ts";
 import { tasks } from "./tasks.ts";
 import {
@@ -34,6 +35,7 @@ const areas = {
   report,
   login,
   notices,
+  serverNotices,
 };
 
 export type Messages = { readonly [K in keyof typeof areas]: (typeof areas)[K]["en"] };
@@ -89,3 +91,12 @@ export function formatSpan(t: Messages, secs: number): string {
 
 export type { Language } from "./define.ts";
 export type { LanguageChoice } from "./language.ts";
+
+/** 提示的文字：服务端的按当前语言翻译（认不出来就用服务端给的中文），页面自己的已经是生成时的语言。 */
+export function noticeText(
+  t: Messages,
+  notice: { text: string; server?: { code: string | null; params: NoticeParams } },
+): string {
+  if (!notice.server) return notice.text;
+  return serverNoticeText(t.serverNotices, notice.server.code, notice.server.params) ?? notice.text;
+}

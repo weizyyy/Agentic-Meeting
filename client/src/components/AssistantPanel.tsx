@@ -2,7 +2,7 @@ import { MessageSquareTextIcon, Volume2Icon, XIcon } from "lucide-react";
 
 import { AudioVisualizerBar } from "@/components/pipecat/audio-visualizer-bar";
 import { Button } from "@/components/ui/button";
-import { useI18n } from "../i18n/index.ts";
+import { noticeText, useI18n } from "../i18n/index.ts";
 import type { Notice, ReplyMode } from "../meetingState.ts";
 import type { AssistantStateName, NoticeLevel } from "../protocol.ts";
 import { TextInput } from "./TextInput.tsx";
@@ -86,7 +86,7 @@ export function AssistantPanel({
                 key={notice.id}
                 className={`flex items-start gap-2 rounded-lg py-1.5 pr-1.5 pl-3 text-sm ${NOTICE_TONES[notice.level]}`}
               >
-                <span className="min-w-0 flex-1 py-0.5">{notice.text}</span>
+                <span className="min-w-0 flex-1 py-0.5">{noticeText(t, notice)}</span>
                 <Button
                   variant="ghost"
                   size="icon-xs"

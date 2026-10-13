@@ -37,6 +37,7 @@ from pipecat.services.stt_service import STTService
 from pipecat.utils.time import time_now_iso8601
 
 from agentic_meeting.asr.base import ASR_SAMPLE_RATE, StreamingASR
+from agentic_meeting.messages import Message, message
 from agentic_meeting.types import ASRDelta
 
 # 没收到 finalized 转录帧时，轮次结束判定最多再等这么久（interfaces.md §3.4 第 8 条）。
@@ -195,7 +196,7 @@ class StreamingASRService(STTService):
                 if recovering:
                     recovering = False
                     logger.info("识别后端已恢复")
-                    await self._notice("info", "识别服务已恢复")
+                    await self._notice("info", message("asr.recovered"))
                 async for delta in self._backend.deltas():
                     try:
                         await self._handle_delta(delta)
@@ -210,7 +211,7 @@ class StreamingASRService(STTService):
                 logger.warning(f"识别后端不可用：{e}；{delay:.1f} 秒后重试")
                 if not recovering:
                     recovering = True
-                    await self._notice("warn", "识别服务暂时不可用，正在重试")
+                    await self._notice("warn", message("asr.unavailable"))
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, self._retry_max_secs)
 
@@ -252,10 +253,8 @@ class StreamingASRService(STTService):
         frame.includes_inter_frame_spaces = True
         await self.push_frame(frame)
 
-    async def _notice(self, level: str, text: str) -> None:
+    async def _notice(self, level: str, msg: Message) -> None:
         try:
-            await self.push_frame(
-                RTVIServerMessageFrame(data={"type": "notice", "level": level, "text": text})
-            )
+            await self.push_frame(RTVIServerMessageFrame(data=msg.notice(level)))
         except Exception:
             logger.exception("推送提示消息失败")

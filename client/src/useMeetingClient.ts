@@ -106,7 +106,12 @@ export function createMeetingClient(dispatch: Dispatch<Action>): PipecatClient {
             dispatch({ type: "assistantState", state: message.state });
             break;
           case "notice":
-            dispatch({ type: "notice", level: message.level, text: message.text });
+            dispatch({
+              type: "notice",
+              level: message.level,
+              text: message.text,
+              server: { code: message.code, params: message.params },
+            });
             break;
           case "frame": {
             const { id, t, width, height } = message;

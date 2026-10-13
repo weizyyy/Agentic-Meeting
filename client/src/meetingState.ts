@@ -12,6 +12,7 @@ import {
   type HistoryItem,
 } from "./captions.ts";
 import { messages } from "./i18n/index.ts";
+import type { NoticeParams } from "./i18n/serverNotices.ts";
 import type {
   AssistantStateName,
   CaptionMessage,
@@ -41,6 +42,8 @@ export interface Notice {
   id: number;
   level: NoticeLevel;
   text: string;
+  /** 服务端的提示带代码和参数，显示时按当时的界面语言翻译（noticeText）。 */
+  server?: { code: string | null; params: NoticeParams };
 }
 
 export interface MeetingState {
@@ -135,7 +138,7 @@ export type Action =
   | { type: "textSent" }
   | { type: "llmStarted" }
   | { type: "llmText"; text: string }
-  | { type: "notice"; level: NoticeLevel; text: string }
+  | { type: "notice"; level: NoticeLevel; text: string; server?: Notice["server"] }
   | { type: "dismissNotice"; id: number }
   | { type: "sessionsLoaded"; items: SessionSummary[] }
   | {
@@ -174,8 +177,13 @@ export function connectionOf(transport: string): ConnectionState {
   }
 }
 
-function pushNotice(state: MeetingState, level: NoticeLevel, text: string): MeetingState {
-  const notice: Notice = { id: state.nextNoticeId, level, text };
+function pushNotice(
+  state: MeetingState,
+  level: NoticeLevel,
+  text: string,
+  server?: Notice["server"],
+): MeetingState {
+  const notice: Notice = { id: state.nextNoticeId, level, text, ...(server && { server }) };
   return {
     ...state,
     notices: [...state.notices, notice].slice(-MAX_NOTICES),
@@ -333,7 +341,7 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
     case "llmText":
       return { ...state, assistantText: state.assistantText + action.text };
     case "notice":
-      return pushNotice(state, action.level, action.text);
+      return pushNotice(state, action.level, action.text, action.server);
     case "dismissNotice":
       return { ...state, notices: state.notices.filter((n) => n.id !== action.id) };
     case "sessionsLoaded": {

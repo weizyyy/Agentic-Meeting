@@ -1228,25 +1228,25 @@ Task-count collection failed while a caption sample is available, HTTP 200:
 The server pushes `RTVIServerMessageFrame(data=<object>)`; the browser receives it in
 `onServerMessage`. Every message has a `type`:
 
-| `type`             | Other fields                                                              | Meaning                                                                                                                                                                                                                   |
-| ------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `caption`          | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable`        | Live caption of the segment being spoken. A later message with the same `segment_id` replaces the earlier one                                                                                                             |
-| `utterance`        | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source` | A caption has been finalized and stored; it replaces the live caption with that `segment_id`. If `id` is already on the page, a new segment was merged into that caption (§4.3): `text` is the merged text                |
-| `utterance_update` | `id, speaker_idx, speaker_name`                                           | Speaker correction                                                                                                                                                                                                        |
-| `speaker`          | `idx, display_name`                                                       | Speaker renamed                                                                                                                                                                                                           |
-| `speakers_merged`  | `from, into, display_name`                                                | Speaker `from` was merged into `into`                                                                                                                                                                                     |
-| `frame`            | `id, t, width, height`                                                    | New screenshot                                                                                                                                                                                                            |
-| `frame_caption`    | `id, caption`                                                             | Screenshot summary available                                                                                                                                                                                              |
-| `assistant_state`  | `state`: `idle` / `listening` / `thinking` / `speaking`                   | Assistant state                                                                                                                                                                                                           |
-| `task`             | `id, label, goal, status, brief, error, modality, created_at`             | Task created or changed; `id` is the full id and `label` the short one (`t3`)                                                                                                                                             |
-| `task_event`       | `task_id, at, kind, summary`                                              | Task progress                                                                                                                                                                                                             |
-| `notice`           | `level`: `info` / `warn` / `error`, `text`                                | Something the user should know, such as a degraded service. Errors of the realtime LLM and TTS are translated into notices by `pipeline/errors.py`; of Pipecat's own RTVI `error` messages the page shows only fatal ones |
-| `session`          | `id, title, keep, started_at, resumed, base_secs, state`                  | Sent once after connecting: which session the connection belongs to, its current keep flag, whether it is a resume, and the timeline origin of this connection                                                            |
-| `session_closed`   | `reason`: `taken_over` / `ended` / `server_stopping`                      | Why the server is about to close the connection (best effort)                                                                                                                                                             |
+| `type`             | Other fields                                                              | Meaning                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------ | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caption`          | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable`        | Live caption of the segment being spoken. A later message with the same `segment_id` replaces the earlier one                                                                                                                                                                                                                                                                            |
+| `utterance`        | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source` | A caption has been finalized and stored; it replaces the live caption with that `segment_id`. If `id` is already on the page, a new segment was merged into that caption (§4.3): `text` is the merged text                                                                                                                                                                               |
+| `utterance_update` | `id, speaker_idx, speaker_name`                                           | Speaker correction                                                                                                                                                                                                                                                                                                                                                                       |
+| `speaker`          | `idx, display_name`                                                       | Speaker renamed                                                                                                                                                                                                                                                                                                                                                                          |
+| `speakers_merged`  | `from, into, display_name`                                                | Speaker `from` was merged into `into`                                                                                                                                                                                                                                                                                                                                                    |
+| `frame`            | `id, t, width, height`                                                    | New screenshot                                                                                                                                                                                                                                                                                                                                                                           |
+| `frame_caption`    | `id, caption`                                                             | Screenshot summary available                                                                                                                                                                                                                                                                                                                                                             |
+| `assistant_state`  | `state`: `idle` / `listening` / `thinking` / `speaking`                   | Assistant state                                                                                                                                                                                                                                                                                                                                                                          |
+| `task`             | `id, label, goal, status, brief, error, modality, created_at`             | Task created or changed; `id` is the full id and `label` the short one (`t3`)                                                                                                                                                                                                                                                                                                            |
+| `task_event`       | `task_id, at, kind, summary`                                              | Task progress                                                                                                                                                                                                                                                                                                                                                                            |
+| `notice`           | `level`: `info` / `warn` / `error`, `code`, `params`, `text`              | Something the user should know, such as a degraded service. `code` and `params` identify the message so the page can show it in its own language (§6.1.1); `text` is the same message in Chinese for logs and older pages. Errors of the realtime LLM and TTS are translated into notices by `pipeline/errors.py`; of Pipecat's own RTVI `error` messages the page shows only fatal ones |
+| `session`          | `id, title, keep, started_at, resumed, base_secs, state`                  | Sent once after connecting: which session the connection belongs to, its current keep flag, whether it is a resume, and the timeline origin of this connection                                                                                                                                                                                                                           |
+| `session_closed`   | `reason`: `taken_over` / `ended` / `server_stopping`                      | Why the server is about to close the connection (best effort)                                                                                                                                                                                                                                                                                                                            |
 
 The `session.keep` flag is read from current persisted state when the ready message is sent.
 With `session.recording_notice=true`, send one existing `notice` with `level="info"` and
-`text="会议正在转录，发言和共享画面会保存在服务器上"` after the session message for each successful
+`code="recording.active"` (§6.1.1) after the session message for each successful
 ready connection, including new meetings and manual resumes. Repeated ready
 callbacks for the same connection do not repeat it. Disabling this setting suppresses only this
 notice. The pinned client SDK does not repeat RTVI client-ready on automatic reconnect (§12 of
@@ -1284,6 +1284,48 @@ The server sends only `listening` as `assistant_state` (when the wake word is he
 derives `speaking` and `idle` from the SDK callbacks `onBotStartedSpeaking` and
 `onBotStoppedSpeaking`. The assistant's text arrives through the SDK callbacks `onBotLlmStarted`,
 `onBotLlmText` and `onBotLlmStopped`, not through custom messages.
+
+### 6.1.1 Notice codes
+
+Every `notice` carries a `code` from the table below and `params`, an object whose values are
+strings or numbers (empty when the code takes none). `text` is the Chinese rendering of the same
+message, built on the server from the same code. The page translates known codes with valid
+parameters and shows `text` for anything else, so a new code never leaves the page blank. Codes are
+added here before the code that sends them; `src/agentic_meeting/messages.py` holds the server's
+table and `client/src/i18n/serverNotices.ts` the page's, and a repository test checks that the
+three list the same codes.
+
+| `code`                | `level` | `params`                                             | Chinese `text`                                                                |
+| --------------------- | ------- | ---------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `recording.active`    | info    | —                                                    | 会议正在转录，发言和共享画面会保存在服务器上                                  |
+| `mic.low_level`       | warn    | —                                                    | 麦克风音量过低，请调高系统的输入音量或靠近麦克风                              |
+| `asr.unavailable`     | warn    | —                                                    | 识别服务暂时不可用，正在重试                                                  |
+| `asr.recovered`       | info    | —                                                    | 识别服务已恢复                                                                |
+| `diar.unavailable`    | warn    | `error`: string                                      | 说话人区分不可用，所有发言将记为「未知」，不分说话人：{error}                 |
+| `diar.failed`         | warn    | `error`: string                                      | 说话人区分出错，之后的发言将记为「未知」：{error}                             |
+| `speakers.renumbered` | info    | —                                                    | 服务重启过，说话人编号可能与之前不同；认错的可以在说话人那里用「合并到…」收拾 |
+| `llm.unavailable`     | warn    | `reason`: string, `status`: number, `detail`: string | 助理暂不可用：{reason}                                                        |
+| `tts.unavailable`     | warn    | `reason`: string, `status`: number, `detail`: string | 语音不可用，助理这次只出文字：{reason}                                        |
+| `text.malformed`      | warn    | —                                                    | 文字消息的格式不对，没有发送                                                  |
+| `text.empty`          | warn    | —                                                    | 消息是空的，没有发送                                                          |
+| `text.too_long`       | warn    | `max`: number                                        | 消息太长（最多 {max} 字），没有发送                                           |
+| `text.queue_full`     | warn    | `max`: number                                        | 助理正忙，排队已满（{max} 条），这条消息没有发送                              |
+| `text.queued`         | info    | `position`: number                                   | 助理正忙，这条消息排在第 {position} 位，稍后回答                              |
+
+`error` and `detail` are raw error text from a library or service and are shown untranslated.
+`reason` in `llm.unavailable` and `tts.unavailable` is one of:
+
+| `reason`       | Chinese wording in `text`          | Notes                                                               |
+| -------------- | ---------------------------------- | ------------------------------------------------------------------- |
+| `auth`         | 密钥被拒绝，请检查配置里的密钥变量 | HTTP 401 or 403                                                     |
+| `not_found`    | 接口地址或模型名不对（404）        | HTTP 404                                                            |
+| `rate_limited` | 被服务端限流了，稍后再试           | HTTP 429                                                            |
+| `server_error` | 服务端出错（{status}）             | HTTP 5xx; `status` is the code                                      |
+| `timeout`      | 请求超时                           |                                                                     |
+| `connection`   | 连不上服务                         |                                                                     |
+| `other`        | {detail}                           | `detail` is the error text, at most 120 characters plus an ellipsis |
+
+`status` is 0 unless `reason` is `server_error`; `detail` is empty unless `reason` is `other`.
 
 ### 6.2 Browser → server
 

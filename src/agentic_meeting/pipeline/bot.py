@@ -51,6 +51,7 @@ from agentic_meeting.config import AppConfig
 from agentic_meeting.diar import build_diarizer
 from agentic_meeting.diar.base import Diarizer
 from agentic_meeting.diar.fusion import TranscriptAssembler
+from agentic_meeting.messages import Message, Notice, message
 from agentic_meeting.pipeline.activity import AssistantActivity
 from agentic_meeting.pipeline.background import BackgroundModel
 from agentic_meeting.pipeline.clock import SessionClock
@@ -322,7 +323,7 @@ def wire_text_input(
     assistant_aggregator: Any,
     recorder: MeetingRecorder,
     handler: TextInputHandler,
-    notice: Callable[[str, str], Awaitable[None]],
+    notice: Notice,
 ) -> None:
     """把浏览器的 ``text_input`` 消息接到文字入口，并让它知道助理什么时候忙、什么时候闲。
 
@@ -340,12 +341,12 @@ def wire_text_input(
     recorder.on_bot_speaking_changed = handler.set_speaking
 
     @rtvi.event_handler("on_client_message")
-    async def _client_message(_rtvi: Any, message: Any) -> None:
-        if message.type != "text_input":
+    async def _client_message(_rtvi: Any, client_message: Any) -> None:
+        if client_message.type != "text_input":
             return
-        text = extract_text(message.data)
+        text = extract_text(client_message.data)
         if text is None:
-            await notice("warn", "文字消息的格式不对，没有发送")
+            await notice("warn", message("text.malformed"))
             return
         await handler.handle(text)
 
@@ -521,10 +522,10 @@ async def run_bot(
         # 助理应答时后台模型让路（画面摘要、滚动纪要），应答完再恢复
         activity.subscribe(lambda busy, m=model: m.pause() if busy else m.resume())
     try:
-        pending_notices: list[tuple[str, str]] = []  # 管线造好、页面就绪之前产生的提示
+        pending_notices: list[tuple[str, Message]] = []  # 管线造好、页面就绪之前产生的提示
 
-        async def collect_notice(level: str, text: str) -> None:
-            pending_notices.append((level, text))
+        async def collect_notice(level: str, msg: Message) -> None:
+            pending_notices.append((level, msg))
 
         async def new_diarizer() -> Diarizer:
             return await build_diarizer(cfg, on_notice=collect_notice)
@@ -536,13 +537,7 @@ async def run_bot(
             diarizer = await new_diarizer()
 
         async def on_low_level() -> None:
-            await send(
-                {
-                    "type": "notice",
-                    "level": "warn",
-                    "text": "麦克风音量过低，请调高系统的输入音量或靠近麦克风",
-                }
-            )
+            await send(message("mic.low_level").notice("warn"))
 
         transport = SmallWebRTCTransport(
             webrtc_connection=connection,
@@ -578,8 +573,8 @@ async def run_bot(
         wire_wake_events(parts.wake, send)
         wire_assistant_recording(parts)
 
-        async def notice(level: str, text: str) -> None:
-            await send({"type": "notice", "level": level, "text": text})
+        async def notice(level: str, msg: Message) -> None:
+            await send(msg.notice(level))
 
         text_input = TextInputHandler(
             recorder=parts.recorder,
@@ -623,8 +618,8 @@ async def run_bot(
                 if live.stop_requested or live.done.is_set() or manager.live is not live:
                     return
                 await send_session_ready(resources, live, send)
-            for level, text in pending_notices:
-                await send({"type": "notice", "level": level, "text": text})
+            for level, msg in pending_notices:
+                await send(msg.notice(level))
             pending_notices.clear()
 
         @transport.event_handler("on_client_disconnected")
@@ -671,13 +666,7 @@ async def send_session_ready(
         return
     await send(session_message(current, live.resumed, live.base_secs))
     if resources.cfg.session.recording_notice:
-        await send(
-            {
-                "type": "notice",
-                "level": "info",
-                "text": "会议正在转录，发言和共享画面会保存在服务器上",
-            }
-        )
+        await send(message("recording.active").notice("info"))
 
 
 def session_message(session: Session, resumed: bool = False, base_secs: float = 0.0) -> dict:

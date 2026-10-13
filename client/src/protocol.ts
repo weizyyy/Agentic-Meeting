@@ -4,6 +4,7 @@
 // frame、frame_caption、task、task_event；不认识的类型收到时忽略。
 
 import { messages } from "./i18n/index.ts";
+import type { NoticeParams } from "./i18n/serverNotices.ts";
 import { TASK_STATUSES, type TaskStatus } from "./tasks.ts";
 
 export interface CaptionMessage {
@@ -27,9 +28,12 @@ export interface AssistantStateMessage {
 export const NOTICE_LEVELS = ["info", "warn", "error"] as const;
 export type NoticeLevel = (typeof NOTICE_LEVELS)[number];
 
+/** 提示：code 和 params 见 interfaces.md §6.1.1，页面按界面语言翻译；text 是服务端给的中文，翻译不了时显示它。 */
 export interface NoticeMessage {
   type: "notice";
   level: NoticeLevel;
+  code: string | null;
+  params: NoticeParams;
   text: string;
 }
 
@@ -194,8 +198,17 @@ export function parseServerMessage(data: unknown): ServerMessage | null {
     }
     case "notice": {
       const level = NOTICE_LEVELS.find((l) => l === data.level);
-      if (level && typeof data.text === "string") return { type: "notice", level, text: data.text };
-      return null;
+      if (!level || typeof data.text !== "string") return null;
+      const params = isRecord(data.params)
+        ? Object.fromEntries(
+            Object.entries(data.params).filter(
+              (entry): entry is [string, string | number] =>
+                typeof entry[1] === "string" || typeof entry[1] === "number",
+            ),
+          )
+        : {};
+      const code = typeof data.code === "string" ? data.code : null;
+      return { type: "notice", level, code, params, text: data.text };
     }
     case "utterance": {
       const source = UTTERANCE_SOURCES.find((x) => x === data.source);

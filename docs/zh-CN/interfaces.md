@@ -377,9 +377,9 @@ token 仅供内部使用，不出现在 HTTP、数据通道消息或导出中。
 
 - 后端在**后台任务**里启动，不阻塞 `StartFrame`：第一次预热可能需要十几秒。启动完成之前到的音频只计数、下传，不送后端。
 - `deltas()` 抛 `ASRBackendError`（或后端启动失败）时：停止送音频，向浏览器推一条
-  `{"type": "notice", "level": "warn", "text": "识别服务暂时不可用，正在重试"}`，丢掉当前识别段的
+  `{"type": "notice", "level": "warn", "code": "asr.unavailable", …}`（§6.1.1），丢掉当前识别段的
   半截状态，然后按 1、2、4…秒（上限 30 秒）退避，对**同一个后端实例**反复 `start()`；成功后推一条
-  `level: "info"`、`text: "识别服务已恢复"`。音频计时和音频下传全程不受影响。失败和恢复各提示一次，
+  `level: "info"`、`code: "asr.recovered"`。音频计时和音频下传全程不受影响。失败和恢复各提示一次，
   重试过程中不重复提示。
 - 处理单条增量时出错只记日志、跳过这一条，不让消费任务退出。
 - 这段时间里到的音频不会补识别（只是字幕断了一截，转录计时没有断）。
@@ -1096,25 +1096,25 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 服务端向管线推 `RTVIServerMessageFrame(data=<下面的对象>)`；浏览器在 `onServerMessage` 回调里收到。
 每条消息都有 `type` 字段：
 
-| `type`             | 其余字段                                                                  | 含义                                                                                                                                                                                     |
-| ------------------ | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `caption`          | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable`        | 当前正在说的这一段的实时字幕；同一 `segment_id` 的后一条覆盖前一条                                                                                                                       |
-| `utterance`        | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source` | 一条发言已定稿落库；界面用它替换对应 `segment_id` 的实时字幕。`id` 是界面上已有的发言时，表示新片段并进了那一条（§4.3 第 7 条）：`text` 是并好的全文，`segment_id` 那行实时字幕收掉      |
-| `utterance_update` | `id, speaker_idx, speaker_name`                                           | 说话人更正                                                                                                                                                                               |
-| `speaker`          | `idx, display_name`                                                       | 说话人改名                                                                                                                                                                               |
-| `speakers_merged`  | `from, into, display_name`                                                | 说话人 `from` 并入了 `into`（`display_name` 是 `into` 的显示名）：页面把已加载的发言改到 `into` 名下，并从说话人列表里去掉 `from`                                                        |
-| `frame`            | `id, t, width, height`                                                    | 新截图                                                                                                                                                                                   |
-| `frame_caption`    | `id, caption`                                                             | 截图摘要已生成                                                                                                                                                                           |
-| `assistant_state`  | `state`：`idle` / `listening` / `thinking` / `speaking`                   | 助理状态                                                                                                                                                                                 |
-| `task`             | `id, label, goal, status, brief, error, modality, created_at`             | 任务创建或状态变化（`id` 是完整编号，`label` 是会议内的短编号 `t3`）                                                                                                                     |
-| `task_event`       | `task_id, at, kind, summary`                                              | 任务进度                                                                                                                                                                                 |
-| `notice`           | `level`：`info` / `warn` / `error`，`text`                                | 需要让用户知道的提示（如某服务不可用）。实时模型、语音合成的请求出错时，服务端把管线里的错误换成一句中文发出来（`pipeline/errors.py`）；Pipecat 自带的 RTVI `error` 消息页面只显示致命的 |
-| `session`          | `id, title, keep, started_at, resumed, base_secs, state`                  | 连接建立后发一次：所属会话与当前保留标记；`resumed` 表示继续；`base_secs` 是本次连接的时间轴起点                                                                                         |
-| `session_closed`   | `reason`：`taken_over` / `ended` / `server_stopping`                      | 连接即将被服务端关闭的原因（尽力而为地发出），页面据此提示而不是静默变成未连接                                                                                                           |
+| `type`             | 其余字段                                                                  | 含义                                                                                                                                                                                                                                                                                                           |
+| ------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caption`          | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable`        | 当前正在说的这一段的实时字幕；同一 `segment_id` 的后一条覆盖前一条                                                                                                                                                                                                                                             |
+| `utterance`        | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source` | 一条发言已定稿落库；界面用它替换对应 `segment_id` 的实时字幕。`id` 是界面上已有的发言时，表示新片段并进了那一条（§4.3 第 7 条）：`text` 是并好的全文，`segment_id` 那行实时字幕收掉                                                                                                                            |
+| `utterance_update` | `id, speaker_idx, speaker_name`                                           | 说话人更正                                                                                                                                                                                                                                                                                                     |
+| `speaker`          | `idx, display_name`                                                       | 说话人改名                                                                                                                                                                                                                                                                                                     |
+| `speakers_merged`  | `from, into, display_name`                                                | 说话人 `from` 并入了 `into`（`display_name` 是 `into` 的显示名）：页面把已加载的发言改到 `into` 名下，并从说话人列表里去掉 `from`                                                                                                                                                                              |
+| `frame`            | `id, t, width, height`                                                    | 新截图                                                                                                                                                                                                                                                                                                         |
+| `frame_caption`    | `id, caption`                                                             | 截图摘要已生成                                                                                                                                                                                                                                                                                                 |
+| `assistant_state`  | `state`：`idle` / `listening` / `thinking` / `speaking`                   | 助理状态                                                                                                                                                                                                                                                                                                       |
+| `task`             | `id, label, goal, status, brief, error, modality, created_at`             | 任务创建或状态变化（`id` 是完整编号，`label` 是会议内的短编号 `t3`）                                                                                                                                                                                                                                           |
+| `task_event`       | `task_id, at, kind, summary`                                              | 任务进度                                                                                                                                                                                                                                                                                                       |
+| `notice`           | `level`：`info` / `warn` / `error`，`code`，`params`，`text`              | 需要让用户知道的提示（如某服务不可用）。`code` 和 `params` 标明是哪一条提示，页面据此用自己的界面语言显示（§6.1.1）；`text` 是同一条提示的中文，给日志和旧页面用。实时模型、语音合成的请求出错时，服务端把管线里的错误换成提示发出来（`pipeline/errors.py`）；Pipecat 自带的 RTVI `error` 消息页面只显示致命的 |
+| `session`          | `id, title, keep, started_at, resumed, base_secs, state`                  | 连接建立后发一次：所属会话与当前保留标记；`resumed` 表示继续；`base_secs` 是本次连接的时间轴起点                                                                                                                                                                                                               |
+| `session_closed`   | `reason`：`taken_over` / `ended` / `server_stopping`                      | 连接即将被服务端关闭的原因（尽力而为地发出），页面据此提示而不是静默变成未连接                                                                                                                                                                                                                                 |
 
 发送连接就绪消息时，从当前持久状态读取 `session.keep`。`session.recording_notice=true` 时，
 每次连接就绪后在 session 消息之后发送一次现有 `notice`：`level="info"`，
-`text="会议正在转录，发言和共享画面会保存在服务器上"`。新会议与手动继续发送；
+`code="recording.active"`（§6.1.1）。新会议与手动继续发送；
 同一路连接重复触发 ready 不重复发送。关闭配置只抑制此提示。锁定 SDK 自动重连不再次触发 RTVI
 client-ready（[pipecat-notes.md](pipecat-notes.md) §12），因此通过既有传输/HTTP 同步恢复状态，
 不重复此提示。不需要新增配置 HTTP 端点；
@@ -1149,6 +1149,46 @@ SDK 的 `onBotStartedSpeaking` / `onBotStoppedSpeaking` 回调自行显示。
 
 助理应答的文字不通过自定义消息传递，而是使用客户端 SDK（`@pipecat-ai/client-js` 1.13）自带的回调：`onBotLlmStarted` / `onBotLlmText` / `onBotLlmStopped`
 拿流式文字，`onBotStartedSpeaking` / `onBotStoppedSpeaking` 拿朗读状态。
+
+### 6.1.1 提示代码
+
+每条 `notice` 都带一个下表里的 `code`，以及 `params`：值是字符串或数字的对象（不需要参数时为空对象）。
+`text` 是同一条提示的中文，由服务端按同一个代码生成。页面认得代码、参数也对时按界面语言翻译，否则显示
+`text`，所以新增的代码不会让页面空白。新代码先写进这里，再写发送它的代码；
+`src/agentic_meeting/messages.py` 是服务端的表，`client/src/i18n/serverNotices.ts` 是页面的表，
+仓库测试检查三处列出的代码一致。
+
+| `code`                | `level` | `params`                                             | 中文 `text`                                                                   |
+| --------------------- | ------- | ---------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `recording.active`    | info    | —                                                    | 会议正在转录，发言和共享画面会保存在服务器上                                  |
+| `mic.low_level`       | warn    | —                                                    | 麦克风音量过低，请调高系统的输入音量或靠近麦克风                              |
+| `asr.unavailable`     | warn    | —                                                    | 识别服务暂时不可用，正在重试                                                  |
+| `asr.recovered`       | info    | —                                                    | 识别服务已恢复                                                                |
+| `diar.unavailable`    | warn    | `error`：string                                      | 说话人区分不可用，所有发言将记为「未知」，不分说话人：{error}                 |
+| `diar.failed`         | warn    | `error`：string                                      | 说话人区分出错，之后的发言将记为「未知」：{error}                             |
+| `speakers.renumbered` | info    | —                                                    | 服务重启过，说话人编号可能与之前不同；认错的可以在说话人那里用「合并到…」收拾 |
+| `llm.unavailable`     | warn    | `reason`：string，`status`：number，`detail`：string | 助理暂不可用：{reason}                                                        |
+| `tts.unavailable`     | warn    | `reason`：string，`status`：number，`detail`：string | 语音不可用，助理这次只出文字：{reason}                                        |
+| `text.malformed`      | warn    | —                                                    | 文字消息的格式不对，没有发送                                                  |
+| `text.empty`          | warn    | —                                                    | 消息是空的，没有发送                                                          |
+| `text.too_long`       | warn    | `max`：number                                        | 消息太长（最多 {max} 字），没有发送                                           |
+| `text.queue_full`     | warn    | `max`：number                                        | 助理正忙，排队已满（{max} 条），这条消息没有发送                              |
+| `text.queued`         | info    | `position`：number                                   | 助理正忙，这条消息排在第 {position} 位，稍后回答                              |
+
+`error` 和 `detail` 是库或服务给出的原始错误文字，原样显示，不翻译。
+`llm.unavailable` 和 `tts.unavailable` 的 `reason` 取下列之一：
+
+| `reason`       | `text` 里的中文                    | 说明                                           |
+| -------------- | ---------------------------------- | ---------------------------------------------- |
+| `auth`         | 密钥被拒绝，请检查配置里的密钥变量 | HTTP 401 或 403                                |
+| `not_found`    | 接口地址或模型名不对（404）        | HTTP 404                                       |
+| `rate_limited` | 被服务端限流了，稍后再试           | HTTP 429                                       |
+| `server_error` | 服务端出错（{status}）             | HTTP 5xx；`status` 是状态码                    |
+| `timeout`      | 请求超时                           |                                                |
+| `connection`   | 连不上服务                         |                                                |
+| `other`        | {detail}                           | `detail` 是错误原文，最多 120 字，超出加省略号 |
+
+`reason` 不是 `server_error` 时 `status` 为 0；不是 `other` 时 `detail` 为空串。
 
 ### 6.2 浏览器 → 服务端
 

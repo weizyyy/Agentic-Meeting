@@ -7,15 +7,14 @@ fusion.py       把 ASR 增量按时间归属到说话人，并切分成一条�
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 
 from loguru import logger
 
 from agentic_meeting.config import AppConfig
 from agentic_meeting.diar.base import Diarizer, NullDiarizer
 from agentic_meeting.diar.nemo_ctypes import DiarBinding, NemoDiarizer
-
-NoticeCallback = Callable[[str, str], Awaitable[None]]
+from agentic_meeting.messages import Notice, message
 
 __all__ = ["Diarizer", "NullDiarizer", "NemoDiarizer", "build_diarizer"]
 
@@ -23,13 +22,13 @@ __all__ = ["Diarizer", "NullDiarizer", "NemoDiarizer", "build_diarizer"]
 async def build_diarizer(
     cfg: AppConfig,
     *,
-    on_notice: NoticeCallback | None = None,
+    on_notice: Notice | None = None,
     binding_factory: Callable[[], DiarBinding] | None = None,
 ) -> Diarizer:
     """按配置造出说话人区分并启动它。
 
     ``backend = "none"`` 返回 ``NullDiarizer``。加载动态库或模型失败时**降级**：记录错误、通过 ``on_notice``
-    （参数为 ``(level, text)``）告诉用户，返回 ``NullDiarizer``——所有发言记为「未知」，其余照常
+    （代码 ``diar.unavailable``）告诉用户，返回 ``NullDiarizer``——所有发言记为「未知」，其余照常
     （architecture.md §9，转录链路优先存活）。
     """
     if cfg.diarization.backend == "none":
@@ -42,9 +41,7 @@ async def build_diarizer(
         await diarizer.close()
         if on_notice is not None:
             try:
-                await on_notice(
-                    "warn", f"说话人区分不可用，所有发言将记为「未知」，不分说话人：{e}"
-                )
+                await on_notice("warn", message("diar.unavailable", error=str(e)))
             except Exception:
                 logger.exception("发送说话人区分降级提示失败")
         return NullDiarizer()
