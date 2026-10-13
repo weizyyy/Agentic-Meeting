@@ -27,6 +27,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The report is laid out section by section, with the action items as a checklist, instead of as
   plain text. On a wide window a **会议资料** (Meeting materials) card beside it counts the
   utterances, tasks and screenshots and links to the captions and the full archive.
+- **演示模式** (Presentation mode) in the top bar shows the meeting full screen for a shared
+  meeting-room display: dark, with the last three captions in large type and the assistant's state
+  and answer. `Esc` returns to the workspace.
 
 ### Changed
 

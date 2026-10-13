@@ -1,4 +1,4 @@
-import { HistoryIcon, LogOutIcon, MicIcon, XIcon } from "lucide-react";
+import { HistoryIcon, LogOutIcon, MicIcon, PresentationIcon, XIcon } from "lucide-react";
 
 import { UserAudioControl } from "@/components/pipecat/user-audio-control";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,18 @@ const TONES: Record<ConnectionState, string> = {
   error: "text-destructive",
 };
 
+/** 顶部的连接状态：文字和颜色。自动重连的间隙里显示第几次重连。演示模式也用它。 */
+export function connectionStatus(
+  connection: ConnectionState,
+  reconnectAttempt: number,
+): { label: string; tone: string } {
+  const reconnecting = reconnectAttempt > 0 && connection !== "connected";
+  return {
+    label: reconnecting ? `正在重连（第 ${reconnectAttempt} 次）…` : LABELS[connection],
+    tone: TONES[reconnecting ? "connecting" : connection],
+  };
+}
+
 interface Props {
   connection: ConnectionState;
   /** 连接意外断开后正在自动重连：第几次；0 表示没有 */
@@ -33,6 +45,8 @@ interface Props {
   canStart: boolean;
   onStart: () => void;
   onStop: () => void;
+  /** 打开演示模式；没有可看的会议时不给 */
+  onPresent?: () => void;
   /** 启用了访问口令时才有。会议进行中不显示，免得退出后页面上留着一个没人管的连接 */
   onLogout?: () => void;
 }
@@ -50,15 +64,15 @@ export function ControlBar({
   canStart,
   onStart,
   onStop,
+  onPresent,
   onLogout,
 }: Props) {
   // 自动重连的间隙里连接是断开的，但用户仍然「在会议里」：按钮还是「结束会议」
   const active = connection === "connected" || connection === "connecting" || reconnectAttempt > 0;
-  const reconnecting = reconnectAttempt > 0 && connection !== "connected";
   // 麦克风按钮等接通（或接通过、正在重连）再出现：它一挂上就列设备，列设备会再要一次麦克风权限，
   // 连接还在请求权限时挂上，拒绝授权就会多出一次请求和一条重复的「麦克风不可用」
   const micControl = connection === "connected" || reconnectAttempt > 0;
-  const label = reconnecting ? `正在重连（第 ${reconnectAttempt} 次）…` : LABELS[connection];
+  const status = connectionStatus(connection, reconnectAttempt);
   return (
     <header className="mb-3 flex flex-wrap items-center gap-2 border-b py-3">
       <MicIcon className="size-4" aria-hidden="true" />
@@ -72,15 +86,17 @@ export function ControlBar({
         <HistoryIcon data-icon="inline-start" />
         会议列表
       </Button>
+      {onPresent && (
+        // 投到会议室大屏才用得上，手机上不放
+        <Button variant="ghost" className="max-md:hidden" onClick={onPresent}>
+          <PresentationIcon data-icon="inline-start" />
+          演示模式
+        </Button>
+      )}
       <div className="flex-1" />
-      <span
-        className={cn(
-          "inline-flex items-center gap-1.5 text-xs font-medium",
-          TONES[reconnecting ? "connecting" : connection],
-        )}
-      >
+      <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", status.tone)}>
         <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-        <span role="status">{label}</span>
+        <span role="status">{status.label}</span>
       </span>
       <span className="text-xs text-muted-foreground" role="status" aria-label="转录状态">
         {recordingLabel(connection, closedReason, reconnectAttempt)}

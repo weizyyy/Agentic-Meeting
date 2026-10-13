@@ -7,12 +7,14 @@ import { AssistantPanel } from "./components/AssistantPanel.tsx";
 import { CaptionList } from "./components/CaptionList.tsx";
 import { ControlBar } from "./components/ControlBar.tsx";
 import { FrameTimeline } from "./components/FrameTimeline.tsx";
+import { PresentationView } from "./components/PresentationView.tsx";
 import { ReportPanel } from "./components/ReportPanel.tsx";
 import { SessionBanner } from "./components/SessionBanner.tsx";
 import { SessionList } from "./components/SessionList.tsx";
 import { SpeakerBar } from "./components/SpeakerBar.tsx";
 import { TaskPanel } from "./components/TaskPanel.tsx";
 import { pruneSelection } from "./selection.ts";
+import { sessionTitle } from "./sessionView.ts";
 import type { TimeBase } from "./timeline.ts";
 import { useMeetingClient } from "./useMeetingClient.ts";
 
@@ -26,6 +28,7 @@ export function App({ onLogout }: Props = {}) {
   const { client, state } = meeting;
   const [listOpen, setListOpen] = useState(false);
   const [tab, setTab] = useState<"captions" | "report">("captions");
+  const [presenting, setPresenting] = useState(false);
   // 字幕里选中的发言（按发言编号）：在字幕左边点或拖选，再点上方的说话人归过去。
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   useEffect(() => {
@@ -70,6 +73,7 @@ export function App({ onLogout }: Props = {}) {
           canStart={meeting.unsupported === null}
           onStart={() => void meeting.start()}
           onStop={() => void meeting.stop()}
+          onPresent={state.viewing ? () => setPresenting(true) : undefined}
           onLogout={onLogout}
         />
         {meeting.unsupported && (
@@ -200,6 +204,18 @@ export function App({ onLogout }: Props = {}) {
           onDelete={(id) => void meeting.deleteSession(id)}
           onClose={() => setListOpen(false)}
         />
+        {presenting && state.viewing && (
+          // 放在 Provider 里面：演示时助理的声音和音量条照常
+          <PresentationView
+            title={sessionTitle(state.viewing)}
+            connection={state.connection}
+            reconnectAttempt={state.reconnectAttempt}
+            captions={state.captions}
+            assistantState={state.assistantState}
+            assistantText={state.assistantText}
+            onExit={() => setPresenting(false)}
+          />
+        )}
       </div>
     </PipecatClientProvider>
   );

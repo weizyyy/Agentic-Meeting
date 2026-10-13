@@ -79,6 +79,12 @@ speaker, and the bars on the button move with the sound it picks up.
 **浅色** (Light) and **深色** (Dark). The choice is kept in this browser and also applies to the
 password page.
 
+**Presenting.** On a wide window, **演示模式** (Presentation mode) in the top bar turns the page into
+a dark full-screen view for a meeting-room display: the meeting title, the last three captions in
+large type, and the assistant's state and answer. The newest caption is always shown. Press `Esc` or
+**退出演示** (Exit presentation) to go back; audio keeps playing while presenting. If the browser
+does not allow full screen, the view fills the window instead.
+
 ## Captions and speakers
 
 Each caption starts with a line naming the speaker, the wall-clock time in the browser's time zone
