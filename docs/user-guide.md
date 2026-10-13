@@ -48,13 +48,13 @@ If the server has an access password, the page asks for it first; **退出登录
 bar is shown when no meeting is running on this page. If the login expires during a meeting, a
 password prompt covers the page and the meeting continues underneath.
 
-| Action    | How                                                              | What happens                                  |
-| --------- | ---------------------------------------------------------------- | --------------------------------------------- |
-| Start     | **开始新会议** (Start meeting)                                   | Creates a meeting and connects the microphone |
-| End       | **结束会议** (End meeting)                                       | Marks the meeting as ended and disconnects    |
-| Interrupt | Close or refresh the page, lose the network                      | The meeting is kept and marked _interrupted_  |
-| Resume    | **继续** (Resume) under the meeting title or in the meeting list | Reconnects to the same meeting                |
-| Browse    | Meeting list                                                     | View, rename or delete past meetings          |
+| Action    | How                                                              | What happens                                                                     |
+| --------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Start     | **开始新会议** (Start meeting)                                   | Creates a meeting and connects the microphone                                    |
+| End       | **结束会议** (End meeting)                                       | Marks the meeting as ended and disconnects                                       |
+| Interrupt | Close or refresh the page, lose the network                      | The meeting is kept and marked _interrupted_                                     |
+| Resume    | **继续** (Resume) under the meeting title or in the meeting list | Reconnects to the same meeting                                                   |
+| Browse    | Meeting list                                                     | View, keep, rename or delete past meetings; deleting asks for confirmation first |
 
 **One connection at a time.** Starting or resuming a meeting in another tab or on another device
 takes over the connection; the previous page is notified and switches to read-only.

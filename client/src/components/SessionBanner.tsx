@@ -42,7 +42,7 @@ interface Props {
 }
 
 /** 会议状态前面那个点的颜色 */
-const STATE_TONES: Record<SessionState, string> = {
+export const STATE_TONES: Record<SessionState, string> = {
   live: "text-success-foreground",
   interrupted: "text-warning-foreground",
   ended: "text-subtle-foreground",

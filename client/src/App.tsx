@@ -73,7 +73,10 @@ export function App({ onLogout }: Props = {}) {
           onLogout={onLogout}
         />
         {meeting.unsupported && (
-          <p className="unsupported" role="alert">
+          <p
+            className="mb-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            role="alert"
+          >
             {meeting.unsupported}
           </p>
         )}
@@ -175,26 +178,25 @@ export function App({ onLogout }: Props = {}) {
             </div>
           </main>
         )}
-        {listOpen && (
-          <SessionList
-            sessions={state.sessions}
-            viewingId={state.viewing?.id ?? null}
-            locked={inMeeting}
-            onSelect={(id) => {
-              void meeting.selectSession(id);
-              setListOpen(false);
-            }}
-            onResume={(id) => {
-              void meeting.resume(id);
-              setListOpen(false);
-            }}
-            onRename={(id, title) => void meeting.renameSession(id, title)}
-            keepPending={meeting.keepPending}
-            onKeep={(id, keep) => void meeting.keepSession(id, keep)}
-            onDelete={(id) => void meeting.deleteSession(id)}
-            onClose={() => setListOpen(false)}
-          />
-        )}
+        <SessionList
+          open={listOpen}
+          sessions={state.sessions}
+          viewingId={state.viewing?.id ?? null}
+          locked={inMeeting}
+          onSelect={(id) => {
+            void meeting.selectSession(id);
+            setListOpen(false);
+          }}
+          onResume={(id) => {
+            void meeting.resume(id);
+            setListOpen(false);
+          }}
+          onRename={(id, title) => void meeting.renameSession(id, title)}
+          keepPending={meeting.keepPending}
+          onKeep={(id, keep) => void meeting.keepSession(id, keep)}
+          onDelete={(id) => void meeting.deleteSession(id)}
+          onClose={() => setListOpen(false)}
+        />
       </div>
     </PipecatClientProvider>
   );

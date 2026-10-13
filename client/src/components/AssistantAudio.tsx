@@ -1,5 +1,8 @@
 import { usePipecatClientMediaTrack } from "@pipecat-ai/client-react";
+import { Volume2Icon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import { Button } from "@/components/ui/button";
 
 /**
  * 播放助理的声音（代替 Pipecat 自带的 PipecatClientAudio）。
@@ -37,11 +40,15 @@ export function AssistantAudio() {
     <>
       <audio ref={audio} />
       {blocked && (
-        <p className="audio-blocked" role="alert">
+        <p
+          className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-warning px-3 py-2 text-sm text-warning-foreground"
+          role="alert"
+        >
+          <Volume2Icon aria-hidden className="size-4" />
           浏览器拦下了助理的声音。
-          <button type="button" className="button button-small" onClick={() => void play()}>
+          <Button size="sm" variant="outline" onClick={() => void play()}>
             打开助理声音
-          </button>
+          </Button>
         </p>
       )}
     </>

@@ -21,6 +21,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   now sits under the captions; the assistant shows its state with Pipecat's voice bars, tasks show a
   status icon, and task details and enlarged screenshots open in dialogs, with **上一张** (Previous)
   and **下一张** (Next) buttons next to the arrow keys.
+- The meeting list, the delete confirmation, the access-password page and the remaining notices move
+  to the new components. The meeting list slides in from the right, and deleting a meeting asks for
+  confirmation in a dialog instead of the browser's own prompt.
 
 ### Changed
 

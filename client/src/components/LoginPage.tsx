@@ -1,5 +1,9 @@
+import { LockKeyholeIcon, MicIcon } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { login, type AuthStatus } from "../auth.ts";
 
 interface Props {
@@ -30,31 +34,51 @@ export function LoginPage({ overlay = false, onLoggedIn }: Props) {
   };
 
   return (
-    <div className={overlay ? "login login-overlay" : "login"}>
-      <form className="login-card" onSubmit={(event) => void submit(event)}>
-        <h1>组会助理</h1>
-        <p className="login-hint">
-          {overlay ? "登录已过期，请重新输入访问口令。会议不受影响。" : "请输入访问口令。"}
-        </p>
-        <label htmlFor="login-password">访问口令</label>
-        <input
-          id="login-password"
-          type="password"
-          autoComplete="current-password"
-          autoFocus
-          value={password}
-          aria-invalid={error !== null}
-          aria-describedby={error ? "login-error" : undefined}
-          onChange={(event) => setPassword(event.target.value)}
-        />
-        {error && (
-          <p id="login-error" className="login-error" role="alert">
-            {error}
+    <div
+      className={`flex min-h-full items-center justify-center p-4 ${
+        overlay
+          ? "fixed inset-0 z-[100] bg-background/85 supports-backdrop-filter:backdrop-blur-xs"
+          : ""
+      }`}
+    >
+      <form
+        className="flex w-full max-w-sm flex-col gap-4 rounded-xl border bg-card p-6 shadow-sm"
+        onSubmit={(event) => void submit(event)}
+      >
+        <div className="flex flex-col gap-1.5">
+          <h1 className="flex items-center gap-2 text-xl font-semibold">
+            {overlay ? (
+              <LockKeyholeIcon aria-hidden className="size-5" />
+            ) : (
+              <MicIcon aria-hidden className="size-5" />
+            )}
+            {overlay ? "登录已过期" : "组会助理"}
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {overlay ? "请重新输入访问口令。会议不受影响。" : "请输入访问口令。"}
           </p>
-        )}
-        <button type="submit" className="button button-start" disabled={busy || !password}>
+        </div>
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="login-password">访问口令</Label>
+          <Input
+            id="login-password"
+            type="password"
+            autoComplete="current-password"
+            autoFocus
+            value={password}
+            aria-invalid={error !== null}
+            aria-describedby={error ? "login-error" : undefined}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          {error && (
+            <p id="login-error" className="text-sm text-destructive" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
+        <Button type="submit" disabled={busy || !password}>
           {busy ? "登录中…" : "登录"}
-        </button>
+        </Button>
       </form>
     </div>
   );
