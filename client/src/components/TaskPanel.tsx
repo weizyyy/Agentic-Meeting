@@ -1,5 +1,23 @@
-import { useEffect, useState } from "react";
+import {
+  CircleCheckIcon,
+  CircleDashedIcon,
+  CircleSlashIcon,
+  CircleXIcon,
+  LoaderCircleIcon,
+  type LucideIcon,
+} from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { formatFrameTime, frameImageUrl } from "../screenCapture.ts";
 import {
   TASK_STATUS_LABELS,
@@ -11,7 +29,32 @@ import {
   taskSubline,
   type TaskDetail,
   type TaskItem,
+  type TaskStatus,
 } from "../tasks.ts";
+
+/** 每种状态的图标和颜色：排队虚线圈、进行中转圈、完成打勾、失败打叉、取消划斜线 */
+const STATUS_ICONS: Record<TaskStatus, { icon: LucideIcon; tone: string }> = {
+  queued: { icon: CircleDashedIcon, tone: "text-subtle-foreground" },
+  running: { icon: LoaderCircleIcon, tone: "animate-spin text-agent-foreground" },
+  succeeded: { icon: CircleCheckIcon, tone: "text-success-foreground" },
+  failed: { icon: CircleXIcon, tone: "text-destructive" },
+  cancelled: { icon: CircleSlashIcon, tone: "text-subtle-foreground" },
+};
+
+const STATUS_TEXT: Record<TaskStatus, string> = {
+  queued: "text-muted-foreground",
+  running: "text-agent-foreground",
+  succeeded: "text-success-foreground",
+  failed: "text-destructive",
+  cancelled: "text-muted-foreground",
+};
+
+const LINK = "text-client-foreground underline-offset-4 hover:underline";
+
+function StatusIcon({ status }: { status: TaskStatus }) {
+  const { icon: Icon, tone } = STATUS_ICONS[status];
+  return <Icon aria-hidden className={`size-4 shrink-0 ${tone}`} />;
+}
 
 interface Props {
   tasks: readonly TaskItem[];
@@ -41,84 +84,103 @@ export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
     };
   }, [openId, openStatus, onLoad]);
 
-  useEffect(() => {
-    if (openId === null) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpenId(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [openId]);
-
   if (tasks.length === 0) return null; // 没有交办过任务时不占地方
 
   return (
-    <section className="panel tasks-panel" aria-label="后台任务">
-      <h2>后台任务</h2>
-      <ul className="tasks">
+    // 右列放不下时先让任务列表缩小、在框里滚动，助理的回答保持完整
+    <section
+      className="flex max-h-[55%] min-h-24 shrink-[100] flex-col rounded-xl border bg-card max-md:max-h-none"
+      aria-label="后台任务"
+    >
+      <h2 className="px-4 pt-3 pb-2 text-sm font-medium">后台任务</h2>
+      <ul className="flex min-h-0 flex-col gap-2 overflow-y-auto px-4 pb-4">
         {[...tasks].reverse().map((task) => (
           <li key={task.id}>
-            <button type="button" className="task" onClick={() => setOpenId(task.id)}>
-              <span className="task-head">
-                <span className="task-label">{task.label}</span>
-                <span className={`badge badge-task-${task.status}`}>
-                  {TASK_STATUS_LABELS[task.status]}
-                </span>
-                {task.modality === "text" && <span className="tag">文字</span>}
+            <button
+              type="button"
+              className="flex w-full items-start gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors outline-none hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              onClick={() => setOpenId(task.id)}
+            >
+              <span className="pt-0.5">
+                <StatusIcon status={task.status} />
               </span>
-              <span className="task-goal">{task.goal}</span>
-              <span className="task-sub">{taskSubline(task)}</span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="line-clamp-2 text-sm font-medium [overflow-wrap:anywhere]">
+                  {task.goal}
+                </span>
+                <span className="flex flex-wrap items-center gap-x-1.5 text-xs">
+                  <span className="font-mono text-subtle-foreground">{task.label}</span>
+                  <span className={STATUS_TEXT[task.status]}>
+                    {TASK_STATUS_LABELS[task.status]}
+                  </span>
+                  {task.modality === "text" && (
+                    <Badge variant="secondary" className="h-4 px-1.5">
+                      文字
+                    </Badge>
+                  )}
+                </span>
+                <span className="line-clamp-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                  {taskSubline(task)}
+                </span>
+              </span>
             </button>
           </li>
         ))}
       </ul>
-      {open && (
-        <div
-          className="lightbox"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`任务 ${open.label}`}
-          onClick={() => setOpenId(null)}
-        >
-          <article className="task-detail" onClick={(event) => event.stopPropagation()}>
-            <header>
-              <h3>
-                {open.label}{" "}
-                <span className={`badge badge-task-${open.status}`}>
+      <Dialog
+        open={open !== null}
+        onOpenChange={(next) => {
+          if (!next) setOpenId(null);
+        }}
+      >
+        {open && (
+          <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 pr-8 text-lg">
+                任务 {open.label}
+                <span
+                  className={`inline-flex items-center gap-1 text-sm font-normal ${STATUS_TEXT[open.status]}`}
+                >
+                  <StatusIcon status={open.status} />
                   {TASK_STATUS_LABELS[open.status]}
                 </span>
-              </h3>
-              <span className="spacer" />
-              {!isFinished(open.status) && (
-                <button
-                  type="button"
-                  className="link link-danger"
-                  onClick={() => onCancel(open.id)}
-                >
-                  取消任务
-                </button>
-              )}
-              <button type="button" className="link" onClick={() => setOpenId(null)}>
-                关闭
-              </button>
-            </header>
-            <p className="task-detail-goal">{open.goal}</p>
+              </DialogTitle>
+              <DialogDescription className="text-foreground">{open.goal}</DialogDescription>
+            </DialogHeader>
             {open.status === "succeeded" && open.brief && (
-              <p className="task-detail-brief">{open.brief}</p>
+              <p className="rounded-lg bg-success px-3 py-2 text-success-foreground">
+                {open.brief}
+              </p>
             )}
             {(open.status === "failed" || open.status === "cancelled") && open.error && (
-              <p className="notice notice-error">{open.error}</p>
+              <p className="rounded-lg bg-destructive/10 px-3 py-2 text-destructive">
+                {open.error}
+              </p>
             )}
             {detail === null || detail.id !== open.id ? (
-              <p className="empty">正在读取…</p>
+              <p className="text-subtle-foreground">正在读取…</p>
             ) : (
               <TaskBody detail={detail} />
             )}
-          </article>
-        </div>
-      )}
+            <DialogFooter>
+              {!isFinished(open.status) && (
+                <Button variant="destructive" onClick={() => onCancel(open.id)}>
+                  取消任务
+                </Button>
+              )}
+              <Button variant="outline" onClick={() => setOpenId(null)}>
+                关闭
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
     </section>
   );
+}
+
+function Heading({ children }: { children: ReactNode }) {
+  return <h4 className="mb-1 text-xs font-medium text-muted-foreground">{children}</h4>;
 }
 
 function TaskBody({ detail }: { detail: TaskDetail }) {
@@ -128,45 +190,52 @@ function TaskBody({ detail }: { detail: TaskDetail }) {
   return (
     <>
       {detail.detail_md && (
-        <>
-          <h4>详细结果</h4>
+        <div>
+          <Heading>详细结果</Heading>
           {/* 远端模型写的内容按纯文字显示，不当 HTML 解释 */}
-          <pre className="task-markdown">{detail.detail_md}</pre>
-        </>
+          <pre className="font-sans leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
+            {detail.detail_md}
+          </pre>
+        </div>
       )}
       {images.length > 0 && (
-        <div className="task-images">
+        <div className="flex flex-wrap gap-2">
           {images.map((name) => (
             <a key={name} href={artifactUrl(detail.id, name)} target="_blank" rel="noreferrer">
-              <img src={artifactUrl(detail.id, name)} alt={name} loading="lazy" />
+              <img
+                className="block max-h-90 max-w-full rounded-md border"
+                src={artifactUrl(detail.id, name)}
+                alt={name}
+                loading="lazy"
+              />
             </a>
           ))}
         </div>
       )}
       {files.length > 0 && (
-        <>
-          <h4>产物文件</h4>
-          <ul className="task-list">
+        <div>
+          <Heading>产物文件</Heading>
+          <ul className="list-disc pl-5 [overflow-wrap:anywhere]">
             {files.map((name) => (
               <li key={name}>
-                <a className="link" href={artifactUrl(detail.id, name)} download>
+                <a className={LINK} href={artifactUrl(detail.id, name)} download>
                   {name}
                 </a>
               </li>
             ))}
           </ul>
-        </>
+        </div>
       )}
       {detail.sources.length > 0 && (
-        <>
-          <h4>来源</h4>
-          <ul className="task-list">
+        <div>
+          <Heading>来源</Heading>
+          <ul className="list-disc pl-5 [overflow-wrap:anywhere]">
             {detail.sources.map((source) => {
               const href = safeLink(source);
               return (
                 <li key={source}>
                   {href ? (
-                    <a className="link" href={href} target="_blank" rel="noreferrer">
+                    <a className={LINK} href={href} target="_blank" rel="noreferrer">
                       {source}
                     </a>
                   ) : (
@@ -176,41 +245,55 @@ function TaskBody({ detail }: { detail: TaskDetail }) {
               );
             })}
           </ul>
-        </>
-      )}
-      <h4>进度{duration && `（用时 ${duration}）`}</h4>
-      <ol className="task-events">
-        {detail.events.map((event, index) => (
-          <li key={index} className={`task-event task-event-${event.kind}`}>
-            {event.summary}
-          </li>
-        ))}
-      </ol>
-      <h4>这次任务外发的内容</h4>
-      <p className="task-outbound">
-        {detail.outbound.model_host
-          ? `发给了 ${detail.outbound.model_host} 上的模型：`
-          : "发给了后台模型："}
-        任务目标（上面那段话）、{formatFrameTime(detail.outbound.t_from)} 到{" "}
-        {formatFrameTime(detail.outbound.t_to)} 的会议转录
-        {detail.outbound.frames.length > 0
-          ? `，以及下面 ${detail.outbound.frames.length} 张屏幕截图。`
-          : "，没有带屏幕截图。"}
-        {` 交办人：${detail.requested_by}。`}
-      </p>
-      {detail.outbound.frames.length > 0 && (
-        <div className="task-images task-images-small">
-          {detail.outbound.frames.map((frame) => (
-            <a key={frame.id} href={frameImageUrl(frame.id)} target="_blank" rel="noreferrer">
-              <img
-                src={frameImageUrl(frame.id)}
-                alt={`${formatFrameTime(frame.t)} 的屏幕截图`}
-                loading="lazy"
-              />
-            </a>
-          ))}
         </div>
       )}
+      <div>
+        <Heading>进度{duration && `（用时 ${duration}）`}</Heading>
+        <ol className="list-decimal pl-5 [overflow-wrap:anywhere]">
+          {detail.events.map((event, index) => (
+            <li
+              key={index}
+              className={
+                event.kind === "status"
+                  ? "font-medium"
+                  : event.kind === "note"
+                    ? "text-warning-foreground"
+                    : undefined
+              }
+            >
+              {event.summary}
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div className="rounded-lg bg-muted px-3 py-2.5">
+        <Heading>这次任务外发的内容</Heading>
+        <p>
+          {detail.outbound.model_host
+            ? `发给了 ${detail.outbound.model_host} 上的模型：`
+            : "发给了后台模型："}
+          任务目标（上面那段话）、{formatFrameTime(detail.outbound.t_from)} 到{" "}
+          {formatFrameTime(detail.outbound.t_to)} 的会议转录
+          {detail.outbound.frames.length > 0
+            ? `，以及下面 ${detail.outbound.frames.length} 张屏幕截图。`
+            : "，没有带屏幕截图。"}
+          {` 交办人：${detail.requested_by}。`}
+        </p>
+        {detail.outbound.frames.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {detail.outbound.frames.map((frame) => (
+              <a key={frame.id} href={frameImageUrl(frame.id)} target="_blank" rel="noreferrer">
+                <img
+                  className="block aspect-video w-40 rounded-md border object-cover"
+                  src={frameImageUrl(frame.id)}
+                  alt={`${formatFrameTime(frame.t)} 的屏幕截图`}
+                  loading="lazy"
+                />
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
     </>
   );
 }

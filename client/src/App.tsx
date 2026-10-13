@@ -90,11 +90,13 @@ export function App({ onLogout }: Props = {}) {
           onStart={() => void meeting.start()}
         />
         {!state.viewing?.deletion_pending && (
-          <main className="layout">
+          // 宽屏两列：左边字幕（报告）在上、屏幕在下，右边助理和后台任务；
+          // 窄屏一列依次排下来，整块上下滚动，字幕至少留出 20rem
+          <main className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(20rem,1fr)_auto_auto] gap-4 overflow-y-auto [grid-template-areas:'captions'_'side'_'screen'] md:grid-cols-[minmax(0,1fr)_minmax(0,360px)] md:grid-rows-[minmax(0,1fr)_auto] md:overflow-visible md:[grid-template-areas:'captions_side'_'screen_side']">
             <Tabs
               value={tab}
               onValueChange={(value: "captions" | "report") => setTab(value)}
-              className="min-h-0 min-w-0 gap-0 overflow-hidden rounded-xl border bg-card"
+              className="min-h-0 min-w-0 gap-0 overflow-hidden rounded-xl border bg-card [grid-area:captions]"
             >
               <div className="flex items-center gap-2 border-b px-4 py-2">
                 <TabsList aria-label="字幕和报告">
@@ -145,7 +147,7 @@ export function App({ onLogout }: Props = {}) {
                 />
               </TabsContent>
             </Tabs>
-            <div className="column side">
+            <div className="flex min-w-0 flex-col gap-4 [grid-area:side] md:min-h-0 md:overflow-y-auto">
               <AssistantPanel
                 state={state.assistantState}
                 text={state.assistantText}
@@ -160,6 +162,8 @@ export function App({ onLogout }: Props = {}) {
                 onLoad={meeting.loadTask}
                 onCancel={(id) => void meeting.cancelTask(id)}
               />
+            </div>
+            <div className="min-w-0 [grid-area:screen]">
               <FrameTimeline
                 frames={state.frames}
                 timeBase={timeBase}

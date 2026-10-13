@@ -124,10 +124,11 @@ Messages sent while the assistant is busy are queued.
 
 ## Screen sharing
 
-Click **共享屏幕** (Share screen) in the screen panel and choose a window or display. A screenshot is
-taken whenever the picture changes, and once a minute otherwise. Thumbnails appear on the timeline;
-scroll the strip with the mouse wheel, click a thumbnail to enlarge it, and use `←` `→` to step
-through. A short summary is generated for each new picture.
+Click **共享屏幕** (Share screen) in the screen panel under the captions and choose a window or
+display. A screenshot is taken whenever the picture changes, and once a minute otherwise. Thumbnails
+appear on the timeline; scroll the strip with the mouse wheel, click a thumbnail to enlarge it, and
+step through with `←` `→` or **上一张** (Previous) and **下一张** (Next). A short summary is
+generated for each new picture.
 
 Screenshots are uploaded only while a meeting is live. From another device this requires HTTPS.
 
@@ -138,7 +139,8 @@ three numbers as a bar chart" — and the assistant acknowledges the request, ha
 background agent and reports the result when it is done, waiting for a pause in the conversation.
 Tasks requested by typing are reported in text only.
 
-The task panel shows progress. Open a task to see the detailed result, sources, generated files and
+The task panel shows progress, with an icon for each state (queued, running, done, failed,
+cancelled). Open a task to see the detailed result, sources, generated files and
 **exactly what was sent to the remote model**. Running tasks can be cancelled, and you can ask the
 assistant how a task is going. When the window is short, the task panel gives up space first and
 scrolls, so the assistant's answer always keeps at least four lines.

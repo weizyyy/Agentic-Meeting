@@ -17,6 +17,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   **保留** (Keep) and an **导出** (Export) menu; each caption puts the speaker and times on one line
   above the text, assistant answers are tinted, and **跟随最新** (Follow latest) appears while you
   scroll back through earlier captions.
+- The assistant, background tasks and screen panels move to the new components. The screen panel
+  now sits under the captions; the assistant shows its state with Pipecat's voice bars, tasks show a
+  status icon, and task details and enlarged screenshots open in dialogs, with **上一张** (Previous)
+  and **下一张** (Next) buttons next to the arrow keys.
 
 ### Changed
 
