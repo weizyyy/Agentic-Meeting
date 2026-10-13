@@ -25,6 +25,12 @@ export const session = defineMessages(
     reconnecting: (attempt: number) => `连接断开了，正在自动重连（第 ${attempt} 次）…`,
     watching: "正在另一台设备上进行，这里每 3 秒刷新一次；可以打字向助理提问，但不录音。",
     takeOverHere: "在这台设备上继续",
+    /** 手机上录音时的常驻提示 */
+    phoneRecording: {
+      held: "手机锁屏或切到后台可能中断录音，请让这个页面留在前台。录音期间屏幕会保持常亮。",
+      notHeld:
+        "手机锁屏或切到后台可能中断录音，请让这个页面留在前台。这个浏览器没能让屏幕保持常亮，可以把自动锁屏时间调长一些。",
+    },
     justInterrupted: "这场会议刚刚中断",
     interruptedFor: (span: string) => `这场会议已中断 ${span}`,
     resume: "继续",
@@ -86,6 +92,11 @@ export const session = defineMessages(
     watching:
       "This meeting is running on another device. This view refreshes every 3 seconds; you can type questions to the assistant, but nothing is recorded here.",
     takeOverHere: "Continue on this device",
+    phoneRecording: {
+      held: "Locking the phone or switching away can cut off the recording, so keep this page in front. The screen stays on while recording.",
+      notHeld:
+        "Locking the phone or switching away can cut off the recording, so keep this page in front. This browser could not keep the screen on; consider a longer auto-lock time.",
+    },
     justInterrupted: "This meeting was just interrupted",
     interruptedFor: (span: string) => `This meeting has been interrupted for ${span}`,
     resume: "Resume",

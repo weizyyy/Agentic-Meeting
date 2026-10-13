@@ -28,6 +28,7 @@ import { REPORT_POLL_MS } from "./report.ts";
 import { reconnectDelayMs, shouldReconnect } from "./resume.ts";
 import type { TaskDetail } from "./tasks.ts";
 import { validateText } from "./textInput.ts";
+import { useKeepRecording, type KeepAwake } from "./useKeepRecording.ts";
 import { useScreenShare } from "./useScreenShare.ts";
 
 /** 服务端信令地址（docs/interfaces.md §5.2）。开发时由 Vite 代理到应用。 */
@@ -180,6 +181,8 @@ export interface MeetingClient {
   resume: (id: string) => Promise<void>;
   /** 正在只读地看一场在别的设备上进行的会议 */
   watching: boolean;
+  /** 录音期间屏幕能不能保持常亮（手机上的提示用） */
+  keepAwake: KeepAwake;
   /** 这个浏览器不能开会的原因；能开会是 null。不能开会时开始、继续都不会发起连接 */
   unsupported: UnsupportedReason | null;
   /** 把一个说话人的全部发言并入另一个 */
@@ -794,6 +797,12 @@ export function useMeetingClient(): MeetingClient {
     sendState: sendScreenState,
   });
 
+  const keepAwake = useKeepRecording({
+    client,
+    recording: state.connection === "connected",
+    dispatch,
+  });
+
   const loadTask = useCallback(
     async (id: string): Promise<TaskDetail | null> => {
       try {
@@ -835,6 +844,7 @@ export function useMeetingClient(): MeetingClient {
     start,
     resume,
     watching: watchingId !== null,
+    keepAwake,
     unsupported,
     mergeSpeakers,
     assignSpeaker,

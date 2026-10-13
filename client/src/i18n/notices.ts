@@ -25,6 +25,8 @@ export const notices = defineMessages(
     connectFailed: (reason: string) => `连接失败：${reason}`,
     reconnectGaveUp: "自动重连没有成功。网络或服务恢复之后，点会议横幅上的「继续」接着开这场会议。",
     notConnected: "还没有连接，请先点「开始新会议」",
+    micInterrupted: (span: string) =>
+      `收音中断了 ${span}（锁屏、切到后台或来电时系统会停掉麦克风），这段时间说的话没有记下来。`,
     closed: {
       taken_over:
         "已在另一台设备（或另一个页面）上继续这场会议，这个页面已断开。同一时刻只能有一路连接。",
@@ -60,6 +62,8 @@ export const notices = defineMessages(
     reconnectGaveUp:
       "Reconnecting did not succeed. Once the network or the server is back, click Resume on the meeting banner to carry on with this meeting.",
     notConnected: "Not connected yet. Click Start meeting first",
+    micInterrupted: (span: string) =>
+      `The microphone was cut off for ${span} (the system stops it when the screen locks, the page goes to the background or a call comes in); nothing said in that time was recorded.`,
     closed: {
       taken_over:
         "This meeting continued on another device (or page), so this page was disconnected. Only one connection is allowed at a time.",

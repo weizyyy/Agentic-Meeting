@@ -101,6 +101,23 @@ means there are notices, and the number on the tasks tab counts unfinished tasks
 **Add to Home Screen** (Safari) or **Install app** (Chrome) puts the page on the home screen, where
 it opens without the browser's address bar.
 
+**Recording on a phone.** A phone can hold the meeting like a computer, but phone systems stop the
+microphone when the screen locks or the page goes to the background, so keep the page in front.
+While recording, a yellow line above the meeting says so, and the page keeps the screen on if the
+browser allows it; if it cannot, the line says so too and a longer auto-lock time helps. When the
+microphone was stopped for three seconds or more, a notice says for how long; nothing said in that
+time is in the captions. A long break can also drop the connection, which then reconnects on its
+own as on a computer.
+
+| Phone browser             | Keeps the screen on         | Locked screen or another app in front                  |
+| ------------------------- | --------------------------- | ------------------------------------------------------ |
+| Safari on iPhone and iPad | Yes                         | The microphone stops until the page is back in front   |
+| Chrome on Android         | Yes                         | Chrome may keep recording, depending on power settings |
+| Other browsers            | When they support Wake Lock | Assume the microphone stops                            |
+
+On every phone the assistant answers typed questions in text and speaks spoken ones; if its voice
+does not play, tap **打开助理声音** (Turn on assistant voice). Screen sharing is not available.
+
 ## Captions and speakers
 
 Each caption starts with a line naming the speaker, the wall-clock time in the browser's time zone

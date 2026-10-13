@@ -1,4 +1,5 @@
 import { PipecatClientProvider } from "@pipecat-ai/client-react";
+import { TriangleAlertIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -103,6 +104,18 @@ export function App({ onLogout }: Props = {}) {
           </p>
         )}
         <AssistantAudio />
+        {state.connection === "connected" && (
+          // 手机上录音的限制（docs/user-guide.md「手机上」）；宽屏的电脑没有这个问题
+          <p
+            className="mb-3 flex items-start gap-2 rounded-lg bg-warning px-3 py-2 text-sm text-warning-foreground md:hidden"
+            role="note"
+          >
+            <TriangleAlertIcon aria-hidden className="mt-0.5 size-4 shrink-0" />
+            {meeting.keepAwake === "held"
+              ? t.session.phoneRecording.held
+              : t.session.phoneRecording.notHeld}
+          </p>
+        )}
         <SessionBanner
           session={state.viewing}
           connection={state.connection}

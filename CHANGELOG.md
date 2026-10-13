@@ -40,6 +40,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - A device following a meeting without holding the connection, such as a phone, can type questions
   to the assistant. They join the same queue as questions typed on the meeting's own page, and the
   answer appears in the captions. The follower view now also refreshes background tasks.
+- Recording from a phone keeps the screen on where the browser allows it, and a yellow line above
+  the meeting says that locking the phone or switching away can cut off the recording. When the
+  system stopped the microphone for a few seconds or more, a notice says for how long. The user
+  guide lists what each phone browser can do.
 - **演示模式** (Presentation mode) in the top bar shows the meeting full screen for a shared
   meeting-room display: dark, with the last three captions in large type and the assistant's state
   and answer. `Esc` returns to the workspace.
