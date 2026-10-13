@@ -35,7 +35,7 @@ from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
 from agentic_meeting.config import RetentionConfig
 from agentic_meeting.diar.base import Diarizer, NullDiarizer
 from agentic_meeting.diar.stream import SessionDiarizer
-from agentic_meeting.messages import Notice, message
+from agentic_meeting.messages import Message, Notice, message
 from agentic_meeting.store.db import CleanupPlan, SessionBusy, Store
 from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import Session
@@ -59,6 +59,7 @@ class LiveConnection:
     worker: Any = None  # PipelineWorker：要用到 queue_frame / cancel
     recorder: Any = None  # MeetingRecorder：要用到 set_speaker_name / elapsed_secs
     gate: Any = None  # ModalityGate：工具要知道当前这次请求是文字还是语音
+    text_input: Any = None  # TextInputHandler：旁观的设备打字提问时用
     base_secs: float = 0.0  # 本次连接在会话时间轴上的起点；新建的会议恒为 0
     resumed: bool = False  # 是继续一场已有的会议，不是新建
     stop_requested: bool = False
@@ -167,6 +168,22 @@ class SessionManager:
             logger.exception("往实时模型的上下文追加一行失败")
             return False
         return True
+
+    async def submit_text(self, session_id: str, text: str) -> list[tuple[str, Message]] | None:
+        """旁观的设备打字提问（interfaces.md §5.1）：交给这场会议的文字入口，返回处理结果的提示。
+
+        这场会议没有活动连接、或管线还没登记好时返回 ``None``。
+        """
+        live = self._live
+        if live is None or live.session.id != session_id or live.text_input is None:
+            return None
+        notices: list[tuple[str, Message]] = []
+
+        async def collect(level: str, msg: Message) -> None:
+            notices.append((level, msg))
+
+        await live.text_input.handle(text, notice=collect)
+        return notices
 
     async def wait_idle(self, wait_secs: float = 5.0) -> None:
         """应用关闭时：等活动连接把连接记录写完（有超时）。"""
@@ -303,10 +320,16 @@ class SessionManager:
             await self._drop_stream()
 
     async def register(
-        self, live: LiveConnection, worker: Any, recorder: Any, gate: Any = None
+        self,
+        live: LiveConnection,
+        worker: Any,
+        recorder: Any,
+        gate: Any = None,
+        text_input: Any = None,
     ) -> None:
-        """管线造好后登记它的 worker、记录器和模态闸门。登记之前就有人要求停止的，现在立刻取消。"""
+        """管线造好后登记它的 worker、记录器、模态闸门和文字入口。登记之前就有人要求停止的，现在立刻取消。"""
         live.worker, live.recorder, live.gate = worker, recorder, gate
+        live.text_input = text_input
         if live.stop_requested:
             await worker.cancel()
 

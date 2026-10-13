@@ -217,7 +217,8 @@ export function App({ onLogout }: Props = {}) {
                   text={state.assistantText}
                   replyMode={state.replyMode}
                   notices={state.notices}
-                  canSend={state.connection === "connected"}
+                  canSend={state.connection === "connected" || meeting.watching}
+                  watching={meeting.watching}
                   onSend={meeting.sendText}
                   onDismissNotice={meeting.dismissNotice}
                 />

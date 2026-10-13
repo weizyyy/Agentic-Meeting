@@ -527,6 +527,7 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 | `PATCH /api/sessions/{id}`                           | `{"title"?, "keep"?}` | 更新后的会话摘要；标题去首尾空白、最长 200 字；keep 是布尔值                                                                 |
 | `POST /api/sessions/{id}/end`                        | —                     | `{"id", "ended_at"}`。会话正在进行时同时断开它的连接，并在后台生成最后一份滚动纪要（响应不等它）                             |
 | `POST /api/session/end`                              | —                     | 同上，作用于当前会话                                                                                                         |
+| `POST /api/sessions/{id}/text`                       | `{"text": "…"}`       | `{"accepted": <boolean>, "notice": <notice 或 null>}`。旁观这场会议的设备打字提问（见下）                                    |
 | `DELETE /api/sessions/{id}`                          | —                     | 数据库、向量、文件完整移除后才返回 `{"id"}`；忙时 409，删除失败 500（§8.4）                                                  |
 
 **会话摘要**：`{"id", "title", "keep": <boolean>, "deletion_pending": <boolean>, "started_at", "ended_at", "last_active_at", "state": "live" | "interrupted" | "ended",
@@ -534,6 +535,13 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 `duration_secs` 是各次连接实际时长之和，不含中断的空档；正在进行的那一段算到现在。
 
 补充说明（`web/sessions_api.py`）：`GET /api/sessions` 的参数 `limit`（1–500，默认 20）、`before`；列表响应是 `{"items": [...]}`。`GET /api/session` 与 `GET /api/sessions/{id}` 的响应是会话摘要加上 `screen`、`members`（配置里的成员名单，给说话人改名当候选）和 `connections`（`[{connected_at, disconnected_at, t_from, t_to}]`）。`PATCH` 的 `title` 去首尾空白、最长 200 字，返回更新后的会话摘要。`POST …/end` 返回 `{"id", "ended_at"}`；会话正在进行时，先给页面发 `session_closed(reason="ended")`、取消管线、等它收尾，再写 `ended_at`。找不到会议返回 404 `找不到这场会议`；没有任何会议时 `GET /api/session` 返回 404 `现在没有会议`；`DELETE` 一场进行中的会议返回 409。
+
+**其他设备打字提问。** 只读旁观一场进行中会议的页面（不持有连接）用 `POST /api/sessions/{id}/text` 打字提问。
+文字进入和会议页面 `text_input` 同一个队列，处理方式相同（§6.3）：写成一条发言、只用文字回答、助理忙时排队。
+处理结果放在响应里返回，而不是作为提示发给会议页面：`notice` 是会议页面本来会收到的 §6.1 `notice` 消息
+（`text.empty`、`text.too_long`、`text.queue_full` 时 `accepted: false`；`text.queued` 时 `accepted: true`），
+直接交给模型时为 `null`。回答写成助理的发言，旁观页面照常轮询读到。会议不存在返回 404 `session.not_found`；
+会议没有活动连接、或管线还没就绪时返回 409 `session.not_live`。
 
 PATCH 必须是 JSON 对象，至少含 `title`、`keep` 中一个，不能含未知字段。`keep` 只接受 JSON
 `true`/`false`，不接受 null、数字或字符串。只改 keep 保留原标题，只改 title 保留 keep；同时改两者
@@ -1118,6 +1126,7 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 | `session.not_found`         | 404           | —                | 找不到这场会议                                                     |
 | `session.none`              | 404           | —                | 现在没有会议                                                       |
 | `session.busy`              | 409           | —                | 会议正在处理或等待删除，请稍后重试                                 |
+| `session.not_live`          | 409           | —                | 这场会议现在没有在进行，消息没有发送                               |
 | `session.delete_incomplete` | 500           | —                | 删除未完成，会议待删除，请稍后重试                                 |
 | `session.title_too_long`    | 400           | `max`：number    | 标题太长（最多 {max} 字）                                          |
 | `speaker.not_found`         | 404           | —                | 这场会议里没有这个说话人                                           |
@@ -1305,6 +1314,8 @@ SDK 的 `onBotStartedSpeaking` / `onBotStoppedSpeaking` 回调自行显示。
 4. 校验：去首尾空白后非空、不超过 2000 字（按字符数），不通过发 `warn` 级 `notice`，不落库。data 格式不对（不是 `{"text": "…"}`）
    也提示。
 5. 任务记录委托当时的模态 `tasks.modality`；文字委托的任务完成后只出文字（做法见 §7「播报的时机与模态」）。
+6. 只读旁观会议的设备用 `POST /api/sessions/{id}/text`（§5.1）向同一个队列提问；处理结果的提示放在响应里返回，
+   不发给会议页面。
 
 ## 7. 实时模型的工具
 

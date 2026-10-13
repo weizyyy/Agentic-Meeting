@@ -1,4 +1,4 @@
-"""一场会议从头到尾：发言变成字幕、叫名字提问、打字提问、断线继续、结束、导出、换设备接管。"""
+"""一场会议从头到尾：发言变成字幕、叫名字提问、打字提问、断线继续、结束、导出、换设备接管、旁观的设备打字提问。"""
 
 from __future__ import annotations
 
@@ -139,3 +139,37 @@ async def test_a_second_device_takes_over_the_meeting(app, http, meeting, infere
     inference.asr.say("换到第二台设备上说话")
     await second.speak()
     assert (await second.next_message("utterance"))["text"] == "换到第二台设备上说话"
+
+
+async def test_a_device_following_the_meeting_can_ask_by_typing(app, http, meeting, inference):
+    """手机只读旁观时打字提问：不接管会议，回答只出文字，记进字幕。"""
+    client = meeting()
+    session = await client.connect()
+    inference.llm.when("报告什么时候交", Reply(text="下周五之前交。"))
+
+    sent = await http.post(f"/api/sessions/{session['id']}/text", json={"text": "报告什么时候交"})
+    assert sent.status_code == 200, sent.text
+    assert sent.json() == {"accepted": True, "notice": None}
+    # 会议页面照常看到这条提问和文字回答，连接没有被接管
+    typed = await client.next_message("utterance", source="text")
+    assert typed["text"] == "报告什么时候交"
+    await until_sync(lambda: "下周五" in client.bot_text(), "收到回答文字")
+    assert inference.tts.count() == 0
+
+    async def answer_stored():
+        items = (
+            await http.get("/api/utterances", params={"session_id": session["id"], "tail": 10})
+        ).json()["items"]
+        return [u for u in items if u["text"] == "下周五之前交。"] or None
+
+    await until(answer_stored, "回答记进字幕，旁观的设备轮询读到")
+
+    # 不合格的提问由响应告诉提问的设备
+    empty = await http.post(f"/api/sessions/{session['id']}/text", json={"text": "  "})
+    assert empty.json()["accepted"] is False
+    assert empty.json()["notice"]["code"] == "text.empty"
+
+    await http.post(f"/api/sessions/{session['id']}/end")
+    ended = await http.post(f"/api/sessions/{session['id']}/text", json={"text": "还在吗"})
+    assert ended.status_code == 409
+    assert ended.json()["code"] == "session.not_live"

@@ -23,7 +23,7 @@ export const session = defineMessages(
     exportFullHint: "转录、JSON、报告、全部截图和任务产物，打成一个压缩包",
     deletionIncomplete: "删除尚未完成，内容可能已部分移除。请在会议列表重试删除。",
     reconnecting: (attempt: number) => `连接断开了，正在自动重连（第 ${attempt} 次）…`,
-    watching: "正在另一台设备上进行，这里只读，每 3 秒刷新一次。",
+    watching: "正在另一台设备上进行，这里每 3 秒刷新一次；可以打字向助理提问，但不录音。",
     takeOverHere: "在这台设备上继续",
     justInterrupted: "这场会议刚刚中断",
     interruptedFor: (span: string) => `这场会议已中断 ${span}`,
@@ -84,7 +84,7 @@ export const session = defineMessages(
       "Deletion did not finish and some content may already be gone. Retry the deletion from the meeting list.",
     reconnecting: (attempt: number) => `Connection lost; reconnecting (attempt ${attempt})…`,
     watching:
-      "This meeting is running on another device. This view is read-only and refreshes every 3 seconds.",
+      "This meeting is running on another device. This view refreshes every 3 seconds; you can type questions to the assistant, but nothing is recorded here.",
     takeOverHere: "Continue on this device",
     justInterrupted: "This meeting was just interrupted",
     interruptedFor: (span: string) => `This meeting has been interrupted for ${span}`,

@@ -23,6 +23,7 @@ export const ERROR_PARAMS = {
   "session.not_found": {},
   "session.none": {},
   "session.busy": {},
+  "session.not_live": {},
   "session.delete_incomplete": {},
   "session.title_too_long": { max: "number" },
   "speaker.not_found": {},
@@ -68,6 +69,7 @@ export const serverErrors = defineMessages(
     "session.not_found": "找不到这场会议",
     "session.none": "现在没有会议",
     "session.busy": "会议正在处理或等待删除，请稍后重试",
+    "session.not_live": "这场会议现在没有在进行，消息没有发送",
     "session.delete_incomplete": "删除未完成，会议待删除，请稍后重试",
     "session.title_too_long": ({ max }: { max: number }) => `标题太长（最多 ${max} 字）`,
     "speaker.not_found": "这场会议里没有这个说话人",
@@ -110,6 +112,7 @@ export const serverErrors = defineMessages(
     "session.not_found": "Meeting not found.",
     "session.none": "There is no meeting right now.",
     "session.busy": "The meeting is being processed or waiting to be deleted. Try again later.",
+    "session.not_live": "This meeting is not in progress; the message was not sent.",
     "session.delete_incomplete":
       "Deletion did not finish; the meeting is marked for deletion. Try again later.",
     "session.title_too_long": ({ max }) => `The title is too long (at most ${max} characters).`,

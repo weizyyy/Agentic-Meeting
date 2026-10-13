@@ -39,6 +39,16 @@ const SESSION_CHECK_MS = 5000;
 /** 只读地看一场正在别的设备上进行的会议时，多久取一次新发言。 */
 const WATCH_POLL_MS = 3000;
 
+/** 正在只读旁观的会议：自己没连着，看的这场正在别的设备上进行 */
+function watchingSessionId(state: MeetingState): string | null {
+  return state.connection === "disconnected" &&
+    state.reconnectAttempt === 0 &&
+    !state.viewing?.deletion_pending &&
+    state.viewing?.state === "live"
+    ? state.viewing.id
+    : null;
+}
+
 /**
  * 保证麦克风开着回声消除：助理朗读的声音会从扬声器传回麦克风，没有回声消除会被识别成有人说话。
  * 浏览器通常默认就是开的；这里检查一次，没开就要求开启。降噪与自动增益保持浏览器默认。
@@ -511,39 +521,35 @@ export function useMeetingClient(): MeetingClient {
     }, delay);
   }, [state.connection, connectTo]);
 
-  // 只读地看一场正在别的设备上进行的会议：每 3 秒取一次新发言和会议状态。
-  const watchingId =
-    state.connection === "disconnected" &&
-    state.reconnectAttempt === 0 &&
-    !state.viewing?.deletion_pending &&
-    state.viewing?.state === "live"
-      ? state.viewing.id
-      : null;
-  useEffect(() => {
-    if (watchingId === null) return;
-    const timer = window.setInterval(() => {
+  // 只读地看一场正在别的设备上进行的会议：每 3 秒取一次新发言、任务和会议状态。
+  const watchingId = watchingSessionId(state);
+  const refreshWatched = useCallback(
+    (id: string) => {
       const after = backfillAfterId(latest.current.captions);
+      const stillWatching = () =>
+        latest.current.viewing?.id === id && !latest.current.viewing.deletion_pending;
       void api
-        .getSession(watchingId)
+        .getSession(id)
         .then(async (detail) => {
           dispatch({ type: "detailRefreshed", detail });
-          if (
-            detail.deletion_pending ||
-            latest.current.viewing?.deletion_pending ||
-            latest.current.viewing?.id !== watchingId
-          )
-            return;
+          if (detail.deletion_pending || !stillWatching()) return;
           const items = await api.listUtterances(
-            watchingId,
+            id,
             after === null ? { tail: PAGE_SIZE } : { afterId: after },
           );
-          if (latest.current.viewing?.id === watchingId && items.length > 0)
-            dispatch({ type: "backfilled", items });
+          if (stillWatching() && items.length > 0) dispatch({ type: "backfilled", items });
+          const tasks = await api.listTasks(id);
+          if (stillWatching()) dispatch({ type: "tasksLoaded", sessionId: id, items: tasks });
         })
         .catch(() => undefined); // 取不到就等下一次
-    }, WATCH_POLL_MS);
+    },
+    [api],
+  );
+  useEffect(() => {
+    if (watchingId === null) return;
+    const timer = window.setInterval(() => refreshWatched(watchingId), WATCH_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [watchingId, api]);
+  }, [watchingId, refreshWatched]);
 
   const stop = useCallback(async () => {
     inMeeting.current = false;
@@ -734,6 +740,25 @@ export function useMeetingClient(): MeetingClient {
         dispatch({ type: "notice", level: "warn", text });
         return false;
       }
+      const watched = watchingSessionId(latest.current);
+      if (latest.current.connection !== "connected" && watched !== null) {
+        // 旁观时经 HTTP 提问，不接管会议；回答记进字幕，下一次刷新就能看到
+        void api
+          .sendText(watched, checked.text)
+          .then((result) => {
+            const notice = parseServerMessage(result.notice);
+            if (notice?.type === "notice")
+              dispatch({
+                type: "notice",
+                level: notice.level,
+                text: notice.text,
+                server: { code: notice.code, params: notice.params },
+              });
+            refreshWatched(watched); // 提问马上出现在字幕里
+          })
+          .catch((error: unknown) => fail("send", error));
+        return true;
+      }
       if (latest.current.connection !== "connected") {
         dispatch({ type: "notice", level: "warn", text: messages().notices.notConnected });
         return false;
@@ -747,7 +772,7 @@ export function useMeetingClient(): MeetingClient {
       dispatch({ type: "textSent" });
       return true;
     },
-    [client, fail],
+    [client, fail, api, refreshWatched],
   );
 
   const sendScreenState = useCallback(

@@ -119,17 +119,21 @@ class TextInputHandler:
     # 入口
     # ------------------------------------------------------------------ #
 
-    async def handle(self, raw: str) -> None:
-        """处理一条浏览器发来的文字。"""
+    async def handle(self, raw: str, *, notice: Notice | None = None) -> None:
+        """处理一条浏览器发来的文字。
+
+        结果的提示（不合格、排队）默认发给会议页面；旁观的设备提问时由 ``notice`` 收下，放进它的响应里。
+        """
+        reply = notice or self._safe_notice
         text = raw.strip()
         if not text:
-            await self._warn(message("text.empty"))
+            await reply("warn", message("text.empty"))
             return
         if len(text) > self._max_chars:
-            await self._warn(message("text.too_long", max=self._max_chars))
+            await reply("warn", message("text.too_long", max=self._max_chars))
             return
         if self.busy and len(self._queue) >= self._max_queued:
-            await self._warn(message("text.queue_full", max=self._max_queued))
+            await reply("warn", message("text.queue_full", max=self._max_queued))
             return
 
         utterance = await self._recorder.record_typed(text)  # 立刻落库并显示在字幕里
@@ -139,7 +143,7 @@ class TextInputHandler:
             if self.busy or self._queue:
                 self._queue.append(utterance)
                 position = len(self._queue)
-                await self._info(message("text.queued", position=position))
+                await reply("info", message("text.queued", position=position))
                 return
             await self._dispatch(utterance)
 
@@ -188,12 +192,6 @@ class TextInputHandler:
             self._watchdog = None
             self._tools = False
             await self.set_generating(False)
-
-    async def _warn(self, msg: Message) -> None:
-        await self._safe_notice("warn", msg)
-
-    async def _info(self, msg: Message) -> None:
-        await self._safe_notice("info", msg)
 
     async def _safe_notice(self, level: str, msg: Message) -> None:
         try:

@@ -26,8 +26,10 @@ interface Props {
   text: string;
   replyMode: ReplyMode | null;
   notices: readonly Notice[];
-  /** 已连接：可以用文字输入框向助理提问 */
+  /** 已连接或在旁观：可以用文字输入框向助理提问 */
   canSend: boolean;
+  /** 旁观另一台设备上进行的会议：回答记进字幕，不在这里流出来 */
+  watching?: boolean;
   onSend: (text: string) => boolean;
   onDismissNotice: (id: number) => void;
 }
@@ -39,6 +41,7 @@ export function AssistantPanel({
   replyMode,
   notices,
   canSend,
+  watching = false,
   onSend,
   onDismissNotice,
 }: Props) {
@@ -105,10 +108,12 @@ export function AssistantPanel({
           {text ? (
             <p className="whitespace-pre-wrap">{text}</p>
           ) : (
-            <p className="text-subtle-foreground">{t.assistant.empty}</p>
+            <p className="text-subtle-foreground">
+              {watching ? t.assistant.emptyWatching : t.assistant.empty}
+            </p>
           )}
         </div>
-        <TextInput enabled={canSend} onSend={onSend} />
+        <TextInput enabled={canSend} watching={watching} onSend={onSend} />
       </div>
     </section>
   );

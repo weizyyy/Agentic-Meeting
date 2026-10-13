@@ -156,6 +156,24 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         assert updated is not None
         return await summary_of(request, updated)
 
+    @app.post("/api/sessions/{session_id}/text")
+    async def submit_text(request: Request, session_id: str) -> dict[str, Any]:
+        """旁观这场会议的设备打字提问；处理结果的提示放在响应里（interfaces.md §5.1）。"""
+        _, manager = parts(request)
+        body = await _json_body(request)
+        text = body.get("text")
+        if not isinstance(text, str):
+            raise invalid("text 必须是字符串")
+        session = await resolve(request, session_id)
+        notices = await manager.submit_text(session.id, text)
+        if notices is None:
+            raise ApiError(409, "session.not_live")
+        level, msg = notices[-1] if notices else ("info", None)
+        return {
+            "accepted": level != "warn",
+            "notice": msg.notice(level) if msg is not None else None,
+        }
+
     async def end(request: Request, session: Session) -> dict[str, Any]:
         _, manager = parts(request)
         ended = await manager.end(session.id)

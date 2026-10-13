@@ -75,7 +75,8 @@ export function ControlBar({
   return (
     <header className="mb-3 flex flex-wrap items-center gap-2 border-b py-3">
       <MicIcon className="size-4" aria-hidden="true" />
-      <h1 className="text-sm font-medium">{t.common.appName}</h1>
+      {/* 手机上一行放不下产品名，只留图标 */}
+      <h1 className="text-sm font-medium max-md:sr-only">{t.common.appName}</h1>
       <Button
         variant="ghost"
         aria-expanded={listOpen}

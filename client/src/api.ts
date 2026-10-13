@@ -99,6 +99,8 @@ export interface Api {
   /** 上传一张截图；capturedAt 是已经换算成服务端时钟的采集时刻（Unix 秒） */
   uploadFrame(image: Blob, capturedAt: number): Promise<{ id: number; t: number }>;
   listTasks(sessionId: string): Promise<TaskItem[]>;
+  /** 旁观时打字提问（interfaces.md §5.1）；notice 是会议页面本来会收到的提示，原样交给 parseServerMessage */
+  sendText(sessionId: string, text: string): Promise<{ accepted: boolean; notice: unknown }>;
   getTask(id: string): Promise<TaskDetail>;
   cancelTask(id: string): Promise<TaskItem>;
   /** 最近一份会后报告；还没有返回 null */
@@ -245,6 +247,11 @@ export function createApi(
       );
       return body.items;
     },
+    sendText: (sessionId, text) =>
+      request<{ accepted: boolean; notice: unknown }>(
+        `/api/sessions/${enc(sessionId)}/text`,
+        json("POST", { text }),
+      ),
     getTask: (id) => request<TaskDetail>(`/api/tasks/${enc(id)}`),
     cancelTask: (id) => request<TaskItem>(`/api/tasks/${enc(id)}/cancel`, { method: "POST" }),
     async getReport(sessionId) {

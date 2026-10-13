@@ -7,14 +7,16 @@ import { useI18n } from "../i18n/index.ts";
 import { MAX_TEXT_CHARS, keyAction, remainingChars } from "../textInput.ts";
 
 interface Props {
-  /** 已连接才能发 */
+  /** 已连接（或旁观一场进行中的会议）才能发 */
   enabled: boolean;
+  /** 旁观：回答不在助理区流出来，而是记进字幕 */
+  watching?: boolean;
   /** 发出去返回 true，输入框随即清空 */
   onSend: (text: string) => boolean;
 }
 
 /** 文字输入框：不方便出声时打字向助理提问或委托任务。回车发送，Shift+回车换行；助理只用文字回答，不会出声。 */
-export function TextInput({ enabled, onSend }: Props) {
+export function TextInput({ enabled, watching = false, onSend }: Props) {
   const { t } = useI18n();
   const [text, setText] = useState("");
   const left = remainingChars(text);
@@ -34,7 +36,13 @@ export function TextInput({ enabled, onSend }: Props) {
       <textarea
         className="block max-h-40 min-h-10 w-full resize-none bg-transparent px-3 pt-2 text-sm outline-none [field-sizing:content] placeholder:text-muted-foreground disabled:cursor-not-allowed"
         aria-label={t.assistant.input.label}
-        placeholder={enabled ? t.assistant.input.placeholder : t.assistant.input.placeholderIdle}
+        placeholder={
+          !enabled
+            ? t.assistant.input.placeholderIdle
+            : watching
+              ? t.assistant.input.placeholderWatching
+              : t.assistant.input.placeholder
+        }
         value={text}
         rows={2}
         disabled={!enabled}

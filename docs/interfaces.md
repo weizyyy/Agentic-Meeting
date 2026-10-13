@@ -605,6 +605,7 @@ routes in §5.8 are outside `/api` and remain anonymous.
 | `PATCH /api/sessions/{id}`                           | `{"title"?, "keep"?}` | Updated summary; title is trimmed and limited to 200 characters; keep is a boolean                                      |
 | `POST /api/sessions/{id}/end`                        | —                     | `{"id", "ended_at"}`. A live session is disconnected first; the final running summary is produced in the background     |
 | `POST /api/session/end`                              | —                     | Same, for the current session                                                                                           |
+| `POST /api/sessions/{id}/text`                       | `{"text": "..."}`     | `{"accepted": <boolean>, "notice": <notice or null>}`. A typed question from a device following the meeting (below)     |
 | `DELETE /api/sessions/{id}`                          | —                     | `{"id"}` only after complete database/vector/file removal; 409 while busy, 500 on deletion failure (§8.4)               |
 
 **Session summary:** `{"id", "title", "keep": <boolean>, "deletion_pending": <boolean>, "started_at", "ended_at", "last_active_at",
@@ -630,6 +631,17 @@ a failed deletion. Keep cannot undo pending deletion. Successful DELETE returns 
 retrying an already completely removed id returns 404. Concurrent deletion of the same id returns
 409 while one attempt owns it. Authentication/CSRF requirements remain those of §5.7.
 When no live session exists, current-session lookup skips pending sessions.
+
+**Typed questions from another device.** A page that follows a live meeting read-only (it does not
+hold the connection) sends typed questions with `POST /api/sessions/{id}/text`. The text goes into
+the same queue as `text_input` from the live page and is handled the same way (§6.3): stored as a
+caption, answered in text only, queued while the assistant is busy. The outcome comes back in the
+response instead of as a notice on the live page: `notice` is the `notice` message of §6.1 that the
+live page would have received (`text.empty`, `text.too_long`, `text.queue_full` with `accepted:
+false`; `text.queued` with `accepted: true`), or `null` when the question went to the model at once.
+The answer is stored as an assistant caption, which the following page reads with its usual
+polling. 404 `session.not_found` for an unknown session; 409 `session.not_live` when the session
+has no live connection, or its pipeline is not ready yet.
 
 Clock synchronization: the browser records its local time before and after the request, `t0` and
 `t1`; the offset "server time − local time" is approximately `server_time − (t0 + t1) / 2`. Three
@@ -1257,6 +1269,7 @@ translated. `request.failed` covers errors raised outside this application's han
 | `session.not_found`         | 404           | —                | 找不到这场会议                                                     |
 | `session.none`              | 404           | —                | 现在没有会议                                                       |
 | `session.busy`              | 409           | —                | 会议正在处理或等待删除，请稍后重试                                 |
+| `session.not_live`          | 409           | —                | 这场会议现在没有在进行，消息没有发送                               |
 | `session.delete_incomplete` | 500           | —                | 删除未完成，会议待删除，请稍后重试                                 |
 | `session.title_too_long`    | 400           | `max`: number    | 标题太长（最多 {max} 字）                                          |
 | `speaker.not_found`         | 404           | —                | 这场会议里没有这个说话人                                           |
@@ -1453,6 +1466,9 @@ Handling of `text_input` (`pipeline/text_input.py`; design in architecture.md §
 4. Invalid input (blank, too long or malformed) produces a `warn` notice and is not stored.
 5. Tasks record the modality of the delegating turn in `tasks.modality`; tasks delegated by typing
    are reported in text only (§7).
+6. A device following the meeting read-only feeds the same queue with
+   `POST /api/sessions/{id}/text` (§5.1); its outcome notice goes back in the response, not to the
+   live page.
 
 ## 7. Tools of the realtime LLM
 

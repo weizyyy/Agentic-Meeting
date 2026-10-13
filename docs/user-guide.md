@@ -68,9 +68,10 @@ After a short network drop the page reconnects on its own, up to five attempts.
 After a server restart, diarization has to learn the voices again, so a returning speaker may get a
 new label. Use **合并到…** (Merge into…) on the speaker chip to merge the two.
 
-**Following along.** Open the same address on another device to watch a live meeting read-only;
-the view refreshes every three seconds. **在这台设备上继续** (Continue on this device) moves the
-connection there.
+**Following along.** Open the same address on another device to watch a live meeting without
+taking it over; the view refreshes every three seconds and records nothing. Typed questions from
+that device still reach the assistant, and the answer appears in the captions. **在这台设备上继续**
+(Continue on this device) moves the connection there.
 
 **Microphone.** During a meeting, **麦克风** (Microphone) in the top bar mutes the microphone; it then
 reads **已静音** (Muted) until you click it again. The arrow next to it picks the microphone and the
@@ -141,7 +142,8 @@ Things it can do directly:
 
 **By typing.** The text box at the bottom of the assistant panel accepts questions without the wake
 word (`Enter` to send, `Shift+Enter` for a new line). Typed questions are answered in text only.
-Messages sent while the assistant is busy are queued.
+Messages sent while the assistant is busy are queued. A device that is only following the meeting
+can ask too; its answer appears in the captions.
 
 ## Screen sharing
 

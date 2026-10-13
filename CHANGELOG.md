@@ -37,6 +37,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (Tasks) and **画面** (Screen) tabs, and the top bar shrinks to icons. The page can be added to the
   home screen and opens there without the browser's address bar. Phone browsers cannot share the
   screen, so the share button is left out there.
+- A device following a meeting without holding the connection, such as a phone, can type questions
+  to the assistant. They join the same queue as questions typed on the meeting's own page, and the
+  answer appears in the captions. The follower view now also refreshes background tasks.
 - **演示模式** (Presentation mode) in the top bar shows the meeting full screen for a shared
   meeting-room display: dark, with the last three captions in large type and the assistant's state
   and answer. `Esc` returns to the workspace.

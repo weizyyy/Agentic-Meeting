@@ -628,7 +628,7 @@ async def run_bot(
             await worker.cancel()
 
         if manager is not None and live is not None:
-            await manager.register(live, worker, parts.recorder, parts.gate)
+            await manager.register(live, worker, parts.recorder, parts.gate, text_input)
         runner = WorkerRunner(handle_sigint=False)  # 嵌在 FastAPI 里，不要让它接管信号
         await runner.add_workers(worker)
         context_manager.start()

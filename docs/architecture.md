@@ -156,7 +156,8 @@ negotiation; an unknown id yields 404):
 
 The page is useful without a connection: the meeting list, recent captions, exports, reports,
 renaming and deletion all use plain HTTP (interfaces.md §5.1, §5.4). Another device can follow a
-live meeting by polling the captions endpoint.
+live meeting by polling the captions endpoint, and send typed questions over HTTP
+(`POST /api/sessions/{id}/text`) into the live connection's typed-input queue without taking it over.
 
 ## 4. Pipeline
 
