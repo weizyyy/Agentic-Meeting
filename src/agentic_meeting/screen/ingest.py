@@ -7,7 +7,7 @@
   「兜底」截图，画面其实没变；这种图照常进时间线，但不必再生成摘要、不必再往实时模型的上下文里追加一行
   （``IngestedFrame.changed`` 为假，由画面摘要那一侧沿用上一张的摘要）。
 
-HTTP 状态码由 ``IngestError.status`` 给出，接口层只管转成 ``{"error": ...}``。
+HTTP 状态码由 ``IngestError.status`` 给出，错误带代码（interfaces.md §5.9），接口层原样转成响应。
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ import numpy as np
 from loguru import logger
 from PIL import Image, UnidentifiedImageError
 
+from agentic_meeting.messages import message
 from agentic_meeting.store.db import Store
 from agentic_meeting.store.retention import OwnedFiles
 from agentic_meeting.store.work import drain_io
@@ -41,12 +42,12 @@ FORMATS: dict[str, tuple[str, str]] = {
 
 
 class IngestError(Exception):
-    """截图被拒收。``status`` 是 HTTP 状态码，消息直接面向用户。"""
+    """截图被拒收。``status`` 是 HTTP 状态码，``message`` 是给用户的错误（interfaces.md §5.9）。"""
 
-    def __init__(self, status: int, message: str) -> None:
-        super().__init__(message)
+    def __init__(self, status: int, code: str, **params: str | int) -> None:
         self.status = status
-        self.message = message
+        self.message = message(code, **params)
+        super().__init__(self.message.text)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,19 +73,19 @@ def decode_image(data: bytes, *, max_side_px: int) -> DecodedImage:
         with Image.open(io.BytesIO(data)) as image:
             fmt = (image.format or "").upper()
             if fmt not in FORMATS:
-                raise IngestError(400, "只接受 WebP 或 JPEG 格式的截图")
+                raise IngestError(400, "frame.bad_format")
             width, height = image.size
             # 先看尺寸再解码：声称很大的图不去解它
             if width < 1 or height < 1 or max(width, height) > max_side_px:
-                raise IngestError(400, f"截图的长边不能超过 {max_side_px} 像素")
+                raise IngestError(400, "frame.too_wide", max=max_side_px)
             image.load()
             thumb = image.convert("L").resize(THUMB_SIZE, Image.Resampling.BILINEAR).tobytes()
     except IngestError:
         raise
     except (UnidentifiedImageError, OSError, ValueError, SyntaxError) as e:
-        raise IngestError(400, "上传的文件不是有效的图片") from e
+        raise IngestError(400, "frame.invalid") from e
     except Image.DecompressionBombError as e:
-        raise IngestError(400, f"截图的长边不能超过 {max_side_px} 像素") from e
+        raise IngestError(400, "frame.too_wide", max=max_side_px) from e
     return DecodedImage(width, height, FORMATS[fmt][0], thumb)
 
 
@@ -160,15 +161,12 @@ class FrameIngestor:
 
     async def _ingest(self, session: Session, data: bytes, captured_at: float) -> IngestedFrame:
         if len(data) > self._max_bytes:
-            raise IngestError(413, f"截图太大（最多 {self._max_bytes // (1024 * 1024)} MB）")
+            raise IngestError(413, "frame.too_large", max_mb=self._max_bytes // (1024 * 1024))
         if not data:
-            raise IngestError(400, "上传的文件是空的")
+            raise IngestError(400, "frame.empty")
         now = self._now()
         if not (abs(captured_at - now) <= self._max_skew):  # NaN 也在这里被拒
-            raise IngestError(
-                400,
-                f"截图的采集时间与服务端时间相差超过 {self._max_skew:.0f} 秒，请刷新页面重新对时",
-            )
+            raise IngestError(400, "frame.clock_skew", max=round(self._max_skew))
         decoded = await drain_io(asyncio.to_thread(decode_image, data, max_side_px=self._max_side))
 
         last = self._last.get(session.id)
@@ -189,7 +187,7 @@ class FrameIngestor:
             await self._store.delete_frame(
                 frame.id, session_id=frame.session_id, write_token=frame.write_token
             )
-            raise IngestError(500, "截图保存失败（磁盘不可写？）") from e
+            raise IngestError(500, "frame.save_failed") from e
         if changed:
             # 只和上一张「变了」的图比：画面缓慢漂移时，累计的变化迟早会超过阈值
             self._last[session.id] = (frame.id, decoded.thumb)

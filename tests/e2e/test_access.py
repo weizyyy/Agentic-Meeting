@@ -26,7 +26,7 @@ async def test_everything_under_api_needs_a_login(guarded):
         for path in ("/api/sessions", "/api/session", "/api/ice", "/api/utterances"):
             response = await http.get(path)
             assert response.status_code == 401, path
-            assert response.json() == {"error": "请先登录"}
+            assert response.json() == {"error": "请先登录", "code": "auth.required", "params": {}}
         offer = await http.post("/api/offer", json={"sdp": "x", "type": "offer"})
         assert offer.status_code == 401
         # 运维用的三个接口不需要登录，也不含会议内容
@@ -38,7 +38,7 @@ async def test_everything_under_api_needs_a_login(guarded):
 async def test_login_csrf_and_logout(guarded, inference):
     async with guarded.http() as http:
         wrong = await http.post("/api/auth/login", json={"password": "not-it"})
-        assert wrong.status_code == 401
+        assert wrong.status_code == 401 and wrong.json()["code"] == "auth.wrong_password"
         login = await http.post("/api/auth/login", json={"password": PASSWORD})
         assert login.status_code == 200
         token = login.json()["csrf_token"]
@@ -46,7 +46,8 @@ async def test_login_csrf_and_logout(guarded, inference):
 
         assert (await http.get("/api/sessions")).status_code == 200
         # 改动类请求还要带 CSRF 令牌
-        assert (await http.post("/api/session/end")).status_code == 403
+        no_token = await http.post("/api/session/end")
+        assert no_token.status_code == 403 and no_token.json()["code"] == "auth.csrf"
         assert (
             await http.post("/api/session/end", headers={"X-CSRF-Token": "forged"})
         ).status_code == 403
@@ -76,6 +77,7 @@ async def test_repeated_wrong_passwords_are_rate_limited(guarded):
             ).status_code == 401
         limited = await http.post("/api/auth/login", json={"password": PASSWORD})
         assert limited.status_code == 429 and int(limited.headers["retry-after"]) > 0
+        assert limited.json()["code"] == "auth.too_many"
 
 
 async def test_oversized_login_bodies_are_refused(guarded):
@@ -85,7 +87,7 @@ async def test_oversized_login_bodies_are_refused(guarded):
             content=b'{"password": "' + b"x" * (1024 * 1024) + b'"}',
             headers={"Content-Type": "application/json"},
         )
-        assert huge.status_code == 413
+        assert huge.status_code == 413 and huge.json()["code"] == "request.too_large"
         # 不算一次失败的登录
         assert (await http.post("/api/auth/login", json={"password": PASSWORD})).status_code == 200
 
@@ -93,4 +95,5 @@ async def test_oversized_login_bodies_are_refused(guarded):
 async def test_without_a_password_the_api_is_open(app, http):
     assert (await http.get("/api/auth")).json()["enabled"] is False
     assert (await http.get("/api/sessions")).json() == {"items": []}
-    assert (await http.post("/api/auth/login", json={"password": "x"})).status_code == 404
+    login = await http.post("/api/auth/login", json={"password": "x"})
+    assert login.status_code == 404 and login.json()["code"] == "auth.not_enabled"

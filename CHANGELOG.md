@@ -30,8 +30,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The interface is available in Chinese and English. It follows the browser's language by default,
   and the language button in the top bar switches it on the spot without interrupting the meeting;
   dates and numbers follow the chosen language. Notices the server sends during a meeting (a
-  service is unavailable, a typed message is queued, the meeting is being transcribed) follow it
-  too; error messages from other server requests and task failures are still in Chinese.
+  service is unavailable, a typed message is queued, the meeting is being transcribed) and errors
+  from server requests (a wrong password, a screenshot that is too large) follow it too; the
+  reasons a background task or report failed are still in Chinese.
 - **演示模式** (Presentation mode) in the top bar shows the meeting full screen for a shared
   meeting-room display: dark, with the last three captions in large type and the assistant's state
   and answer. `Esc` returns to the workspace.
@@ -41,7 +42,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Firefox 128 is now the oldest supported Firefox (was 114), because the stylesheet uses features
   it added. Chrome, Edge and Safari minimums are unchanged.
 - The `notice` data-channel message carries a `code` and `params` next to its Chinese `text`, so the
-  page can show it in its own language. Pages that only read `text` keep working.
+  page can show it in its own language. Error responses from `/api` likewise carry `code` and
+  `params` next to `error`. Clients that only read `text` or `error` keep working.
 - The microphone level meter and its quiet-input chip in the top bar are replaced by the bars on
   the microphone button. A microphone that stays too quiet is still reported by the server's notice.
 

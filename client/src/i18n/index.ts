@@ -13,6 +13,7 @@ import { login } from "./login.ts";
 import { notices } from "./notices.ts";
 import { report } from "./report.ts";
 import { screen } from "./screen.ts";
+import { serverErrors, serverErrorText } from "./serverErrors.ts";
 import { serverNotices, serverNoticeText, type NoticeParams } from "./serverNotices.ts";
 import { session } from "./session.ts";
 import { tasks } from "./tasks.ts";
@@ -36,6 +37,7 @@ const areas = {
   login,
   notices,
   serverNotices,
+  serverErrors,
 };
 
 export type Messages = { readonly [K in keyof typeof areas]: (typeof areas)[K]["en"] };
@@ -99,4 +101,13 @@ export function noticeText(
 ): string {
   if (!notice.server) return notice.text;
   return serverNoticeText(t.serverNotices, notice.server.code, notice.server.params) ?? notice.text;
+}
+
+/** 服务端接口的错误响应 {"error", "code", "params"}（interfaces.md §5.9）：按当前语言翻译，认不出来就用 error 原文。 */
+export function errorText(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) return null;
+  const { error, code, params } = body as { error?: unknown; code?: unknown; params?: unknown };
+  const translated = serverErrorText(messages().serverErrors, code, params);
+  if (translated !== null) return translated;
+  return typeof error === "string" && error ? error : null;
 }

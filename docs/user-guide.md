@@ -84,9 +84,9 @@ password page.
 prefers Chinese, English otherwise. The language button in the top bar (**中文** or **EN**) switches
 between **跟随浏览器** (Follow browser), **中文** and **English**; the choice is kept in this browser,
 applies at once and does not interrupt a running meeting. Dates and numbers follow the chosen
-language, and so do the notices the server sends during a meeting. Captions, the assistant's answers
-and reports stay in the language they were produced in, and some error messages from the server,
-such as a failed task, are still in Chinese.
+language, and so do the notices and error messages the server sends. Captions, the assistant's
+answers and reports stay in the language they were produced in, and the reason a background task or
+report failed is still in Chinese.
 
 **Presenting.** On a wide window, **演示模式** (Present) in the top bar turns the page into
 a dark full-screen view for a meeting-room display: the meeting title, the last three captions in

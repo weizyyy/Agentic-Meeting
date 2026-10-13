@@ -11,18 +11,12 @@ from typing import Annotated, Any
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse
 from loguru import logger
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agentic_meeting.config import AppConfig
 from agentic_meeting.pipeline.bot import AppResources
 from agentic_meeting.screen.ingest import IngestError, media_type_of
 from agentic_meeting.types import ScreenFrame
-
-NO_LIVE_SESSION = "现在没有进行中的会议，截图没有保存"
-
-
-def _fail(status: int, message: str) -> StarletteHTTPException:
-    return StarletteHTTPException(status, message)
+from agentic_meeting.web.errors import ApiError, invalid
 
 
 def frame_json(frame: ScreenFrame) -> dict[str, Any]:
@@ -40,7 +34,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
     def resources(request: Request) -> AppResources:
         res: AppResources = request.app.state.resources
         if res.store is None or res.sessions is None or res.frames is None:
-            raise _fail(503, "存储尚未就绪")
+            raise ApiError(503, "storage.not_ready")
         return res
 
     @app.post("/api/frames")
@@ -51,21 +45,21 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
     ) -> dict[str, Any]:
         res = resources(request)
         if not cfg.screen.enabled:
-            raise _fail(403, "截图功能已在配置里关闭")
+            raise ApiError(403, "frames.disabled")
         live = res.sessions.live
         if live is None:
-            raise _fail(404, NO_LIVE_SESSION)
+            raise ApiError(404, "frames.no_live_session")
         async with res.store.session_work(live.session.id):
             try:
                 at = float(captured_at)
             except ValueError as e:
-                raise _fail(400, "captured_at 必须是数字（Unix 秒）") from e
+                raise invalid("captured_at 必须是数字（Unix 秒）") from e
             # 多读一个字节就能知道超没超，不把超大的文件整个读进内存
             data = await image.read(res.frames.max_bytes + 1)
             try:
                 ingested = await res.frames.ingest(live.session, data, at)
             except IngestError as e:
-                raise _fail(e.status, e.message) from e
+                raise ApiError(e.status, e.message.code, **e.message.params) from e
             frame = ingested.frame
             await res.sessions.push_to(
                 live.session.id,
@@ -92,7 +86,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         else:
             session = await res.sessions.current_session()
         if session is None:
-            raise _fail(404, "找不到这场会议" if session_id else "现在没有会议")
+            raise ApiError(404, "session.not_found" if session_id else "session.none")
         await res.store.require_available(session.id)
         return {"items": [frame_json(f) for f in await res.store.list_frames(session.id)]}
 
@@ -104,7 +98,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
             await res.store.require_available(frame.session_id)
         path = res.frames.path_of(frame) if frame is not None else None
         if frame is None or path is None or not path.is_file():
-            raise _fail(404, "找不到这张截图")
+            raise ApiError(404, "frame.not_found")
         # 删除或过期后，浏览器重新验证图片，避免继续展示旧图。
         return FileResponse(
             path,

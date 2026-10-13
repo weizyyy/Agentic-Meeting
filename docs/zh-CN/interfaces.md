@@ -510,7 +510,7 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 ## 5. HTTP 接口
 
-除信令外，全部是 JSON；业务错误返回 `{"error": "<中文说明>"}` 和合适的状态码。
+除信令外，全部是 JSON；业务错误返回 `{"error": "<中文说明>", "code", "params"}` 和合适的状态码，`code` 标明是哪一条错误（§5.9）。
 开发时前端跑在 5173 端口并把 `/api` 代理到应用（见 `client/vite.config.ts`）。
 就绪检查的 503 响应保留 §5.8 定义的状态快照。配置了访问口令时，中间件保护 `/api`
 及其下路径，§5.7 的公开认证接口除外。§5.8 的三个运维 GET 位于 `/api` 之外，保持匿名。
@@ -578,7 +578,7 @@ SDK 重连替换 peer 时，关闭旧 peer 只保留当前 peer 仍使用的同�
 认识它（也接受 `request_data`）；格式不对返回 400。协商成功后，`run_bot(connection, request_data, resources)`
 作为后台任务运行到连接断开。`PATCH /api/offer` 追加 ICE 候选，请求体 `{"pc_id", "candidates": [{"candidate",
 "sdp_mid", "sdp_mline_index"}]}`，响应 `{"status": "success"}`。`GET /` 在 `client/dist` 不存在时返回一段
-「请先构建客户端」的提示页（503），不是 500。错误一律是 `{"error": "<中文说明>"}`（包括 404、422）。
+「请先构建客户端」的提示页（503），不是 500。错误一律是 `{"error": "<中文说明>", "code", "params"}`（包括 404、422，见 §5.9）。
 
 **ICE 服务器。** `server.ice_servers` 在连接的两端都用：服务端交给 `SmallWebRTCRequestHandler`；浏览器每次自己发起连接之前
 取一次 `GET /api/ice`，把结果交给 WebRTC SDK（`SmallWebRTCTransport.iceServers`）。每一项的形状与浏览器的 `RTCIceServer`
@@ -1088,6 +1088,60 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
   "service_snapshot_age_seconds": 0.5
 }
 ```
+
+### 5.9 错误代码
+
+`/api` 下的错误响应一律是 `{"error": "<中文说明>", "code": "<代码>", "params": {...}}`。`code` 和 `params`
+标明是哪一条错误，`params` 的值是字符串或数字，代码不带参数时为空对象。`error` 是同一条错误的中文，
+由服务端按同一个代码生成。页面认得代码、参数也对得上时按界面语言翻译，否则显示 `error`。
+和提示代码（§6.1.1）一样，新代码先写进这里，再写返回它的代码；服务端的表在 `src/agentic_meeting/messages.py`，
+页面的在 `client/src/i18n/serverErrors.ts`，仓库测试检查三处的代码和参数一致。
+
+`request.invalid` 用于页面不会发出的请求：缺字段、字段格式不对、导出地址不认识、请求校验失败。
+它的 `detail` 是给接口调用者看的中文说明，页面不翻译。`request.failed` 用于不经本应用处理器抛出的错误（如 405），
+`status` 是 HTTP 状态码。就绪检查的 503 响应（§5.8）是状态快照，不是错误。
+
+| `code`                      | 状态码        | `params`         | 中文 `error`                                                       |
+| --------------------------- | ------------- | ---------------- | ------------------------------------------------------------------ |
+| `request.invalid`           | 400, 404, 422 | `detail`：string | 请求格式有误：{detail}                                             |
+| `request.too_large`         | 413           | —                | 请求体太大                                                         |
+| `request.failed`            | 任意          | `status`：number | 请求失败（{status}）                                               |
+| `route.not_found`           | 404           | —                | 没有这个接口或页面                                                 |
+| `auth.required`             | 401           | —                | 请先登录                                                           |
+| `auth.csrf`                 | 403           | —                | 请求缺少有效的安全令牌，请刷新页面后重试                           |
+| `auth.wrong_password`       | 401           | —                | 口令不对                                                           |
+| `auth.too_many`             | 429           | —                | 尝试次数过多，请稍后再试                                           |
+| `auth.not_enabled`          | 404           | —                | 没有启用访问口令                                                   |
+| `storage.not_ready`         | 503           | —                | 存储尚未就绪                                                       |
+| `cleanup.not_ready`         | 503           | —                | 清理尚未就绪                                                       |
+| `session.not_found`         | 404           | —                | 找不到这场会议                                                     |
+| `session.none`              | 404           | —                | 现在没有会议                                                       |
+| `session.busy`              | 409           | —                | 会议正在处理或等待删除，请稍后重试                                 |
+| `session.delete_incomplete` | 500           | —                | 删除未完成，会议待删除，请稍后重试                                 |
+| `session.title_too_long`    | 400           | `max`：number    | 标题太长（最多 {max} 字）                                          |
+| `speaker.not_found`         | 404           | —                | 这场会议里没有这个说话人                                           |
+| `speaker.name_too_long`     | 400           | `max`：number    | 名字太长（最多 {max} 字）                                          |
+| `speaker.not_mergeable`     | 400           | —                | 只能合并说话人区分给出的说话人（助理、文字输入、「未知」不能合并） |
+| `speaker.merge_self`        | 400           | —                | 不能把说话人合并到自己                                             |
+| `utterances.too_many`       | 400           | `max`：number    | 一次最多改 {max} 条发言                                            |
+| `frames.disabled`           | 403           | —                | 截图功能已在配置里关闭                                             |
+| `frames.no_live_session`    | 404           | —                | 现在没有进行中的会议，截图没有保存                                 |
+| `frame.not_found`           | 404           | —                | 找不到这张截图                                                     |
+| `frame.bad_format`          | 400           | —                | 只接受 WebP 或 JPEG 格式的截图                                     |
+| `frame.too_wide`            | 400           | `max`：number    | 截图的长边不能超过 {max} 像素                                      |
+| `frame.invalid`             | 400           | —                | 上传的文件不是有效的图片                                           |
+| `frame.too_large`           | 413           | `max_mb`：number | 截图太大（最多 {max_mb} MB）                                       |
+| `frame.empty`               | 400           | —                | 上传的文件是空的                                                   |
+| `frame.clock_skew`          | 400           | `max`：number    | 截图的采集时间与服务端时间相差超过 {max} 秒，请刷新页面重新对时    |
+| `frame.save_failed`         | 500           | —                | 截图保存失败（磁盘不可写？）                                       |
+| `task.not_found`            | 404           | —                | 找不到这个任务                                                     |
+| `tasks.disabled`            | 503           | —                | 后台任务功能没有开启                                               |
+| `artifact.not_found`        | 404           | —                | 找不到这个产物文件                                                 |
+| `report.session_live`       | 409           | —                | 会议正在进行，结束或断开之后才能生成报告                           |
+| `report.no_model`           | 503           | —                | 没有可用的模型，生成不了报告                                       |
+| `report.busy`               | 409           | —                | 这场会议已经有一份报告正在生成                                     |
+| `report.not_found`          | 404           | —                | 这场会议还没有报告                                                 |
+| `report.not_ready`          | 404           | —                | 这场会议还没有生成好的报告                                         |
 
 ## 6. 数据通道消息
 

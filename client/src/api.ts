@@ -1,10 +1,10 @@
 // 服务端的 HTTP 接口（docs/interfaces.md §5.1、§5.4）。页面一打开就用它们取会议列表和最近的对话，
-// 不需要音频连接。错误统一是 {"error": "<中文说明>"}，这里转成 ApiError。
+// 不需要音频连接。错误统一是 {"error", "code", "params"}（interfaces.md §5.9），这里按界面语言转成 ApiError。
 // 启用了访问口令时（§5.7），改动性的请求带上 CSRF 令牌；回 401 说明登录失效，通知页面重新登录。
 
 import { authSession, withCsrf, type AuthSession } from "./auth.ts";
 import type { HistoryItem } from "./captions.ts";
-import { messages } from "./i18n/index.ts";
+import { errorText, messages } from "./i18n/index.ts";
 import type { ReportInfo } from "./report.ts";
 import type { FrameItem } from "./screenCapture.ts";
 import type { TaskDetail, TaskItem } from "./tasks.ts";
@@ -133,11 +133,7 @@ export function createApi(
     if (!response.ok) {
       let message = messages().notices.requestFailed(response.status);
       try {
-        const body: unknown = await response.json();
-        if (typeof body === "object" && body !== null && "error" in body) {
-          const text = (body as { error: unknown }).error;
-          if (typeof text === "string" && text) message = text;
-        }
+        message = errorText(await response.json()) ?? message;
       } catch {
         // 响应不是 JSON：用上面的通用说明
       }

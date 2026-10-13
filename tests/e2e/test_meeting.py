@@ -88,7 +88,7 @@ async def test_a_dropped_connection_can_be_resumed_on_the_same_timeline(
     unknown = await http.post(
         "/api/offer", json={"sdp": "x", "type": "offer", "requestData": {"session_id": "nope"}}
     )
-    assert unknown.status_code == 404
+    assert unknown.status_code == 404 and unknown.json()["code"] == "session.not_found"
 
 
 async def test_calling_the_assistant_by_name_gets_a_spoken_answer(app, http, meeting, inference):

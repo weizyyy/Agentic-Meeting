@@ -1,8 +1,9 @@
-"""发给页面的提示（docs/interfaces.md §6.1.1）：代码加参数，页面按自己的界面语言翻译。
+"""发给页面的提示和错误：代码加参数，页面按自己的界面语言翻译。
 
-每条提示同时带一句中文 ``text``，给日志和还不认得代码的页面用。新代码先写进 interfaces.md 的表，
-再加到这里的 ``NOTICES``，并在 ``client/src/i18n/serverNotices.ts`` 里配上中英文；
-``tests/test_repository_rules.py`` 检查三处一致。
+提示见 docs/interfaces.md §6.1.1，HTTP 接口的错误见 §5.9。每条同时带一句中文（提示的 ``text``、
+错误的 ``error``），给日志、接口调用者和还不认得代码的页面用。新代码先写进 interfaces.md 的表，
+再加到这里的 ``NOTICES`` 或 ``ERRORS``，并在 ``client/src/i18n/serverNotices.ts`` 或 ``serverErrors.ts``
+里配上中英文；``tests/test_repository_rules.py`` 检查三处一致。
 """
 
 from __future__ import annotations
@@ -52,20 +53,70 @@ NOTICES: dict[str, Callable[[Params], str]] = {
 }
 
 
+# HTTP 接口的错误：代码 → 中文（interfaces.md §5.9）。
+ERRORS: dict[str, Callable[[Params], str]] = {
+    "request.invalid": lambda p: f"请求格式有误：{p['detail']}",
+    "request.too_large": lambda p: "请求体太大",
+    "request.failed": lambda p: f"请求失败（{p['status']}）",
+    "route.not_found": lambda p: "没有这个接口或页面",
+    "auth.required": lambda p: "请先登录",
+    "auth.csrf": lambda p: "请求缺少有效的安全令牌，请刷新页面后重试",
+    "auth.wrong_password": lambda p: "口令不对",
+    "auth.too_many": lambda p: "尝试次数过多，请稍后再试",
+    "auth.not_enabled": lambda p: "没有启用访问口令",
+    "storage.not_ready": lambda p: "存储尚未就绪",
+    "cleanup.not_ready": lambda p: "清理尚未就绪",
+    "session.not_found": lambda p: "找不到这场会议",
+    "session.none": lambda p: "现在没有会议",
+    "session.busy": lambda p: "会议正在处理或等待删除，请稍后重试",
+    "session.delete_incomplete": lambda p: "删除未完成，会议待删除，请稍后重试",
+    "session.title_too_long": lambda p: f"标题太长（最多 {p['max']} 字）",
+    "speaker.not_found": lambda p: "这场会议里没有这个说话人",
+    "speaker.name_too_long": lambda p: f"名字太长（最多 {p['max']} 字）",
+    "speaker.not_mergeable": lambda p: (
+        "只能合并说话人区分给出的说话人（助理、文字输入、「未知」不能合并）"
+    ),
+    "speaker.merge_self": lambda p: "不能把说话人合并到自己",
+    "utterances.too_many": lambda p: f"一次最多改 {p['max']} 条发言",
+    "frames.disabled": lambda p: "截图功能已在配置里关闭",
+    "frames.no_live_session": lambda p: "现在没有进行中的会议，截图没有保存",
+    "frame.not_found": lambda p: "找不到这张截图",
+    "frame.bad_format": lambda p: "只接受 WebP 或 JPEG 格式的截图",
+    "frame.too_wide": lambda p: f"截图的长边不能超过 {p['max']} 像素",
+    "frame.invalid": lambda p: "上传的文件不是有效的图片",
+    "frame.too_large": lambda p: f"截图太大（最多 {p['max_mb']} MB）",
+    "frame.empty": lambda p: "上传的文件是空的",
+    "frame.clock_skew": lambda p: (
+        f"截图的采集时间与服务端时间相差超过 {p['max']} 秒，请刷新页面重新对时"
+    ),
+    "frame.save_failed": lambda p: "截图保存失败（磁盘不可写？）",
+    "task.not_found": lambda p: "找不到这个任务",
+    "tasks.disabled": lambda p: "后台任务功能没有开启",
+    "artifact.not_found": lambda p: "找不到这个产物文件",
+    "report.session_live": lambda p: "会议正在进行，结束或断开之后才能生成报告",
+    "report.no_model": lambda p: "没有可用的模型，生成不了报告",
+    "report.busy": lambda p: "这场会议已经有一份报告正在生成",
+    "report.not_found": lambda p: "这场会议还没有报告",
+    "report.not_ready": lambda p: "这场会议还没有生成好的报告",
+}
+
+_TEMPLATES = {**NOTICES, **ERRORS}
+
+
 @dataclass(frozen=True)
 class Message:
-    """一条提示：代码和参数。``text`` 是它的中文。"""
+    """一条提示或错误：代码和参数。``text`` 是它的中文。"""
 
     code: str
     params: Params = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.code not in NOTICES:
-            raise ValueError(f"未登记的提示代码：{self.code}")
+        if self.code not in _TEMPLATES:
+            raise ValueError(f"未登记的代码：{self.code}")
 
     @property
     def text(self) -> str:
-        return NOTICES[self.code](self.params)
+        return _TEMPLATES[self.code](self.params)
 
     def notice(self, level: str) -> dict[str, Any]:
         """数据通道里的 ``notice`` 消息（interfaces.md §6.1）。"""
@@ -76,6 +127,10 @@ class Message:
             "params": dict(self.params),
             "text": self.text,
         }
+
+    def error(self) -> dict[str, Any]:
+        """HTTP 接口的错误响应体（interfaces.md §5.9）。"""
+        return {"error": self.text, "code": self.code, "params": dict(self.params)}
 
 
 def message(code: str, **params: str | int) -> Message:

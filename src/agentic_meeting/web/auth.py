@@ -26,10 +26,10 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from loguru import logger
-from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from agentic_meeting.config import AppConfig, secret
+from agentic_meeting.web.errors import ApiError, error_response, invalid
 
 COOKIE_NAME = "am_session"
 CSRF_HEADER = "X-CSRF-Token"
@@ -55,13 +55,6 @@ MAX_LOGIN_BODY_BYTES = 16 * 1024
 # 不需要登录的接口
 PUBLIC_PATHS = frozenset({("GET", "/api/auth"), ("HEAD", "/api/auth"), ("POST", "/api/auth/login")})
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-
-NEED_LOGIN = "请先登录"
-BAD_CSRF = "请求缺少有效的安全令牌，请刷新页面后重试"
-WRONG_PASSWORD = "口令不对"
-TOO_MANY = "尝试次数过多，请稍后再试"
-NOT_ENABLED = "没有启用访问口令"
-TOO_LARGE = "请求体太大"
 
 
 def _b64(data: bytes) -> str:
@@ -267,27 +260,25 @@ def register(app: FastAPI, guard: AuthGuard | None) -> None:
     @app.post("/api/auth/login")
     async def login(request: Request) -> JSONResponse:
         if guard is None:
-            raise StarletteHTTPException(404, NOT_ENABLED)
+            raise ApiError(404, "auth.not_enabled")
         address = _client_address(request)
         wait = guard.limiter.retry_after(address)
         if wait > 0:
-            return JSONResponse(
-                {"error": TOO_MANY}, status_code=429, headers={"Retry-After": str(int(wait) + 1)}
-            )
+            return error_response(429, "auth.too_many", headers={"Retry-After": str(int(wait) + 1)})
         raw = await _read_body_limited(request, MAX_LOGIN_BODY_BYTES)
         if raw is None:
-            return JSONResponse({"error": TOO_LARGE}, status_code=413)
+            return error_response(413, "request.too_large")
         try:
             body = json.loads(raw)
         except ValueError:
             body = None
         password = body.get("password") if isinstance(body, dict) else None
         if not isinstance(password, str):
-            raise StarletteHTTPException(400, '请求体应为 {"password": "..."}')
+            raise invalid('请求体应为 {"password": "..."}')
         if not await guard.check_password_async(password):
             guard.limiter.failed(address)
             logger.warning(f"登录失败：{address}")
-            return JSONResponse({"error": WRONG_PASSWORD}, status_code=401)
+            return error_response(401, "auth.wrong_password")
         guard.limiter.succeeded(address)
         cookie, csrf = guard.issue()
         response = JSONResponse(_status(enabled=True, csrf_token=csrf))
@@ -346,11 +337,11 @@ class LoginRequired:
             return
         nonce = self.guard.verify(request.cookies.get(COOKIE_NAME))
         if nonce is None:
-            response = JSONResponse({"error": NEED_LOGIN}, status_code=401)
+            response = error_response(401, "auth.required")
         elif method not in SAFE_METHODS and not self.guard.csrf_ok(
             nonce, request.headers.get(CSRF_HEADER)
         ):
-            response = JSONResponse({"error": BAD_CSRF}, status_code=403)
+            response = error_response(403, "auth.csrf")
         else:
             await self.app(scope, receive, send)
             return

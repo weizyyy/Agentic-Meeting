@@ -24,7 +24,6 @@ from urllib.parse import quote
 
 from fastapi import FastAPI, Request
 from fastapi.responses import Response, StreamingResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from agentic_meeting.pipeline.clock import format_hms
 from agentic_meeting.screen.caption import IRRELEVANT_CAPTION
@@ -39,6 +38,7 @@ from agentic_meeting.types import (
     TaskEvent,
     TaskRecord,
 )
+from agentic_meeting.web.errors import ApiError, invalid
 
 MERGE_GAP_SECS = 120.0  # 同一个人隔了这么久才接着说，另起一段（时间戳才有参考价值）
 NO_DIGEST = "（这场会议没有生成纪要。）"
@@ -455,19 +455,17 @@ def register(app: FastAPI) -> None:
     async def export(request: Request, name: str) -> Response:
         resources = request.app.state.resources
         if resources.store is None or resources.sessions is None:
-            raise StarletteHTTPException(503, "存储尚未就绪")
+            raise ApiError(503, "storage.not_ready")
         stem, dot, suffix = name.rpartition(".")
         if not dot or not stem or suffix not in ("md", "json", "zip"):
-            raise StarletteHTTPException(
-                404, "导出地址的格式是 /api/export/<会议编号>.md（或 .json、.zip）"
-            )
+            raise invalid("导出地址的格式是 /api/export/<会议编号>.md（或 .json、.zip）", 404)
         if await resources.store.get_session(stem) is not None:
             await resources.store.require_available(stem)
         data = await collect(
             resources.store, stem, live=resources.sessions.is_live(stem), now=time.time()
         )
         if data is None:
-            raise StarletteHTTPException(404, "找不到这场会议")
+            raise ApiError(404, "session.not_found")
         title = export_title(data.summary)
         if suffix == "md":
             return Response(

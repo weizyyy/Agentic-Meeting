@@ -583,8 +583,9 @@ Details of `TranscriptAssembler`:
 
 ## 5. HTTP API
 
-All endpoints except signaling exchange JSON. Business errors are returned as `{"error": "<message>"}` with
-an appropriate status code; messages are in Chinese. During development the client runs on port
+All endpoints except signaling exchange JSON. Business errors are returned as
+`{"error": "<message>", "code", "params"}` with an appropriate status code; `error` is in Chinese and
+`code` says which error it is (§5.9). During development the client runs on port
 5173 and proxies `/api` to the application (`client/vite.config.ts`). Readiness 503 responses use
 the status snapshot in §5.8. When an access password is configured, the middleware guards `/api`
 and paths below it, except the public authentication routes in §5.7. The three operational GET
@@ -1220,6 +1221,64 @@ Task-count collection failed while a caption sample is available, HTTP 200:
   "service_snapshot_age_seconds": 0.5
 }
 ```
+
+### 5.9 Error codes
+
+Every error response under `/api` has the form `{"error": "<Chinese message>", "code": "<code>",
+"params": {...}}`. `code` and `params` identify the message; `params` holds strings or numbers and is
+empty when the code takes none. `error` is the Chinese rendering of the same message, built on the
+server from the same code. The page translates known codes with valid parameters into its interface
+language and shows `error` for anything else. As with notice codes (§6.1.1), a code is added here
+before the code that returns it; `src/agentic_meeting/messages.py` holds the server's table and
+`client/src/i18n/serverErrors.ts` the page's, and a repository test checks that the three list the
+same codes and parameters.
+
+`request.invalid` covers requests the page does not send: missing or malformed fields, an unknown
+export name, a failed validation. Its `detail` is a Chinese description for API users and is not
+translated. `request.failed` covers errors raised outside this application's handlers, such as 405;
+`status` is the HTTP status. Readiness 503 bodies (§5.8) are status snapshots, not errors.
+
+| `code`                      | Status        | `params`         | Chinese `error`                                                    |
+| --------------------------- | ------------- | ---------------- | ------------------------------------------------------------------ |
+| `request.invalid`           | 400, 404, 422 | `detail`: string | 请求格式有误：{detail}                                             |
+| `request.too_large`         | 413           | —                | 请求体太大                                                         |
+| `request.failed`            | any           | `status`: number | 请求失败（{status}）                                               |
+| `route.not_found`           | 404           | —                | 没有这个接口或页面                                                 |
+| `auth.required`             | 401           | —                | 请先登录                                                           |
+| `auth.csrf`                 | 403           | —                | 请求缺少有效的安全令牌，请刷新页面后重试                           |
+| `auth.wrong_password`       | 401           | —                | 口令不对                                                           |
+| `auth.too_many`             | 429           | —                | 尝试次数过多，请稍后再试                                           |
+| `auth.not_enabled`          | 404           | —                | 没有启用访问口令                                                   |
+| `storage.not_ready`         | 503           | —                | 存储尚未就绪                                                       |
+| `cleanup.not_ready`         | 503           | —                | 清理尚未就绪                                                       |
+| `session.not_found`         | 404           | —                | 找不到这场会议                                                     |
+| `session.none`              | 404           | —                | 现在没有会议                                                       |
+| `session.busy`              | 409           | —                | 会议正在处理或等待删除，请稍后重试                                 |
+| `session.delete_incomplete` | 500           | —                | 删除未完成，会议待删除，请稍后重试                                 |
+| `session.title_too_long`    | 400           | `max`: number    | 标题太长（最多 {max} 字）                                          |
+| `speaker.not_found`         | 404           | —                | 这场会议里没有这个说话人                                           |
+| `speaker.name_too_long`     | 400           | `max`: number    | 名字太长（最多 {max} 字）                                          |
+| `speaker.not_mergeable`     | 400           | —                | 只能合并说话人区分给出的说话人（助理、文字输入、「未知」不能合并） |
+| `speaker.merge_self`        | 400           | —                | 不能把说话人合并到自己                                             |
+| `utterances.too_many`       | 400           | `max`: number    | 一次最多改 {max} 条发言                                            |
+| `frames.disabled`           | 403           | —                | 截图功能已在配置里关闭                                             |
+| `frames.no_live_session`    | 404           | —                | 现在没有进行中的会议，截图没有保存                                 |
+| `frame.not_found`           | 404           | —                | 找不到这张截图                                                     |
+| `frame.bad_format`          | 400           | —                | 只接受 WebP 或 JPEG 格式的截图                                     |
+| `frame.too_wide`            | 400           | `max`: number    | 截图的长边不能超过 {max} 像素                                      |
+| `frame.invalid`             | 400           | —                | 上传的文件不是有效的图片                                           |
+| `frame.too_large`           | 413           | `max_mb`: number | 截图太大（最多 {max_mb} MB）                                       |
+| `frame.empty`               | 400           | —                | 上传的文件是空的                                                   |
+| `frame.clock_skew`          | 400           | `max`: number    | 截图的采集时间与服务端时间相差超过 {max} 秒，请刷新页面重新对时    |
+| `frame.save_failed`         | 500           | —                | 截图保存失败（磁盘不可写？）                                       |
+| `task.not_found`            | 404           | —                | 找不到这个任务                                                     |
+| `tasks.disabled`            | 503           | —                | 后台任务功能没有开启                                               |
+| `artifact.not_found`        | 404           | —                | 找不到这个产物文件                                                 |
+| `report.session_live`       | 409           | —                | 会议正在进行，结束或断开之后才能生成报告                           |
+| `report.no_model`           | 503           | —                | 没有可用的模型，生成不了报告                                       |
+| `report.busy`               | 409           | —                | 这场会议已经有一份报告正在生成                                     |
+| `report.not_found`          | 404           | —                | 这场会议还没有报告                                                 |
+| `report.not_ready`          | 404           | —                | 这场会议还没有生成好的报告                                         |
 
 ## 6. Data-channel messages
 

@@ -100,9 +100,10 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
   按页面区域一个文件，中文和英文并排写在同一个 `defineMessages(zhCN, en)` 调用里；组件通过 `useI18n()`
   读取。英文目录的类型由中文推出，少一个键、多一个键或带参数的文案参数不一致，`npm run build` 的类型检查
   （也就是 CI 的 Web client 任务）就会失败。浏览器控制台的日志和命令行输出仍是中文。
-- 服务端发给页面的提示是代码加参数（interfaces.md §6.1.1）。新增一条提示时写进那张表，
-  在 `src/agentic_meeting/messages.py` 里配上中文，在 `client/src/i18n/serverNotices.ts` 里配上中英文；
-  `tests/test_repository_rules.py` 检查三处一致。
+- 服务端发给页面的提示（interfaces.md §6.1.1）和 HTTP 错误（§5.9）都是代码加参数。新增一条时写进对应的表，
+  在 `src/agentic_meeting/messages.py` 里配上中文，在 `client/src/i18n/serverNotices.ts` 或 `serverErrors.ts`
+  里配上中英文；`tests/test_repository_rules.py` 检查三处一致。接口处理器用 `web/errors.py` 的
+  `ApiError(状态码, 代码, **参数)` 抛错。
 - 配置只从 `AppConfig` 读取，模块内不另设默认模型或默认地址。
 - 新增配置项时同步修改 `config.py`、`config/config.example.toml`、interfaces.md §1 和
   [configuration.md](configuration.md)，并补充测试。

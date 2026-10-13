@@ -2,7 +2,7 @@
 
 信令的写法照抄 Pipecat 自带运行器的 ``_setup_webrtc_routes``（docs/pipecat-notes.md §2）；
 我们不用它的 ``main()``，因为那会接管整个 FastAPI 应用和命令行。
-接口约定见 docs/interfaces.md §5：除信令外全部是 JSON，业务错误返回 ``{"error": "<中文说明>"}``。
+接口约定见 docs/interfaces.md §5：除信令外全部是 JSON，业务错误返回 ``{"error", "code", "params"}``（§5.9）。
 健康接口（``health_api.py``）使用 §5.8 的独立状态快照。
 截图、任务、报告、导出的接口各在自己的模块里（``frames_api.py`` 等），访问口令在 ``auth.py``。
 """
@@ -33,6 +33,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from agentic_meeting.agent.runner import build_runner
 from agentic_meeting.agent.tasks import RESTART_REASON, Runner, TaskManager
 from agentic_meeting.config import REPO_ROOT, AppConfig, secret
+from agentic_meeting.messages import message
 from agentic_meeting.pipeline.background import BackgroundModel, InferenceLLM
 from agentic_meeting.pipeline.bot import AppResources, run_bot
 from agentic_meeting.pipeline.digest import DigestWorker
@@ -59,6 +60,7 @@ from agentic_meeting.web import (
     sessions_api,
     tasks_api,
 )
+from agentic_meeting.web.errors import ApiError, error_response, invalid
 
 DEFAULT_STATIC_DIR = REPO_ROOT / "client" / "dist"
 
@@ -326,22 +328,28 @@ def create_app(
     app = FastAPI(title="组会助理", lifespan=lifespan)
     health_api.register(app, cfg)
 
-    # ---- 错误统一成 {"error": "..."} ----
+    # ---- 错误统一成 {"error", "code", "params"}（interfaces.md §5.9） ----
 
     @app.exception_handler(SessionBusy)
     async def session_busy(_request: Request, _exc: SessionBusy) -> JSONResponse:
-        return JSONResponse({"error": "会议正在处理或等待删除，请稍后重试"}, status_code=409)
+        return error_response(409, "session.busy")
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(_request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        message = exc.detail if isinstance(exc.detail, str) and exc.detail != "Not Found" else None
-        if exc.status_code == 404 and message is None:
-            message = "没有这个接口或页面"
-        return JSONResponse({"error": message or "请求失败"}, status_code=exc.status_code)
+        headers = getattr(exc, "headers", None)
+        if isinstance(exc, ApiError):
+            body = exc.message.error()
+        elif exc.status_code == 404 and exc.detail == "Not Found":  # 路由没匹配上
+            body = message("route.not_found").error()
+        else:
+            # 本应用的处理器以外抛出的（405、Pipecat 信令的错误）：带上状态码，原文进日志
+            logger.info(f"接口出错（{exc.status_code}）：{exc.detail}")
+            body = message("request.failed", status=exc.status_code).error()
+        return JSONResponse(body, status_code=exc.status_code, headers=headers)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_request: Request, exc: RequestValidationError) -> JSONResponse:
-        return JSONResponse({"error": f"请求格式有误：{exc.errors()[:1]}"}, status_code=422)
+        return JSONResponse(invalid(str(exc.errors()[:1]), 422).message.error(), status_code=422)
 
     # ---- 访问口令（interfaces.md §5.7）：启用时拦住除登录以外的全部 /api ----
 
@@ -382,16 +390,16 @@ def create_app(
                 raise ValueError("请求体必须是 JSON 对象")
             request = SmallWebRTCRequest.from_dict(payload)
         except (ValueError, TypeError) as e:
-            raise StarletteHTTPException(400, f"WebRTC 请求格式有误：{e}") from e
+            raise invalid(f"WebRTC 请求格式有误：{e}") from e
         if isinstance(request.request_data, dict) and "session_id" in request.request_data:
             # 继续一场会议：协商之前就校验，找不到直接 404，而不是悄悄新建一场（interfaces.md §5.2）。
             wanted = request.request_data["session_id"]
             if wanted is not None:
                 store_ = http_request.app.state.resources.store
                 if not isinstance(wanted, str) or not wanted.strip():
-                    raise StarletteHTTPException(400, "session_id 必须是非空的字符串")
+                    raise invalid("session_id 必须是非空的字符串")
                 if store_ is None or await store_.get_session(wanted.strip()) is None:
-                    raise StarletteHTTPException(404, sessions_api.NOT_FOUND_SESSION)
+                    raise ApiError(404, "session.not_found")
                 await store_.require_available(wanted.strip())
 
         async def on_connection(connection: Any) -> None:

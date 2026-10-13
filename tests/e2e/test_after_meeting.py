@@ -44,6 +44,12 @@ async def test_report_is_generated_after_the_meeting(app, http, meeting, inferen
     await client.next_message("utterance")
     live = await http.post(f"/api/sessions/{session['id']}/report")
     assert live.status_code == 409  # 会议还在开
+    # 错误带代码，页面按界面语言显示；error 是同一句话的中文
+    assert live.json() == {
+        "error": "会议正在进行，结束或断开之后才能生成报告",
+        "code": "report.session_live",
+        "params": {},
+    }
 
     await http.post(f"/api/sessions/{session['id']}/end")
     started = await http.post(f"/api/sessions/{session['id']}/report")
@@ -75,7 +81,8 @@ async def test_deleting_a_meeting_removes_its_records_and_files(app, http, meeti
         return response.status_code == 200
 
     await until(delete, "删除会议")
-    assert (await http.get(f"/api/sessions/{session['id']}")).status_code == 404
+    gone = await http.get(f"/api/sessions/{session['id']}")
+    assert gone.status_code == 404 and gone.json()["code"] == "session.not_found"
     assert (await http.get(f"/api/export/{session['id']}.md")).status_code == 404
     assert not folder.exists()
     assert (await http.delete(f"/api/sessions/{session['id']}")).status_code == 404

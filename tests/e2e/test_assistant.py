@@ -61,12 +61,12 @@ async def test_shared_screen_is_summarized_and_shown_to_the_assistant(
         data={"captured_at": str(time.time())},
         files={"image": ("x.jpg", b"not an image", "image/jpeg")},
     )
-    assert not_an_image.status_code == 400
+    assert not_an_image.status_code == 400 and not_an_image.json()["code"] == "frame.invalid"
 
 
 async def test_screenshots_need_a_live_meeting(app, http):
     response = await _upload_frame(http, "#000000")
-    assert response.status_code == 404
+    assert response.status_code == 404 and response.json()["code"] == "frames.no_live_session"
 
 
 async def test_delegated_task_runs_in_the_background_and_reports_back(
