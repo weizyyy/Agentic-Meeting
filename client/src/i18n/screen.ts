@@ -9,6 +9,7 @@ export const screen = defineMessages(
     stop: "停止共享",
     emptySharing: "共享屏幕后，画面有变化时会自动截图，并出现在这里。",
     emptyIdle: "会议进行中可以共享屏幕，截图会出现在这里。",
+    emptyNoShare: "这个浏览器不能共享屏幕；在电脑上共享的画面会出现在这里。",
     meetingTime: (time: string) => `会议进行到 ${time}`,
     frameAlt: (time: string) => `${time} 的屏幕截图`,
     screenshot: "屏幕截图",
@@ -29,6 +30,8 @@ export const screen = defineMessages(
     emptySharing:
       "While you share, a screenshot is taken whenever the picture changes and appears here.",
     emptyIdle: "During a meeting you can share your screen; screenshots appear here.",
+    emptyNoShare:
+      "This browser cannot share the screen; screens shared from a computer appear here.",
     meetingTime: (time: string) => `Meeting time ${time}`,
     frameAlt: (time: string) => `Screenshot at ${time}`,
     screenshot: "Screenshot",

@@ -23,7 +23,7 @@ export function LanguageMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" aria-label={t.header.language} />}>
         <LanguagesIcon data-icon="inline-start" />
-        {t.header.languageShort}
+        <span className="max-md:sr-only">{t.header.languageShort}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuGroup>

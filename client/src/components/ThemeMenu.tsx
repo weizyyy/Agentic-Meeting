@@ -22,7 +22,7 @@ export function ThemeMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" />}>
         <SunMoonIcon data-icon="inline-start" />
-        {t.header.theme}
+        <span className="max-md:sr-only">{t.header.theme}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuGroup>

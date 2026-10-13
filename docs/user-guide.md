@@ -94,6 +94,12 @@ large type, and the assistant's state and answer. The newest caption is always s
 **退出演示** (Exit presentation) to go back; audio keeps playing while presenting. If the browser
 does not allow full screen, the view fills the window instead.
 
+**On a phone.** On a narrow screen the meeting is split into tabs: **字幕** (Captions, with the
+report), **助理** (Assistant), **任务** (Tasks) and **画面** (Screen). A dot on the assistant tab
+means there are notices, and the number on the tasks tab counts unfinished tasks. The browser's
+**Add to Home Screen** (Safari) or **Install app** (Chrome) puts the page on the home screen, where
+it opens without the browser's address bar.
+
 ## Captions and speakers
 
 Each caption starts with a line naming the speaker, the wall-clock time in the browser's time zone
@@ -146,6 +152,8 @@ step through with `←` `→` or **上一张** (Previous) and **下一张** (Nex
 generated for each new picture.
 
 Screenshots are uploaded only while a meeting is live. From another device this requires HTTPS.
+Phone browsers cannot share the screen, so the button is missing there; screens shared from a
+computer still appear on the phone.
 
 ## Background tasks
 

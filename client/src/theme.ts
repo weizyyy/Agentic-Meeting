@@ -29,9 +29,15 @@ export function loadTheme(): ThemeChoice {
 
 let current: ThemeChoice = "system";
 
+/** 手机浏览器地址栏和装到主屏幕后状态栏的颜色，与页面背景（index.css 的 --background）一致 */
+const BAR_COLORS = { light: "#ffffff", dark: "#0a0a0a" } as const;
+
 function render(): void {
   const dark = current === "dark" || (current === "system" && darkQuery()?.matches === true);
   document.documentElement.classList.toggle("dark", dark);
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute("content", BAR_COLORS[dark ? "dark" : "light"]);
 }
 
 /** 页面启动时调用一次：按保存的选择显示，并在跟随系统时随系统切换。 */

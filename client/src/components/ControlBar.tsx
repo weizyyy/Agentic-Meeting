@@ -83,7 +83,7 @@ export function ControlBar({
         onClick={onToggleList}
       >
         <HistoryIcon data-icon="inline-start" />
-        {t.header.meetings}
+        <span className="max-md:sr-only">{t.header.meetings}</span>
       </Button>
       {onPresent && (
         // 投到会议室大屏才用得上，手机上不放
@@ -98,7 +98,8 @@ export function ControlBar({
         <span role="status">{status.label}</span>
       </span>
       <span
-        className="text-xs text-muted-foreground"
+        // 手机上放不下，连接状态旁边的圆点和文字已经说明了是否在转录
+        className="text-xs text-muted-foreground max-md:hidden"
         role="status"
         aria-label={t.header.recordingLabel}
       >
@@ -106,37 +107,40 @@ export function ControlBar({
       </span>
       <LanguageMenu />
       <ThemeMenu />
-      {micControl && (
-        <UserAudioControl
-          variant="secondary"
-          activeText={t.header.microphone}
-          inactiveText={t.header.muted}
-          noModeSwitch
-          // 接通时整组是淡绿色（Figma 的麦克风按钮）；静音时按钮自己换成红色
-          className="[&_[data-slot=button]:not([data-state=inactive])]:bg-success [&_[data-slot=button]:not([data-state=inactive])]:text-success-foreground"
-        />
-      )}
-      {active ? (
-        <Button variant="destructive" onClick={onStop}>
-          <XIcon data-icon="inline-start" />
-          {t.header.end}
-        </Button>
-      ) : (
-        <Button
-          className="bg-active text-active-foreground hover:bg-active/85"
-          disabled={!canStart}
-          onClick={onStart}
-        >
-          <MicIcon data-icon="inline-start" />
-          {t.header.start}
-        </Button>
-      )}
       {onLogout && !active && (
         <Button variant="ghost" onClick={onLogout}>
           <LogOutIcon data-icon="inline-start" />
-          {t.header.logout}
+          <span className="max-md:sr-only">{t.header.logout}</span>
         </Button>
       )}
+      {/* 手机上麦克风和开始 / 结束会议另起一行，按钮够大好点 */}
+      <div className="flex items-center gap-2 max-md:w-full max-md:justify-end">
+        {micControl && (
+          <UserAudioControl
+            variant="secondary"
+            activeText={t.header.microphone}
+            inactiveText={t.header.muted}
+            noModeSwitch
+            // 接通时整组是淡绿色（Figma 的麦克风按钮）；静音时按钮自己换成红色
+            className="[&_[data-slot=button]:not([data-state=inactive])]:bg-success [&_[data-slot=button]:not([data-state=inactive])]:text-success-foreground"
+          />
+        )}
+        {active ? (
+          <Button variant="destructive" onClick={onStop}>
+            <XIcon data-icon="inline-start" />
+            {t.header.end}
+          </Button>
+        ) : (
+          <Button
+            className="bg-active text-active-foreground hover:bg-active/85"
+            disabled={!canStart}
+            onClick={onStart}
+          >
+            <MicIcon data-icon="inline-start" />
+            {t.header.start}
+          </Button>
+        )}
+      </div>
     </header>
   );
 }

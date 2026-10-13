@@ -28,12 +28,22 @@ interface Props {
   sharing: boolean;
   /** 可以开始共享（已连接、配置里没关） */
   canShare: boolean;
+  /** 这个浏览器能共享屏幕（手机浏览器都不能）；不能时不放共享按钮 */
+  shareSupported: boolean;
   onStart: () => void;
   onStop: () => void;
 }
 
 /** 屏幕时间线：截图缩略图（点击放大）和画面摘要；右上角是共享屏幕的开关。 */
-export function FrameTimeline({ frames, timeBase, sharing, canShare, onStart, onStop }: Props) {
+export function FrameTimeline({
+  frames,
+  timeBase,
+  sharing,
+  canShare,
+  shareSupported,
+  onStart,
+  onStop,
+}: Props) {
   const { t, language } = useI18n();
   // 钟点在前（没有时间基准时退回会议时间），会议进行到哪跟在后面
   const wall = (secs: number) => wallClockLabel(language, secs, timeBase) || formatFrameTime(secs);
@@ -109,21 +119,27 @@ export function FrameTimeline({ frames, timeBase, sharing, canShare, onStart, on
             {t.screen.stop}
           </Button>
         ) : (
-          <Button
-            variant="outline"
-            size="sm"
-            className="ml-auto"
-            disabled={!canShare}
-            onClick={onStart}
-          >
-            <MonitorUpIcon data-icon="inline-start" />
-            {t.screen.share}
-          </Button>
+          shareSupported && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              disabled={!canShare}
+              onClick={onStart}
+            >
+              <MonitorUpIcon data-icon="inline-start" />
+              {t.screen.share}
+            </Button>
+          )
         )}
       </div>
       {frames.length === 0 ? (
         <p className="px-4 pb-4 text-sm text-subtle-foreground">
-          {canShare || sharing ? t.screen.emptySharing : t.screen.emptyIdle}
+          {!shareSupported
+            ? t.screen.emptyNoShare
+            : canShare || sharing
+              ? t.screen.emptySharing
+              : t.screen.emptyIdle}
         </p>
       ) : (
         <>

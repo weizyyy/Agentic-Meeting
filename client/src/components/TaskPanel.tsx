@@ -86,7 +86,15 @@ export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
     };
   }, [openId, openStatus, onLoad]);
 
-  if (tasks.length === 0) return null; // 没有交办过任务时不占地方
+  if (tasks.length === 0) {
+    // 宽屏上没有交办过任务时不占地方；手机上任务单独一页，留一句说明
+    return (
+      <section className="rounded-xl border bg-card md:hidden" aria-label={t.tasks.title}>
+        <h2 className="px-4 pt-3 pb-2 text-sm font-medium">{t.tasks.title}</h2>
+        <p className="px-4 pb-4 text-sm text-subtle-foreground">{t.tasks.empty}</p>
+      </section>
+    );
+  }
 
   return (
     // 右列放不下时先让任务列表缩小、在框里滚动，助理的回答保持完整

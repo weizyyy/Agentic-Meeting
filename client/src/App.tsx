@@ -20,6 +20,17 @@ import { sessionTitle } from "./sessionView.ts";
 import type { TimeBase } from "./timeline.ts";
 import { useMeetingClient } from "./useMeetingClient.ts";
 
+/** 手机浏览器没有屏幕共享；不经 HTTPS 或 localhost 访问时桌面浏览器也没有 */
+const SHARE_SUPPORTED = typeof navigator.mediaDevices?.getDisplayMedia === "function";
+
+/** 手机上一次只显示会议内容的一块 */
+type Section = "captions" | "assistant" | "tasks" | "screen";
+
+/** 手机上不在当前分页的块藏起来；宽屏照常全部显示 */
+function shownOn(section: Section, current: Section): string {
+  return section === current ? "" : "max-md:hidden";
+}
+
 interface Props {
   /** 启用了访问口令时才有：顶部栏显示「退出登录」 */
   onLogout?: () => void;
@@ -31,6 +42,7 @@ export function App({ onLogout }: Props = {}) {
   const { client, state } = meeting;
   const [listOpen, setListOpen] = useState(false);
   const [tab, setTab] = useState<"captions" | "report">("captions");
+  const [section, setSection] = useState<Section>("captions");
   const [presenting, setPresenting] = useState(false);
   // 字幕里选中的发言（按发言编号）：在字幕左边点或拖选，再点上方的说话人归过去。
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
@@ -50,6 +62,9 @@ export function App({ onLogout }: Props = {}) {
     () => (startedAt === null ? null : { startedAt, connections: state.connections }),
     [startedAt, state.connections],
   );
+  const unfinishedTasks = state.tasks.filter(
+    (task) => task.status === "queued" || task.status === "running",
+  ).length;
   const inMeeting =
     state.connection === "connected" ||
     state.connection === "connecting" ||
@@ -100,13 +115,46 @@ export function App({ onLogout }: Props = {}) {
           onStart={() => void meeting.start()}
         />
         {!state.viewing?.deletion_pending && (
+          // 手机上分页：字幕、助理、任务、画面，一次一块占满下面的高度
+          <Tabs
+            value={section}
+            onValueChange={(value: Section) => setSection(value)}
+            className="mb-3 md:hidden"
+          >
+            <TabsList aria-label={t.session.sections.label} className="w-full">
+              <TabsTrigger value="captions">{t.session.sections.captions}</TabsTrigger>
+              <TabsTrigger value="assistant">
+                {t.session.sections.assistant}
+                {state.notices.length > 0 && (
+                  <span
+                    className="size-1.5 rounded-full bg-warning-foreground"
+                    aria-label={t.session.sections.notices(state.notices.length)}
+                  />
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="tasks">
+                {t.session.sections.tasks}
+                {unfinishedTasks > 0 && (
+                  <span
+                    className="rounded-full bg-agent px-1.5 text-xs text-agent-foreground tabular-nums"
+                    aria-label={t.session.sections.active(unfinishedTasks)}
+                  >
+                    {unfinishedTasks}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="screen">{t.session.sections.screen}</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
+        {!state.viewing?.deletion_pending && (
           // 宽屏两列：左边字幕（报告）在上、屏幕在下，右边助理和后台任务；
-          // 窄屏一列依次排下来，整块上下滚动，字幕至少留出 20rem
-          <main className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(20rem,1fr)_auto_auto] gap-4 overflow-y-auto [grid-template-areas:'captions'_'side'_'screen'] md:grid-cols-[minmax(0,1fr)_minmax(0,360px)] md:grid-rows-[minmax(0,1fr)_auto] md:overflow-visible md:[grid-template-areas:'captions_side'_'screen_side']">
+          // 手机上只显示当前分页的那一块
+          <main className="flex min-h-0 flex-1 flex-col gap-4 md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,360px)] md:grid-rows-[minmax(0,1fr)_auto] md:[grid-template-areas:'captions_side'_'screen_side']">
             <Tabs
               value={tab}
               onValueChange={(value: "captions" | "report") => setTab(value)}
-              className="min-h-0 min-w-0 gap-0 overflow-hidden rounded-xl border bg-card [grid-area:captions]"
+              className={`min-h-0 min-w-0 flex-1 gap-0 overflow-hidden rounded-xl border bg-card [grid-area:captions] ${shownOn("captions", section)}`}
             >
               <div className="flex items-center gap-2 border-b px-4 py-2">
                 <TabsList aria-label={t.session.tabs.label}>
@@ -160,28 +208,35 @@ export function App({ onLogout }: Props = {}) {
                 />
               </TabsContent>
             </Tabs>
-            <div className="flex min-w-0 flex-col gap-4 [grid-area:side] md:min-h-0 md:overflow-y-auto">
-              <AssistantPanel
-                state={state.assistantState}
-                text={state.assistantText}
-                replyMode={state.replyMode}
-                notices={state.notices}
-                canSend={state.connection === "connected"}
-                onSend={meeting.sendText}
-                onDismissNotice={meeting.dismissNotice}
-              />
-              <TaskPanel
-                tasks={state.tasks}
-                onLoad={meeting.loadTask}
-                onCancel={(id) => void meeting.cancelTask(id)}
-              />
+            <div
+              className={`flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto [grid-area:side] ${section === "assistant" || section === "tasks" ? "" : "max-md:hidden"}`}
+            >
+              <div className={`flex flex-1 flex-col ${shownOn("assistant", section)}`}>
+                <AssistantPanel
+                  state={state.assistantState}
+                  text={state.assistantText}
+                  replyMode={state.replyMode}
+                  notices={state.notices}
+                  canSend={state.connection === "connected"}
+                  onSend={meeting.sendText}
+                  onDismissNotice={meeting.dismissNotice}
+                />
+              </div>
+              <div className={`contents ${shownOn("tasks", section)}`}>
+                <TaskPanel
+                  tasks={state.tasks}
+                  onLoad={meeting.loadTask}
+                  onCancel={(id) => void meeting.cancelTask(id)}
+                />
+              </div>
             </div>
-            <div className="min-w-0 [grid-area:screen]">
+            <div className={`min-w-0 [grid-area:screen] ${shownOn("screen", section)}`}>
               <FrameTimeline
                 frames={state.frames}
                 timeBase={timeBase}
                 sharing={state.sharing}
                 canShare={state.connection === "connected" && state.screen.enabled}
+                shareSupported={SHARE_SUPPORTED}
                 onStart={() => void meeting.startScreenShare()}
                 onStop={meeting.stopScreenShare}
               />

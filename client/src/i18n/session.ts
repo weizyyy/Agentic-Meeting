@@ -46,6 +46,16 @@ export const session = defineMessages(
       confirmBody: "它的全部发言、截图和任务记录都会被删除，不能恢复。",
     },
     tabs: { label: "字幕和报告", captions: "字幕", report: "报告", generating: "生成中" },
+    /** 手机上会议内容分页显示 */
+    sections: {
+      label: "会议内容",
+      captions: "字幕",
+      assistant: "助理",
+      tasks: "任务",
+      screen: "画面",
+      notices: (n: number) => `${n} 条提示`,
+      active: (n: number) => `${n} 个没做完`,
+    },
     emptyCaptions: {
       live: "会议已经开始，说的话会实时显示在这里。",
       history: "这场会议还没有发言记录。",
@@ -103,6 +113,15 @@ export const session = defineMessages(
       captions: "Captions",
       report: "Report",
       generating: "Generating",
+    },
+    sections: {
+      label: "Meeting",
+      captions: "Captions",
+      assistant: "Assistant",
+      tasks: "Tasks",
+      screen: "Screen",
+      notices: (n) => (n === 1 ? "1 notice" : `${n} notices`),
+      active: (n) => `${n} unfinished`,
     },
     emptyCaptions: {
       live: "The meeting has started; what people say appears here as they speak.",

@@ -33,6 +33,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   service is unavailable, a typed message is queued, the meeting is being transcribed) and errors
   from server requests (a wrong password, a screenshot that is too large) follow it too, and so do
   the reasons a background task or report failed.
+- On a phone the meeting page splits into **字幕** (Captions), **助理** (Assistant), **任务**
+  (Tasks) and **画面** (Screen) tabs, and the top bar shrinks to icons. The page can be added to the
+  home screen and opens there without the browser's address bar. Phone browsers cannot share the
+  screen, so the share button is left out there.
 - **演示模式** (Presentation mode) in the top bar shows the meeting full screen for a shared
   meeting-room display: dark, with the last three captions in large type and the assistant's state
   and answer. `Esc` returns to the workspace.
