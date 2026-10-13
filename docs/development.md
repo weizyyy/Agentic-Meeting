@@ -116,11 +116,12 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
   missing or extra key, or a message whose parameters differ, fails the type check in
   `npm run build` and the CI Web client job. Browser console messages and command-line output stay
   in Chinese.
-- The server sends notices (interfaces.md §6.1.1) and HTTP errors (§5.9) to the page as a code with
-  parameters. A new one is added to that table, to `src/agentic_meeting/messages.py` with its
-  Chinese text, and to `client/src/i18n/serverNotices.ts` or `serverErrors.ts` in both languages;
-  `tests/test_repository_rules.py` checks that the three agree. Handlers raise
-  `ApiError(status, code, **params)` from `web/errors.py`.
+- The server sends notices (interfaces.md §6.1.1), HTTP errors (§5.9) and the reasons tasks and
+  reports failed (§5.10) to the page as a code with parameters. A new one is added to that table, to
+  `src/agentic_meeting/messages.py` with its Chinese text, and to `client/src/i18n/serverNotices.ts`,
+  `serverErrors.ts` or `serverFailures.ts` in both languages; `tests/test_repository_rules.py`
+  checks that the three agree. Handlers raise `ApiError(status, code, **params)` from
+  `web/errors.py`, and the task runner raises `RunnerError(code, **params)`.
 - Configuration is read from `AppConfig` only. Modules do not define their own default models or
   endpoints.
 - A new configuration key is added in `config.py`, `config/config.example.toml`, interfaces.md §1

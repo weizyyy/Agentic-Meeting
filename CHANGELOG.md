@@ -31,8 +31,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   and the language button in the top bar switches it on the spot without interrupting the meeting;
   dates and numbers follow the chosen language. Notices the server sends during a meeting (a
   service is unavailable, a typed message is queued, the meeting is being transcribed) and errors
-  from server requests (a wrong password, a screenshot that is too large) follow it too; the
-  reasons a background task or report failed are still in Chinese.
+  from server requests (a wrong password, a screenshot that is too large) follow it too, and so do
+  the reasons a background task or report failed.
 - **演示模式** (Presentation mode) in the top bar shows the meeting full screen for a shared
   meeting-room display: dark, with the last three captions in large type and the assistant's state
   and answer. `Esc` returns to the workspace.
@@ -43,7 +43,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   it added. Chrome, Edge and Safari minimums are unchanged.
 - The `notice` data-channel message carries a `code` and `params` next to its Chinese `text`, so the
   page can show it in its own language. Error responses from `/api` likewise carry `code` and
-  `params` next to `error`. Clients that only read `text` or `error` keep working.
+  `params` next to `error`. Tasks and reports (`/api/tasks`, the `task` message,
+  `/api/sessions/{id}/report`) carry `error_code` and `error_params` next to their failure reason
+  `error`, and the database gains the matching columns, added on start. Clients that only read
+  `text` or `error` keep working.
 - The microphone level meter and its quiet-input chip in the top bar are replaced by the bars on
   the microphone button. A microphone that stays too quiet is still reported by the server's notice.
 

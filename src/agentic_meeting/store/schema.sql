@@ -120,7 +120,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     detail_md     TEXT,
     sources_json  TEXT NOT NULL DEFAULT '[]',
     artifacts_json TEXT NOT NULL DEFAULT '[]',
-    error         TEXT,
+    error         TEXT,                     -- 中文的失败原因
+    error_code    TEXT,                     -- 失败原因的代码（interfaces.md §5.10）
+    error_params_json TEXT NOT NULL DEFAULT '{}',
     created_at    REAL NOT NULL,
     started_at    REAL,
     finished_at   REAL,
@@ -151,6 +153,8 @@ CREATE TABLE IF NOT EXISTS reports (
     provider    TEXT NOT NULL DEFAULT '',
     text_md     TEXT NOT NULL DEFAULT '',
     error       TEXT,
+    error_code  TEXT,
+    error_params_json TEXT NOT NULL DEFAULT '{}',
     write_token TEXT NOT NULL DEFAULT '',
     finished_at REAL
 );

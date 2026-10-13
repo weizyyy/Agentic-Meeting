@@ -1,9 +1,10 @@
 """发给页面的提示和错误：代码加参数，页面按自己的界面语言翻译。
 
-提示见 docs/interfaces.md §6.1.1，HTTP 接口的错误见 §5.9。每条同时带一句中文（提示的 ``text``、
-错误的 ``error``），给日志、接口调用者和还不认得代码的页面用。新代码先写进 interfaces.md 的表，
-再加到这里的 ``NOTICES`` 或 ``ERRORS``，并在 ``client/src/i18n/serverNotices.ts`` 或 ``serverErrors.ts``
-里配上中英文；``tests/test_repository_rules.py`` 检查三处一致。
+提示见 docs/interfaces.md §6.1.1，HTTP 接口的错误见 §5.9，任务和报告的失败原因见 §5.10。每条同时带一句中文
+（提示的 ``text``、错误和失败原因的 ``error``），给日志、接口调用者、实时模型和还不认得代码的页面用。
+新代码先写进 interfaces.md 的表，再加到这里的 ``NOTICES``、``ERRORS`` 或 ``FAILURES``，并在
+``client/src/i18n/`` 对应的 ``serverNotices.ts``、``serverErrors.ts`` 或 ``serverFailures.ts`` 里配上中英文；
+``tests/test_repository_rules.py`` 检查三处一致。
 """
 
 from __future__ import annotations
@@ -100,7 +101,36 @@ ERRORS: dict[str, Callable[[Params], str]] = {
     "report.not_ready": lambda p: "这场会议还没有生成好的报告",
 }
 
-_TEMPLATES = {**NOTICES, **ERRORS}
+# 任务和报告的失败原因：代码 → 中文（interfaces.md §5.10）。
+FAILURES: dict[str, Callable[[Params], str]] = {
+    "task.cancelled": lambda p: "已取消",
+    "task.restarted": lambda p: "服务重启，任务没有做完",
+    "task.shutdown": lambda p: "服务停止，任务没有做完",
+    "task.timeout": lambda p: f"超时（超过 {p['minutes']} 分钟没有做完）",
+    "task.internal": lambda p: f"内部错误（{p['type']}）",
+    "agent.disabled": lambda p: "后台任务功能已在配置里关闭",
+    "agent.not_configured": lambda p: (
+        "后台 agent 还没有配置（config.toml 的 [agent] 里要填模型地址和名字）"
+    ),
+    "agent.not_installed": lambda p: "没有安装后台 agent 的依赖（uv sync --extra agent）",
+    "agent.stopping": lambda p: "服务正在停止",
+    "agent.too_many_steps": lambda p: f"步骤太多（超过 {p['max']} 步）还没有做完",
+    "agent.key_env_missing": lambda p: (
+        "远端模型要求密钥，但配置里没有写密钥的环境变量名（agent.api_key_env）"
+    ),
+    "agent.key_unset": lambda p: (
+        f"远端模型的密钥没有设置（环境变量 {p['env']} 是空的；设好之后要重新启动）"
+    ),
+    "agent.key_rejected": lambda p: f"远端模型不接受这个密钥（环境变量 {p['env']}）",
+    "agent.unreachable": lambda p: "连不上远端模型",
+    "agent.http_error": lambda p: f"远端模型返回了错误（{p['status']}）",
+    "agent.error": lambda p: f"agent 运行出错（{p['type']}）",
+    "report.interrupted": lambda p: "服务停止了，这份报告没有生成完",
+    "report.timeout": lambda p: "生成超时",
+    "report.failed": lambda p: f"{p['detail']}",
+}
+
+_TEMPLATES = {**NOTICES, **ERRORS, **FAILURES}
 
 
 @dataclass(frozen=True)

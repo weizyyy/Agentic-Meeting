@@ -288,16 +288,14 @@ class AgentRunner:
     async def __call__(self, task: TaskRecord, on_event: OnEvent) -> TaskResult:
         agent_cfg = self._cfg.agent
         if not agent_cfg.enabled:
-            raise RunnerError("后台任务功能已在配置里关闭")
+            raise RunnerError("agent.disabled")
         if self._client is None and not (agent_cfg.base_url and agent_cfg.model):
-            raise RunnerError(
-                "后台 agent 还没有配置（config.toml 的 [agent] 里要填模型地址和名字）"
-            )
+            raise RunnerError("agent.not_configured")
         try:
             from agents import Agent, ModelSettings, OpenAIChatCompletionsModel, RunConfig, Runner
             from agents.exceptions import AgentsException, MaxTurnsExceeded
         except ImportError as e:
-            raise RunnerError("没有安装后台 agent 的依赖（uv sync --extra agent）") from e
+            raise RunnerError("agent.not_installed") from e
         import openai
 
         owned = OwnedFiles(self._data_dir)
@@ -384,16 +382,16 @@ class AgentRunner:
                 result.cancel()  # 任务被取消或超时：让 SDK 把在途的模型请求和工具调用停掉
                 raise
             except MaxTurnsExceeded as e:
-                raise RunnerError(f"步骤太多（超过 {agent_cfg.max_turns} 步）还没有做完") from e
+                raise RunnerError("agent.too_many_steps", max=agent_cfg.max_turns) from e
             except openai.AuthenticationError as e:
-                raise RunnerError(self._key_problem()) from e
+                raise self._key_problem() from e
             except openai.APIConnectionError as e:
-                raise RunnerError("连不上远端模型") from e
+                raise RunnerError("agent.unreachable") from e
             except openai.APIStatusError as e:
-                raise RunnerError(f"远端模型返回了错误（{e.status_code}）") from e
+                raise RunnerError("agent.http_error", status=e.status_code) from e
             except AgentsException as e:
                 logger.warning(f"agent 运行出错：{type(e).__name__}: {e}")
-                raise RunnerError(f"agent 运行出错（{type(e).__name__}）") from e
+                raise RunnerError("agent.error", type=type(e).__name__) from e
 
             parsed = parse_result(result.final_output)
             if parsed.artifacts and sandbox is not None:
@@ -404,14 +402,14 @@ class AgentRunner:
 
     # ---- 内部 ----
 
-    def _key_problem(self) -> str:
+    def _key_problem(self) -> RunnerError:
         """远端模型说没有权限（401）时给用户的说明：先看是不是环境变量根本没设。"""
         env_name = self._cfg.agent.api_key_env
         if not env_name:
-            return "远端模型要求密钥，但配置里没有写密钥的环境变量名（agent.api_key_env）"
+            return RunnerError("agent.key_env_missing")
         if not secret(env_name):
-            return f"远端模型的密钥没有设置（环境变量 {env_name} 是空的；设好之后要重新启动）"
-        return f"远端模型不接受这个密钥（环境变量 {env_name}）"
+            return RunnerError("agent.key_unset", env=env_name)
+        return RunnerError("agent.key_rejected", env=env_name)
 
     def _new_client(self) -> Any:
         from openai import AsyncOpenAI

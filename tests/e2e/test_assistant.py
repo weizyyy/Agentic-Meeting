@@ -113,13 +113,18 @@ async def test_delegated_task_runs_in_the_background_and_reports_back(
 
 async def test_a_failing_task_is_reported_as_failed(app, http, meeting, inference):
     client = meeting()
-    await client.connect()
+    session = await client.connect()
     inference.agent.down = True
     inference.llm.when("查一下", Reply(tool="delegate_task", arguments={"goal": "查文献"}))
     client.type_text("Jarvis 帮我查一下文献")
 
     failed = await client.next_message("task", status="failed", timeout_secs=60)
-    assert failed["error"]
+    # 失败原因带代码和参数，页面按界面语言显示；error 是给实时模型的中文
+    assert failed["error_code"] == "agent.http_error", failed
+    assert failed["error_params"] == {"status": 503}
+    assert failed["error"] == "远端模型返回了错误（503）"
+    listed = (await http.get("/api/tasks", params={"session_id": session["id"]})).json()
+    assert listed["items"][0]["error_code"] == "agent.http_error"
     assert (await client.next_message("utterance", source="text"))["text"]
 
 

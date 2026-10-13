@@ -32,6 +32,8 @@ def task_json(task: TaskRecord) -> dict[str, Any]:
         "status": task.status,
         "brief": task.brief,
         "error": task.error,
+        "error_code": task.error_code,
+        "error_params": task.error_params,
         "modality": task.modality,
         "created_at": task.created_at,
         "started_at": task.started_at,

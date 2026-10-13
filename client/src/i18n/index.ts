@@ -14,6 +14,7 @@ import { notices } from "./notices.ts";
 import { report } from "./report.ts";
 import { screen } from "./screen.ts";
 import { serverErrors, serverErrorText } from "./serverErrors.ts";
+import { serverFailures, serverFailureText } from "./serverFailures.ts";
 import { serverNotices, serverNoticeText, type NoticeParams } from "./serverNotices.ts";
 import { session } from "./session.ts";
 import { tasks } from "./tasks.ts";
@@ -38,6 +39,7 @@ const areas = {
   notices,
   serverNotices,
   serverErrors,
+  serverFailures,
 };
 
 export type Messages = { readonly [K in keyof typeof areas]: (typeof areas)[K]["en"] };
@@ -110,4 +112,12 @@ export function errorText(body: unknown): string | null {
   const translated = serverErrorText(messages().serverErrors, code, params);
   if (translated !== null) return translated;
   return typeof error === "string" && error ? error : null;
+}
+
+/** 任务和报告的失败原因（interfaces.md §5.10）：按当前语言翻译，认不出来就用 error 原文。 */
+export function failureText(
+  t: Messages,
+  item: { error: string | null; error_code?: string | null; error_params?: unknown },
+): string | null {
+  return serverFailureText(t.serverFailures, item.error_code, item.error_params) ?? item.error;
 }

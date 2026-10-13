@@ -181,11 +181,12 @@ rows = conn.execute(
   打开时由 `Store._migrate` 补上。每 `realtime.digest_interval_minutes` 生成一次（没有新发言不调模型）；
   一次最多纳入 300 条发言，积压多时分几轮追上；连接断开或会议结束后在后台再补一次（限时 120 秒，不阻塞「结束会议」的响应）。
   喂给模型的「新增转录」里按时间夹着这一段的画面摘要行。
-- `reports`（会后报告）：`id, session_id, created_at, status('running'|'done'|'failed'), provider, text_md, error`；
+- `reports`（会后报告）：`id, session_id, created_at, status('running'|'done'|'failed'), provider, text_md, error, error_code, error_params_json`；
   同一会话可以有多份，页面显示最近一份，导出取最近一份 `done` 的。服务启动时把遗留的 `running` 标为 `failed`。
 - `speakers.idx` 的保留值：`0` 未知、`-1` 助理、`-2` 键入的文字（默认显示名「文字输入」，可改名）；说话人区分的输出从 `1` 起。
 - `utterances.source`：`'asr'`（语音识别）、`'assistant'`（助理自己的话）、`'text'`（浏览器输入框键入）。
 - `tasks.modality`：`'voice'` / `'text'`，委托任务的那一轮是语音还是文字，任务完成后的播报据此决定出不出声。
+- `tasks.error` 和 `reports.error` 是中文的失败原因，`error_code` 和 `error_params_json`（默认 `'{}'`）标明是哪一种（§5.10）；这两列出现之前的行代码为 `NULL`。
 
 ### 2.6 保留元数据与写回身份
 
@@ -668,7 +669,7 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 补充说明（`web/tasks_api.py`）：
 
 - 路径里的 `{id}` 是完整编号（`<会话 id>.t3`）。`GET /api/tasks` 的 `session_id` 省略 = 当前会话，响应 `{"items": [...]}`。
-- 列表项：`{"id", "label", "goal", "status", "brief", "error", "modality", "created_at", "started_at", "finished_at"}`。
+- 列表项：`{"id", "label", "goal", "status", "brief", "error", "error_code", "error_params", "modality", "created_at", "started_at", "finished_at"}`；失败原因的字段见 §5.10。
 - 详情在列表项之外还有：`detail_md`、`sources`、`artifacts`（文件名）、`requested_by`（交办人的显示名）、`requested_t`、
   `events`（`[{at, kind, summary}]`，不含工具参数等细节）、`outbound`——**这次任务外发的内容**：
   `{"goal", "t_from", "t_to", "frames": [{id, t}], "model_host"}`。
@@ -684,14 +685,14 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 
 ### 5.6 导出与报告
 
-| 方法与路径                          | 说明                                                                                                                        |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/export/{session_id}.md`   | Markdown 转录：标题与时间 → 纪要 → 按时间排列的发言（相邻同一说话人的合并成段）→ 截图引用 → 任务结果                        |
-| `GET /api/export/{session_id}.json` | 结构化 JSON：会话、说话人、发言、截图、纪要、任务（含事件）、各次连接、最近一份报告                                         |
-| `GET /api/export/{session_id}.zip`  | 完整包：`transcript.md`、`session.json`、`report.md`（若有）、`frames/`、`tasks/` 下的产物                                  |
-| `POST /api/sessions/{id}/report`    | 触发生成会后报告（异步）；响应 202 `{"report_id", "status": "running"}`；该会话已有一份在生成时返回 409                     |
-| `GET /api/sessions/{id}/report`     | 最近一份：`{"id", "status": "running" \| "done" \| "failed", "created_at", "provider", "text_md", "error"}`；还没有返回 404 |
-| `GET /api/sessions/{id}/report.md`  | 最近一份报告的文本下载                                                                                                      |
+| 方法与路径                          | 说明                                                                                                                                                               |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /api/export/{session_id}.md`   | Markdown 转录：标题与时间 → 纪要 → 按时间排列的发言（相邻同一说话人的合并成段）→ 截图引用 → 任务结果                                                               |
+| `GET /api/export/{session_id}.json` | 结构化 JSON：会话、说话人、发言、截图、纪要、任务（含事件）、各次连接、最近一份报告                                                                                |
+| `GET /api/export/{session_id}.zip`  | 完整包：`transcript.md`、`session.json`、`report.md`（若有）、`frames/`、`tasks/` 下的产物                                                                         |
+| `POST /api/sessions/{id}/report`    | 触发生成会后报告（异步）；响应 202 `{"report_id", "status": "running"}`；该会话已有一份在生成时返回 409                                                            |
+| `GET /api/sessions/{id}/report`     | 最近一份：`{"id", "status": "running" \| "done" \| "failed", "created_at", "provider", "text_md", "error", "error_code", "error_params"}`（§5.10）；还没有返回 404 |
+| `GET /api/sessions/{id}/report.md`  | 最近一份报告的文本下载                                                                                                                                             |
 
 **Markdown 导出的实现（`web/export.py`）**：
 
@@ -1143,6 +1144,39 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 | `report.not_found`          | 404           | —                | 这场会议还没有报告                                                 |
 | `report.not_ready`          | 404           | —                | 这场会议还没有生成好的报告                                         |
 
+### 5.10 任务和报告的失败原因
+
+失败或取消的任务、失败的报告除了中文原因 `error`，还带 `error_code` 和 `error_params`，像 §5.9 的错误一样
+标明是哪一种原因。页面认得代码时按界面语言翻译，否则显示 `error`；这两个字段出现之前写下的行是
+`error_code: null`、`error_params: {}`。`error` 保持中文，因为实时模型会读它（`task_status`、任务结果），导出也包含它。
+服务端的表是 `src/agentic_meeting/messages.py` 的 `FAILURES`，页面的在 `client/src/i18n/serverFailures.ts`，
+仓库测试检查三处一致。
+
+| `error_code`            | `error_params`    | 中文 `error`                                                          |
+| ----------------------- | ----------------- | --------------------------------------------------------------------- |
+| `task.cancelled`        | —                 | 已取消                                                                |
+| `task.restarted`        | —                 | 服务重启，任务没有做完                                                |
+| `task.shutdown`         | —                 | 服务停止，任务没有做完                                                |
+| `task.timeout`          | `minutes`：number | 超时（超过 {minutes} 分钟没有做完）                                   |
+| `task.internal`         | `type`：string    | 内部错误（{type}）                                                    |
+| `agent.disabled`        | —                 | 后台任务功能已在配置里关闭                                            |
+| `agent.not_configured`  | —                 | 后台 agent 还没有配置（config.toml 的 [agent] 里要填模型地址和名字）  |
+| `agent.not_installed`   | —                 | 没有安装后台 agent 的依赖（uv sync --extra agent）                    |
+| `agent.stopping`        | —                 | 服务正在停止                                                          |
+| `agent.too_many_steps`  | `max`：number     | 步骤太多（超过 {max} 步）还没有做完                                   |
+| `agent.key_env_missing` | —                 | 远端模型要求密钥，但配置里没有写密钥的环境变量名（agent.api_key_env） |
+| `agent.key_unset`       | `env`：string     | 远端模型的密钥没有设置（环境变量 {env} 是空的；设好之后要重新启动）   |
+| `agent.key_rejected`    | `env`：string     | 远端模型不接受这个密钥（环境变量 {env}）                              |
+| `agent.unreachable`     | —                 | 连不上远端模型                                                        |
+| `agent.http_error`      | `status`：number  | 远端模型返回了错误（{status}）                                        |
+| `agent.error`           | `type`：string    | agent 运行出错（{type}）                                              |
+| `report.interrupted`    | —                 | 服务停止了，这份报告没有生成完                                        |
+| `report.timeout`        | —                 | 生成超时                                                              |
+| `report.failed`         | `detail`：string  | {detail}                                                              |
+
+`type` 是异常的类名，`env` 是配置里密钥变量的名字，`detail` 是报告失败时的异常原文（最多 200 字，超出加省略号），
+这些都不翻译。
+
 ## 6. 数据通道消息
 
 ### 6.1 服务端 → 浏览器
@@ -1150,21 +1184,21 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 服务端向管线推 `RTVIServerMessageFrame(data=<下面的对象>)`；浏览器在 `onServerMessage` 回调里收到。
 每条消息都有 `type` 字段：
 
-| `type`             | 其余字段                                                                  | 含义                                                                                                                                                                                                                                                                                                           |
-| ------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `caption`          | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable`        | 当前正在说的这一段的实时字幕；同一 `segment_id` 的后一条覆盖前一条                                                                                                                                                                                                                                             |
-| `utterance`        | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source` | 一条发言已定稿落库；界面用它替换对应 `segment_id` 的实时字幕。`id` 是界面上已有的发言时，表示新片段并进了那一条（§4.3 第 7 条）：`text` 是并好的全文，`segment_id` 那行实时字幕收掉                                                                                                                            |
-| `utterance_update` | `id, speaker_idx, speaker_name`                                           | 说话人更正                                                                                                                                                                                                                                                                                                     |
-| `speaker`          | `idx, display_name`                                                       | 说话人改名                                                                                                                                                                                                                                                                                                     |
-| `speakers_merged`  | `from, into, display_name`                                                | 说话人 `from` 并入了 `into`（`display_name` 是 `into` 的显示名）：页面把已加载的发言改到 `into` 名下，并从说话人列表里去掉 `from`                                                                                                                                                                              |
-| `frame`            | `id, t, width, height`                                                    | 新截图                                                                                                                                                                                                                                                                                                         |
-| `frame_caption`    | `id, caption`                                                             | 截图摘要已生成                                                                                                                                                                                                                                                                                                 |
-| `assistant_state`  | `state`：`idle` / `listening` / `thinking` / `speaking`                   | 助理状态                                                                                                                                                                                                                                                                                                       |
-| `task`             | `id, label, goal, status, brief, error, modality, created_at`             | 任务创建或状态变化（`id` 是完整编号，`label` 是会议内的短编号 `t3`）                                                                                                                                                                                                                                           |
-| `task_event`       | `task_id, at, kind, summary`                                              | 任务进度                                                                                                                                                                                                                                                                                                       |
-| `notice`           | `level`：`info` / `warn` / `error`，`code`，`params`，`text`              | 需要让用户知道的提示（如某服务不可用）。`code` 和 `params` 标明是哪一条提示，页面据此用自己的界面语言显示（§6.1.1）；`text` 是同一条提示的中文，给日志和旧页面用。实时模型、语音合成的请求出错时，服务端把管线里的错误换成提示发出来（`pipeline/errors.py`）；Pipecat 自带的 RTVI `error` 消息页面只显示致命的 |
-| `session`          | `id, title, keep, started_at, resumed, base_secs, state`                  | 连接建立后发一次：所属会话与当前保留标记；`resumed` 表示继续；`base_secs` 是本次连接的时间轴起点                                                                                                                                                                                                               |
-| `session_closed`   | `reason`：`taken_over` / `ended` / `server_stopping`                      | 连接即将被服务端关闭的原因（尽力而为地发出），页面据此提示而不是静默变成未连接                                                                                                                                                                                                                                 |
+| `type`             | 其余字段                                                                                | 含义                                                                                                                                                                                                                                                                                                           |
+| ------------------ | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caption`          | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable`                      | 当前正在说的这一段的实时字幕；同一 `segment_id` 的后一条覆盖前一条                                                                                                                                                                                                                                             |
+| `utterance`        | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source`               | 一条发言已定稿落库；界面用它替换对应 `segment_id` 的实时字幕。`id` 是界面上已有的发言时，表示新片段并进了那一条（§4.3 第 7 条）：`text` 是并好的全文，`segment_id` 那行实时字幕收掉                                                                                                                            |
+| `utterance_update` | `id, speaker_idx, speaker_name`                                                         | 说话人更正                                                                                                                                                                                                                                                                                                     |
+| `speaker`          | `idx, display_name`                                                                     | 说话人改名                                                                                                                                                                                                                                                                                                     |
+| `speakers_merged`  | `from, into, display_name`                                                              | 说话人 `from` 并入了 `into`（`display_name` 是 `into` 的显示名）：页面把已加载的发言改到 `into` 名下，并从说话人列表里去掉 `from`                                                                                                                                                                              |
+| `frame`            | `id, t, width, height`                                                                  | 新截图                                                                                                                                                                                                                                                                                                         |
+| `frame_caption`    | `id, caption`                                                                           | 截图摘要已生成                                                                                                                                                                                                                                                                                                 |
+| `assistant_state`  | `state`：`idle` / `listening` / `thinking` / `speaking`                                 | 助理状态                                                                                                                                                                                                                                                                                                       |
+| `task`             | `id, label, goal, status, brief, error, error_code, error_params, modality, created_at` | 任务创建或状态变化（`id` 是完整编号，`label` 是会议内的短编号 `t3`）                                                                                                                                                                                                                                           |
+| `task_event`       | `task_id, at, kind, summary`                                                            | 任务进度                                                                                                                                                                                                                                                                                                       |
+| `notice`           | `level`：`info` / `warn` / `error`，`code`，`params`，`text`                            | 需要让用户知道的提示（如某服务不可用）。`code` 和 `params` 标明是哪一条提示，页面据此用自己的界面语言显示（§6.1.1）；`text` 是同一条提示的中文，给日志和旧页面用。实时模型、语音合成的请求出错时，服务端把管线里的错误换成提示发出来（`pipeline/errors.py`）；Pipecat 自带的 RTVI `error` 消息页面只显示致命的 |
+| `session`          | `id, title, keep, started_at, resumed, base_secs, state`                                | 连接建立后发一次：所属会话与当前保留标记；`resumed` 表示继续；`base_secs` 是本次连接的时间轴起点                                                                                                                                                                                                               |
+| `session_closed`   | `reason`：`taken_over` / `ended` / `server_stopping`                                    | 连接即将被服务端关闭的原因（尽力而为地发出），页面据此提示而不是静默变成未连接                                                                                                                                                                                                                                 |
 
 发送连接就绪消息时，从当前持久状态读取 `session.keep`。`session.recording_notice=true` 时，
 每次连接就绪后在 session 消息之后发送一次现有 `notice`：`level="info"`，
@@ -1366,7 +1400,7 @@ class TaskManager:
   用于口头指代、工具参数和界面；HTTP 接口使用完整编号。
 - `t_from`、`t_to` 和 `frame_ids_json` 记录交给 agent 的转录时间范围与截图，即该任务外发的内容。
 - `wait` 在失败或取消时抛出 `TaskFailed(status, reason)`；任务不存在时抛出 `LookupError`。
-  需要让使用者看到的失败原因由运行器以 `RunnerError("原因")` 抛出；其他异常只报告为内部错误及异常类型，细节写入日志。
+  需要让使用者看到的失败原因由运行器以 `RunnerError(代码, **参数)` 抛出，代码见 §5.10；其他异常只报告为内部错误及异常类型，细节写入日志。
 - 排队中的任务也可以取消。`status` 不带短编号时返回该会议最近创建的任务，附最近三条进度。
 - 应用重启后，状态为 `queued` 或 `running` 的任务一律标记为 `failed`。
 - 工作目录：`<data_dir>/sessions/<会话>/tasks/<短编号>/`。

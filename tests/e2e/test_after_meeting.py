@@ -52,15 +52,27 @@ async def test_report_is_generated_after_the_meeting(app, http, meeting, inferen
     }
 
     await http.post(f"/api/sessions/{session['id']}/end")
-    started = await http.post(f"/api/sessions/{session['id']}/report")
-    assert started.status_code == 202, started.text
 
     async def finished():
         report = (await http.get(f"/api/sessions/{session['id']}/report")).json()
         return report if report["status"] != "running" else None
 
+    # 模型出错时报告标为失败，原因带代码；重新生成成功后原因清掉
+    inference.llm.down = True
+    started = await http.post(f"/api/sessions/{session['id']}/report")
+    assert started.status_code == 202, started.text
+    report = await until(finished, "报告生成失败", timeout_secs=60)
+    assert report["status"] == "failed", report
+    assert report["error_code"] == "report.failed"
+    assert report["error_params"] == {"detail": report["error"]}
+
+    inference.llm.down = False
+    started = await http.post(f"/api/sessions/{session['id']}/report")
+    assert started.status_code == 202, started.text
     report = await until(finished, "报告生成完", timeout_secs=60)
     assert report["status"] == "done", report
+    assert report["error"] is None and report["error_code"] is None
+    assert report["error_params"] == {}
     assert "这周做完消融实验" in report["text_md"]
     download = await http.get(f"/api/sessions/{session['id']}/report.md")
     assert download.status_code == 200 and "这周做完消融实验" in download.text

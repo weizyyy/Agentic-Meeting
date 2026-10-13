@@ -25,6 +25,8 @@ def report_json(report: Report) -> dict[str, Any]:
         "provider": report.provider,
         "text_md": report.text_md,
         "error": report.error,
+        "error_code": report.error_code,
+        "error_params": report.error_params,
     }
 
 

@@ -9,7 +9,8 @@
 * 应用启动时（``recover``）把上次遗留的排队中 / 运行中的任务标为失败——它们的执行已经不在了。
 * 任务编号：库里是 ``<会话 id>.t<序号>``（全库唯一），口头和界面上用点号后面的短编号（``t3``）。
 
-失败和取消对调用方表现为 ``TaskFailed``，``reason`` 是一句可以直接告诉用户的中文。
+失败和取消对调用方表现为 ``TaskFailed``，``reason`` 是一句可以直接告诉用户的中文。库里同时记下失败原因的代码和参数
+（interfaces.md §5.10），页面按界面语言翻译。
 """
 
 from __future__ import annotations
@@ -22,14 +23,15 @@ from typing import Any
 
 from loguru import logger
 
+from agentic_meeting.messages import Message, message
 from agentic_meeting.store.db import Store
 from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import TaskRecord, TaskResult
 
 RECENT_STEPS = 3  # 回答「做到哪了」时带最近几条进度
-RESTART_REASON = "服务重启，任务没有做完"
-SHUTDOWN_REASON = "服务停止，任务没有做完"
-CANCELLED_TEXT = "已取消"
+RESTART_REASON = message("task.restarted")
+SHUTDOWN_REASON = message("task.shutdown")
+CANCELLED = message("task.cancelled")
 
 OnEvent = Callable[[str, str, dict | None], Awaitable[None]]
 Runner = Callable[[TaskRecord, OnEvent], Awaitable[TaskResult]]
@@ -46,7 +48,14 @@ class TaskFailed(Exception):
 
 
 class RunnerError(Exception):
-    """运行器报告的、可以直接告诉用户的失败原因（比如「远端模型连不上」）。"""
+    """运行器报告的、可以直接告诉用户的失败原因（比如「远端模型连不上」）。
+
+    ``code`` 和参数见 interfaces.md §5.10；``str(e)`` 是中文。
+    """
+
+    def __init__(self, code: str, **params: str | int) -> None:
+        self.message = message(code, **params)
+        super().__init__(self.message.text)
 
 
 def task_dir(data_dir: Path, task: TaskRecord) -> Path:
@@ -64,6 +73,8 @@ def task_message(task: TaskRecord) -> dict[str, Any]:
         "status": task.status,
         "brief": task.brief,
         "error": task.error,
+        "error_code": task.error_code,
+        "error_params": task.error_params,
         "modality": task.modality,
         "created_at": task.created_at,
     }
@@ -167,7 +178,7 @@ class TaskManager:
                 return task
 
         if self._closing:
-            raise RunnerError("服务正在停止")
+            raise RunnerError("agent.stopping")
         admission = asyncio.create_task(admit(), name="task-admission")
         self._admissions.add(admission)
         admission.add_done_callback(self._admissions.discard)
@@ -189,8 +200,10 @@ class TaskManager:
                 artifacts=task.artifacts,
             )
         if task.status in ("failed", "cancelled"):
-            raise TaskFailed(task.status, task.error or CANCELLED_TEXT)
-        raise TaskFailed("failed", RESTART_REASON)  # 库里还没结束、内存里又没有它：执行已经丢了
+            raise TaskFailed(task.status, task.error or CANCELLED.text)
+        raise TaskFailed(
+            "failed", RESTART_REASON.text
+        )  # 库里还没结束、内存里又没有它：执行已经丢了
 
     async def cancel(self, task_id: str) -> TaskRecord | None:
         """取消任务：中断运行器，状态置为 ``cancelled``。已经结束的原样返回；不存在返回 ``None``。"""
@@ -202,13 +215,13 @@ class TaskManager:
             return task
         runner_task = self._running.get(task_id)
         if runner_task is None:  # 库里没结束、内存里没有：直接改状态
-            return await self._finish(task, "cancelled", error=CANCELLED_TEXT)
+            return await self._finish(task, "cancelled", error=CANCELLED)
         self._cancel_requested.add(task_id)
         runner_task.cancel()
         await asyncio.gather(runner_task, return_exceptions=True)
         current = await self._store.get_task(task_id)
         if current is not None and not current.finished:
-            current = await self._finish(task, "cancelled", error=CANCELLED_TEXT)
+            current = await self._finish(task, "cancelled", error=CANCELLED)
         self._running.pop(task_id, None)
         self._cancel_requested.discard(task_id)
         done = self._done.get(task_id)
@@ -292,20 +305,22 @@ class TaskManager:
                 result = await self._runner(task, on_event)
         except TimeoutError:
             minutes = max(1, round(self._timeout / 60))
-            await self._finish(task, "failed", error=f"超时（超过 {minutes} 分钟没有做完）")
+            await self._finish(task, "failed", error=message("task.timeout", minutes=minutes))
         except asyncio.CancelledError:
             await self._on_cancelled(task)
         except RunnerError as e:
-            await self._finish(task, "failed", error=str(e) or "任务执行失败")
+            await self._finish(task, "failed", error=e.message)
         except Exception as e:
             logger.exception(f"任务 {task.label} 执行出错")
-            await self._finish(task, "failed", error=f"内部错误（{type(e).__name__}）")
+            await self._finish(
+                task, "failed", error=message("task.internal", type=type(e).__name__)
+            )
         else:
             await self._finish(task, "succeeded", result=result)
 
     async def _on_cancelled(self, task: TaskRecord) -> None:
         if task.id in self._cancel_requested:
-            await self._finish(task, "cancelled", error=CANCELLED_TEXT)
+            await self._finish(task, "cancelled", error=CANCELLED)
         else:  # 不是用户取消的：应用在关闭
             await self._finish(task, "failed", error=SHUTDOWN_REASON)
 
@@ -315,7 +330,7 @@ class TaskManager:
         status: str,
         *,
         result: TaskResult | None = None,
-        error: str | None = None,
+        error: Message | None = None,
     ) -> TaskRecord | None:
         """写下结束状态、通知页面、记最后一条进度。收尾不能被再次取消打断，所以包在 shield 里。"""
 
@@ -336,8 +351,8 @@ class TaskManager:
                     await self._announce(updated)
                 summary = {
                     "succeeded": "已完成",
-                    "cancelled": CANCELLED_TEXT,
-                }.get(status, f"失败：{error}")
+                    "cancelled": CANCELLED.text,
+                }.get(status, f"失败：{error.text if error else ''}")
                 await self.add_event(task.id, "status", summary)
                 return updated
 

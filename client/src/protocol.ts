@@ -120,7 +120,10 @@ export interface TaskMessage {
   goal: string;
   status: TaskStatus;
   brief: string | null;
+  /** 失败原因的中文；error_code 和 error_params 见 interfaces.md §5.10，页面按界面语言翻译 */
   error: string | null;
+  error_code: string | null;
+  error_params: NoticeParams;
   modality: "voice" | "text";
   created_at: number;
 }
@@ -151,6 +154,17 @@ export type ServerMessage =
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+/** 提示和失败原因的参数：只留字符串和数字。 */
+function paramsOf(value: unknown): NoticeParams {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string | number] =>
+        typeof entry[1] === "string" || typeof entry[1] === "number",
+    ),
+  );
 }
 
 /** 校验并收窄服务端发来的消息；格式不对或类型不认识返回 null（不抛异常，字幕不能因为一条坏消息停下）。 */
@@ -199,16 +213,8 @@ export function parseServerMessage(data: unknown): ServerMessage | null {
     case "notice": {
       const level = NOTICE_LEVELS.find((l) => l === data.level);
       if (!level || typeof data.text !== "string") return null;
-      const params = isRecord(data.params)
-        ? Object.fromEntries(
-            Object.entries(data.params).filter(
-              (entry): entry is [string, string | number] =>
-                typeof entry[1] === "string" || typeof entry[1] === "number",
-            ),
-          )
-        : {};
       const code = typeof data.code === "string" ? data.code : null;
-      return { type: "notice", level, code, params, text: data.text };
+      return { type: "notice", level, code, params: paramsOf(data.params), text: data.text };
     }
     case "utterance": {
       const source = UTTERANCE_SOURCES.find((x) => x === data.source);
@@ -299,7 +305,7 @@ export function parseServerMessage(data: unknown): ServerMessage | null {
     }
     case "task": {
       const status = TASK_STATUSES.find((s) => s === data.status);
-      const { id, label, goal, brief, error, modality, created_at } = data;
+      const { id, label, goal, brief, error, error_code, modality, created_at } = data;
       if (
         status &&
         typeof id === "string" &&
@@ -317,6 +323,8 @@ export function parseServerMessage(data: unknown): ServerMessage | null {
           status,
           brief: brief ?? null,
           error: error ?? null,
+          error_code: typeof error_code === "string" ? error_code : null,
+          error_params: paramsOf(data.error_params),
           modality: modality === "text" ? "text" : "voice",
           created_at,
         };

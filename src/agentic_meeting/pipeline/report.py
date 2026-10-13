@@ -22,6 +22,7 @@ from typing import Any, Protocol
 
 from loguru import logger
 
+from agentic_meeting.messages import Message, message
 from agentic_meeting.pipeline.background import Preempted
 from agentic_meeting.pipeline.clock import format_hms
 from agentic_meeting.screen.caption import IRRELEVANT_CAPTION
@@ -37,7 +38,7 @@ MAX_PREEMPTIONS = 30  # 一次请求最多被实时应答打断这么多回，�
 MAX_FRAME_LINES = 60
 NOTHING = "（没有）"
 TYPED_TAG = "（打字）"
-INTERRUPTED_REASON = "服务停止了，这份报告没有生成完"
+INTERRUPTED_REASON = message("report.interrupted")
 
 _TASK_STATUS = {
     "queued": "排队中",
@@ -198,13 +199,15 @@ def report_header(summary: SessionSummary, *, created_at: float, tz: Any = None)
     return "\n".join(lines)
 
 
-def failure_reason(error: BaseException) -> str:
+def failure_reason(error: BaseException) -> Message:
+    """报告生成失败的原因（interfaces.md §5.10）。"""
     if isinstance(error, TimeoutError):
-        return "生成超时"
+        return message("report.timeout")
     text = " ".join(str(error).split())
     if len(text) > 200:
         text = text[:200] + "…"
-    return f"{type(error).__name__}: {text}" if text else type(error).__name__
+    detail = f"{type(error).__name__}: {text}" if text else type(error).__name__
+    return message("report.failed", detail=detail)
 
 
 # --------------------------------------------------------------------------- #
@@ -346,7 +349,7 @@ class ReportWorker:
                 await self._mark_failed(session_id, report_id, write_token, failure_reason(exc))
 
     async def _mark_failed(
-        self, session_id: str, report_id: int, write_token: str, reason: str
+        self, session_id: str, report_id: int, write_token: str, reason: Message
     ) -> None:
         try:
             await self._store.fail_report(

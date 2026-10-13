@@ -28,6 +28,7 @@ import aiosqlite
 import sqlite_vec
 
 from agentic_meeting.config import RetentionConfig
+from agentic_meeting.messages import Message
 from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import (
     SPEAKER_ASSISTANT,
@@ -57,6 +58,11 @@ _UTTERANCE_COLUMNS = (
     "u.addressed_to_assistant, u.write_token, sp.display_name AS speaker_name"
 )
 _UTTERANCE_FROM = "FROM utterances u LEFT JOIN speakers sp ON sp.session_id = u.session_id AND sp.idx = u.speaker_idx"
+
+
+def _failure(error: Message) -> tuple[str, str, str]:
+    """失败原因写库的三列：中文、代码、参数的 JSON（interfaces.md §5.10）。"""
+    return error.text, error.code, json.dumps(dict(error.params), ensure_ascii=False)
 
 
 # 手动新建的说话人从这个编号起，和说话人区分给出的编号（1 起，个位数）分开：
@@ -158,12 +164,16 @@ class Store:
             "reports": [
                 ("write_token", "TEXT NOT NULL DEFAULT ''"),
                 ("finished_at", "REAL"),
+                ("error_code", "TEXT"),
+                ("error_params_json", "TEXT NOT NULL DEFAULT '{}'"),
             ],
             "digests": [("last_utterance_id", "INTEGER NOT NULL DEFAULT 0")],
             "tasks": [
                 ("t_from", "REAL NOT NULL DEFAULT 0"),
                 ("t_to", "REAL NOT NULL DEFAULT 0"),
                 ("frame_ids_json", "TEXT NOT NULL DEFAULT '[]'"),
+                ("error_code", "TEXT"),
+                ("error_params_json", "TEXT NOT NULL DEFAULT '{}'"),
             ],
         }
         for table, columns in added.items():
@@ -1325,6 +1335,8 @@ class Store:
             provider=row["provider"],
             text_md=row["text_md"],
             error=row["error"],
+            error_code=row["error_code"],
+            error_params=json.loads(row["error_params_json"] or "{}"),
             write_token=row["write_token"],
             finished_at=row["finished_at"],
         )
@@ -1361,7 +1373,8 @@ class Store:
             if await self._identity("reports", report_id, session_id, write_token) is None:
                 return False
             await self._db.execute(
-                "UPDATE reports SET status = 'done', text_md = ?, error = NULL, finished_at = ? WHERE id = ?",
+                "UPDATE reports SET status = 'done', text_md = ?, error = NULL, error_code = NULL, "
+                "error_params_json = '{}', finished_at = ? WHERE id = ?",
                 (text_md, time.time() if now is None else now, report_id),
             )
             await self._db.commit()
@@ -1370,7 +1383,7 @@ class Store:
     async def fail_report(
         self,
         report_id: int,
-        error: str,
+        error: Message,
         *,
         session_id: str | None = None,
         write_token: str | None = None,
@@ -1381,18 +1394,20 @@ class Store:
             if row is None or row["status"] != "running":
                 return False
             await self._db.execute(
-                "UPDATE reports SET status = 'failed', error = ?, finished_at = ? WHERE id = ?",
-                (error, time.time() if now is None else now, report_id),
+                "UPDATE reports SET status = 'failed', error = ?, error_code = ?, "
+                "error_params_json = ?, finished_at = ? WHERE id = ?",
+                (*_failure(error), time.time() if now is None else now, report_id),
             )
             await self._db.commit()
         return True
 
-    async def fail_running_reports(self, reason: str) -> int:
+    async def fail_running_reports(self, reason: Message) -> int:
         """服务启动时调用：上次没生成完的报告标为失败。返回条数。"""
         async with self._transaction():
             cursor = await self._db.execute(
-                "UPDATE reports SET status = 'failed', error = ?, finished_at = ? WHERE status = 'running'",
-                (reason, time.time()),
+                "UPDATE reports SET status = 'failed', error = ?, error_code = ?, "
+                "error_params_json = ?, finished_at = ? WHERE status = 'running'",
+                (*_failure(reason), time.time()),
             )
             await self._db.commit()
             return cursor.rowcount
@@ -1423,6 +1438,8 @@ class Store:
             sources=json.loads(row["sources_json"] or "[]"),
             artifacts=json.loads(row["artifacts_json"] or "[]"),
             error=row["error"],
+            error_code=row["error_code"],
+            error_params=json.loads(row["error_params_json"] or "{}"),
             created_at=row["created_at"],
             started_at=row["started_at"],
             finished_at=row["finished_at"],
@@ -1502,12 +1519,19 @@ class Store:
         return counts
 
     async def update_task(self, task_id: str, **fields: Any) -> TaskRecord | None:
-        """改任务的若干列。``sources`` / ``artifacts`` 给列表，``announced`` 给布尔值。"""
+        """改任务的若干列。``sources`` / ``artifacts`` 给列表，``announced`` 给布尔值，
+        ``error`` 给 ``Message``（中文、代码和参数一起写）。"""
+        if "error" in fields:
+            error = fields.pop("error")
+            text, code, params = _failure(error) if error is not None else (None, None, "{}")
+            fields.update(error=text, error_code=code, error_params=params)
         columns = {
             "status": "status",
             "brief": "brief",
             "detail_md": "detail_md",
             "error": "error",
+            "error_code": "error_code",
+            "error_params": "error_params_json",
             "started_at": "started_at",
             "finished_at": "finished_at",
             "sources": "sources_json",
@@ -1536,14 +1560,14 @@ class Store:
                 await self._db.commit()
         return await self.get_task(task_id)
 
-    async def fail_unfinished_tasks(self, reason: str, *, now: float | None = None) -> int:
+    async def fail_unfinished_tasks(self, reason: Message, *, now: float | None = None) -> int:
         """把还在排队或运行中的任务一律标为失败（服务重启后调用：它们的执行已经不在了）。返回条数。"""
         now = time.time() if now is None else now
         async with self._transaction():
             cursor = await self._db.execute(
-                "UPDATE tasks SET status = 'failed', error = ?, finished_at = ? "
-                "WHERE status IN ('queued', 'running')",
-                (reason, now),
+                "UPDATE tasks SET status = 'failed', error = ?, error_code = ?, "
+                "error_params_json = ?, finished_at = ? WHERE status IN ('queued', 'running')",
+                (*_failure(reason), now),
             )
             await self._db.commit()
             return cursor.rowcount

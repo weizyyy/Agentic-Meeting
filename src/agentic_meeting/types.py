@@ -146,7 +146,9 @@ class TaskRecord:
     detail_md: str | None = None
     sources: list[str] = field(default_factory=list)
     artifacts: list[str] = field(default_factory=list)  # 任务目录下的文件名
-    error: str | None = None
+    error: str | None = None  # 中文的失败原因；代码和参数见 interfaces.md §5.10
+    error_code: str | None = None
+    error_params: dict[str, str | int] = field(default_factory=dict)
     created_at: float = 0.0
     started_at: float | None = None
     finished_at: float | None = None
@@ -210,6 +212,8 @@ class Report:
     status: str  # "running" | "done" | "failed"
     provider: str = ""  # 由谁生成："realtime_llm" | "agent_llm"
     text_md: str = ""
-    error: str | None = None
+    error: str | None = None  # 中文的失败原因；代码和参数见 interfaces.md §5.10
+    error_code: str | None = None
+    error_params: dict[str, str | int] = field(default_factory=dict)
     write_token: str = ""
     finished_at: float | None = None

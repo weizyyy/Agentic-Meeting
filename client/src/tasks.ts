@@ -1,6 +1,6 @@
 // 后台任务面板的纯逻辑（docs/interfaces.md §5.5、§6.1）。不碰 DOM，可以用 npm test 直接测。
 
-import type { Messages } from "./i18n/index.ts";
+import { failureText, type Messages } from "./i18n/index.ts";
 
 export const TASK_STATUSES = ["queued", "running", "succeeded", "failed", "cancelled"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
@@ -12,7 +12,10 @@ export interface TaskItem {
   goal: string;
   status: TaskStatus;
   brief: string | null;
+  /** 失败原因的中文；error_code 和 error_params 见 interfaces.md §5.10，显示时用 failureText 翻译 */
   error: string | null;
+  error_code: string | null;
+  error_params: Readonly<Record<string, string | number>>;
   /** 委托当时的应答模态：文字委托的任务完成后不出声 */
   modality: "voice" | "text";
   created_at: number;
@@ -80,7 +83,10 @@ export function replaceTasks(tasks: readonly TaskItem[], items: readonly TaskIte
 /** 任务行第二行显示什么：做完了是结论，失败 / 取消是原因，进行中是最近一步。 */
 export function taskSubline(t: Messages, task: TaskItem): string {
   if (task.status === "succeeded") return task.brief ?? t.tasks.statuses.succeeded;
-  if (task.status === "failed") return task.error ? t.tasks.failedWith(task.error) : t.tasks.failed;
+  if (task.status === "failed") {
+    const reason = failureText(t, task);
+    return reason ? t.tasks.failedWith(reason) : t.tasks.failed;
+  }
   if (task.status === "cancelled") return t.tasks.statuses.cancelled;
   if (task.status === "queued") return t.tasks.queuedHint;
   return task.lastStep ?? t.tasks.starting;

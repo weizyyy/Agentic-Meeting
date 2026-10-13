@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useI18n } from "../i18n/index.ts";
+import { failureText, useI18n } from "../i18n/index.ts";
 import { formatFrameTime, frameImageUrl } from "../screenCapture.ts";
 import {
   artifactUrl,
@@ -68,6 +68,7 @@ export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const open = openId === null ? null : (tasks.find((task) => task.id === openId) ?? null);
+  const openReason = open ? failureText(t, open) : null;
 
   // 打开时取一次；任务状态变了（比如做完了）再取一次，拿到结果
   const openStatus = open?.status;
@@ -151,9 +152,9 @@ export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
                 {open.brief}
               </p>
             )}
-            {(open.status === "failed" || open.status === "cancelled") && open.error && (
+            {(open.status === "failed" || open.status === "cancelled") && openReason && (
               <p className="rounded-lg bg-destructive/10 px-3 py-2 text-destructive">
-                {open.error}
+                {openReason}
               </p>
             )}
             {detail === null || detail.id !== open.id ? (

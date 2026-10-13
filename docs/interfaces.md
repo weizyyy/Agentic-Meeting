@@ -205,13 +205,16 @@ The session lifecycle is described in [architecture.md §3.1](architecture.md).
   most 300 captions per round, and once more in the background after a disconnect or the end of the
   meeting (120 s limit).
 - `reports` — `id, session_id, created_at, status ('running' | 'done' | 'failed'), provider, text_md,
-error`. A session may have several; the page shows the latest and exports use the latest `done`
+error, error_code, error_params_json`. A session may have several; the page shows the latest and exports use the latest `done`
   one. Reports left `running` by a previous process are marked `failed` at startup.
 - Reserved values of `speakers.idx`: `0` unknown, `-1` the assistant, `-2` typed text. Diarization
   numbers start at 1; speakers created manually in the UI start at 1000.
 - `utterances.source`: `'asr'`, `'assistant'` or `'text'`.
 - `tasks.modality`: `'voice'` or `'text'` — the modality of the turn that delegated the task, which
   decides whether its completion is spoken.
+- `tasks.error` and `reports.error` hold a Chinese failure reason; `error_code` and
+  `error_params_json` (default `'{}'`) identify it (§5.10). Rows from before these columns have a
+  `NULL` code.
 
 Columns added after the first schema are created by `Store._migrate` when an older database is
 opened.
@@ -770,8 +773,8 @@ assistant's name and `-2` the name "文字输入".
 | `GET /api/tasks/{id}/artifacts/{name}` | Downloads an artifact file                                                        |
 
 - `{id}` is the full task id, `<session id>.t3`.
-- List item: `{"id", "label", "goal", "status", "brief", "error", "modality", "created_at",
-"started_at", "finished_at"}`.
+- List item: `{"id", "label", "goal", "status", "brief", "error", "error_code", "error_params",
+"modality", "created_at", "started_at", "finished_at"}`; the failure fields are described in §5.10.
 - The detail view adds `detail_md`, `sources`, `artifacts` (file names), `requested_by` (display
   name), `requested_t`, `events` (`[{at, kind, summary}]`) and `outbound` — **what the task sent out**:
   `{"goal", "t_from", "t_to", "frames": [{id, t}], "model_host"}`.
@@ -782,14 +785,14 @@ assistant's name and `-2` the name "文字输入".
 
 ### 5.6 Export and reports
 
-| Method and path                     | Description                                                                                      |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `GET /api/export/{session_id}.md`   | Markdown transcript                                                                              |
-| `GET /api/export/{session_id}.json` | Structured JSON                                                                                  |
-| `GET /api/export/{session_id}.zip`  | Archive with `transcript.md`, `session.json`, `report.md` (if any), `frames/` and `tasks/`       |
-| `POST /api/sessions/{id}/report`    | Starts report generation → 202 `{"report_id", "status": "running"}`                              |
-| `GET /api/sessions/{id}/report`     | The latest report: `{"id", "status", "created_at", "provider", "text_md", "error"}`; 404 if none |
-| `GET /api/sessions/{id}/report.md`  | The latest finished report as a download                                                         |
+| Method and path                     | Description                                                                                                                            |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/export/{session_id}.md`   | Markdown transcript                                                                                                                    |
+| `GET /api/export/{session_id}.json` | Structured JSON                                                                                                                        |
+| `GET /api/export/{session_id}.zip`  | Archive with `transcript.md`, `session.json`, `report.md` (if any), `frames/` and `tasks/`                                             |
+| `POST /api/sessions/{id}/report`    | Starts report generation → 202 `{"report_id", "status": "running"}`                                                                    |
+| `GET /api/sessions/{id}/report`     | The latest report: `{"id", "status", "created_at", "provider", "text_md", "error", "error_code", "error_params"}` (§5.10); 404 if none |
+| `GET /api/sessions/{id}/report.md`  | The latest finished report as a download                                                                                               |
 
 **Markdown export** (`web/export.py`):
 
@@ -1280,6 +1283,42 @@ translated. `request.failed` covers errors raised outside this application's han
 | `report.not_found`          | 404           | —                | 这场会议还没有报告                                                 |
 | `report.not_ready`          | 404           | —                | 这场会议还没有生成好的报告                                         |
 
+### 5.10 Failure reasons of tasks and reports
+
+A failed or cancelled task and a failed report carry `error`, a Chinese reason, together with
+`error_code` and `error_params`, which identify it the way §5.9 identifies errors. The page
+translates known codes into its interface language and shows `error` otherwise; rows written
+before these fields existed have `error_code: null` and `error_params: {}`. `error` stays Chinese
+because the realtime LLM reads it (`task_status`, task results) and exports include it. The server's table is
+`FAILURES` in `src/agentic_meeting/messages.py`, the page's is `client/src/i18n/serverFailures.ts`,
+and the repository test checks the three agree.
+
+| `error_code`            | `error_params`    | Chinese `error`                                                       |
+| ----------------------- | ----------------- | --------------------------------------------------------------------- |
+| `task.cancelled`        | —                 | 已取消                                                                |
+| `task.restarted`        | —                 | 服务重启，任务没有做完                                                |
+| `task.shutdown`         | —                 | 服务停止，任务没有做完                                                |
+| `task.timeout`          | `minutes`: number | 超时（超过 {minutes} 分钟没有做完）                                   |
+| `task.internal`         | `type`: string    | 内部错误（{type}）                                                    |
+| `agent.disabled`        | —                 | 后台任务功能已在配置里关闭                                            |
+| `agent.not_configured`  | —                 | 后台 agent 还没有配置（config.toml 的 [agent] 里要填模型地址和名字）  |
+| `agent.not_installed`   | —                 | 没有安装后台 agent 的依赖（uv sync --extra agent）                    |
+| `agent.stopping`        | —                 | 服务正在停止                                                          |
+| `agent.too_many_steps`  | `max`: number     | 步骤太多（超过 {max} 步）还没有做完                                   |
+| `agent.key_env_missing` | —                 | 远端模型要求密钥，但配置里没有写密钥的环境变量名（agent.api_key_env） |
+| `agent.key_unset`       | `env`: string     | 远端模型的密钥没有设置（环境变量 {env} 是空的；设好之后要重新启动）   |
+| `agent.key_rejected`    | `env`: string     | 远端模型不接受这个密钥（环境变量 {env}）                              |
+| `agent.unreachable`     | —                 | 连不上远端模型                                                        |
+| `agent.http_error`      | `status`: number  | 远端模型返回了错误（{status}）                                        |
+| `agent.error`           | `type`: string    | agent 运行出错（{type}）                                              |
+| `report.interrupted`    | —                 | 服务停止了，这份报告没有生成完                                        |
+| `report.timeout`        | —                 | 生成超时                                                              |
+| `report.failed`         | `detail`: string  | {detail}                                                              |
+
+`type` is the exception class name, `env` the name of the key variable from the configuration and
+`detail` the exception text of a failed report, at most 200 characters plus an ellipsis; these are
+not translated.
+
 ## 6. Data-channel messages
 
 ### 6.1 Server → browser
@@ -1287,21 +1326,21 @@ translated. `request.failed` covers errors raised outside this application's han
 The server pushes `RTVIServerMessageFrame(data=<object>)`; the browser receives it in
 `onServerMessage`. Every message has a `type`:
 
-| `type`             | Other fields                                                              | Meaning                                                                                                                                                                                                                                                                                                                                                                                  |
-| ------------------ | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `caption`          | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable`        | Live caption of the segment being spoken. A later message with the same `segment_id` replaces the earlier one                                                                                                                                                                                                                                                                            |
-| `utterance`        | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source` | A caption has been finalized and stored; it replaces the live caption with that `segment_id`. If `id` is already on the page, a new segment was merged into that caption (§4.3): `text` is the merged text                                                                                                                                                                               |
-| `utterance_update` | `id, speaker_idx, speaker_name`                                           | Speaker correction                                                                                                                                                                                                                                                                                                                                                                       |
-| `speaker`          | `idx, display_name`                                                       | Speaker renamed                                                                                                                                                                                                                                                                                                                                                                          |
-| `speakers_merged`  | `from, into, display_name`                                                | Speaker `from` was merged into `into`                                                                                                                                                                                                                                                                                                                                                    |
-| `frame`            | `id, t, width, height`                                                    | New screenshot                                                                                                                                                                                                                                                                                                                                                                           |
-| `frame_caption`    | `id, caption`                                                             | Screenshot summary available                                                                                                                                                                                                                                                                                                                                                             |
-| `assistant_state`  | `state`: `idle` / `listening` / `thinking` / `speaking`                   | Assistant state                                                                                                                                                                                                                                                                                                                                                                          |
-| `task`             | `id, label, goal, status, brief, error, modality, created_at`             | Task created or changed; `id` is the full id and `label` the short one (`t3`)                                                                                                                                                                                                                                                                                                            |
-| `task_event`       | `task_id, at, kind, summary`                                              | Task progress                                                                                                                                                                                                                                                                                                                                                                            |
-| `notice`           | `level`: `info` / `warn` / `error`, `code`, `params`, `text`              | Something the user should know, such as a degraded service. `code` and `params` identify the message so the page can show it in its own language (§6.1.1); `text` is the same message in Chinese for logs and older pages. Errors of the realtime LLM and TTS are translated into notices by `pipeline/errors.py`; of Pipecat's own RTVI `error` messages the page shows only fatal ones |
-| `session`          | `id, title, keep, started_at, resumed, base_secs, state`                  | Sent once after connecting: which session the connection belongs to, its current keep flag, whether it is a resume, and the timeline origin of this connection                                                                                                                                                                                                                           |
-| `session_closed`   | `reason`: `taken_over` / `ended` / `server_stopping`                      | Why the server is about to close the connection (best effort)                                                                                                                                                                                                                                                                                                                            |
+| `type`             | Other fields                                                                            | Meaning                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------------------ | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caption`          | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable`                      | Live caption of the segment being spoken. A later message with the same `segment_id` replaces the earlier one                                                                                                                                                                                                                                                                            |
+| `utterance`        | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source`               | A caption has been finalized and stored; it replaces the live caption with that `segment_id`. If `id` is already on the page, a new segment was merged into that caption (§4.3): `text` is the merged text                                                                                                                                                                               |
+| `utterance_update` | `id, speaker_idx, speaker_name`                                                         | Speaker correction                                                                                                                                                                                                                                                                                                                                                                       |
+| `speaker`          | `idx, display_name`                                                                     | Speaker renamed                                                                                                                                                                                                                                                                                                                                                                          |
+| `speakers_merged`  | `from, into, display_name`                                                              | Speaker `from` was merged into `into`                                                                                                                                                                                                                                                                                                                                                    |
+| `frame`            | `id, t, width, height`                                                                  | New screenshot                                                                                                                                                                                                                                                                                                                                                                           |
+| `frame_caption`    | `id, caption`                                                                           | Screenshot summary available                                                                                                                                                                                                                                                                                                                                                             |
+| `assistant_state`  | `state`: `idle` / `listening` / `thinking` / `speaking`                                 | Assistant state                                                                                                                                                                                                                                                                                                                                                                          |
+| `task`             | `id, label, goal, status, brief, error, error_code, error_params, modality, created_at` | Task created or changed; `id` is the full id and `label` the short one (`t3`)                                                                                                                                                                                                                                                                                                            |
+| `task_event`       | `task_id, at, kind, summary`                                                            | Task progress                                                                                                                                                                                                                                                                                                                                                                            |
+| `notice`           | `level`: `info` / `warn` / `error`, `code`, `params`, `text`                            | Something the user should know, such as a degraded service. `code` and `params` identify the message so the page can show it in its own language (§6.1.1); `text` is the same message in Chinese for logs and older pages. Errors of the realtime LLM and TTS are translated into notices by `pipeline/errors.py`; of Pipecat's own RTVI `error` messages the page shows only fatal ones |
+| `session`          | `id, title, keep, started_at, resumed, base_secs, state`                                | Sent once after connecting: which session the connection belongs to, its current keep flag, whether it is a resume, and the timeline origin of this connection                                                                                                                                                                                                                           |
+| `session_closed`   | `reason`: `taken_over` / `ended` / `server_stopping`                                    | Why the server is about to close the connection (best effort)                                                                                                                                                                                                                                                                                                                            |
 
 The `session.keep` flag is read from current persisted state when the ready message is sent.
 With `session.recording_notice=true`, send one existing `notice` with `level="info"` and
@@ -1521,7 +1560,7 @@ class TaskManager:
 - `t_from`, `t_to` and `frame_ids_json` record the transcript window and screenshots given to the
   agent — what the task sent out.
 - `wait` raises `TaskFailed(status, reason)`; an unknown task raises `LookupError`. Runner failures
-  meant for the user are raised as `RunnerError("<reason>")`; other exceptions are reported as an
+  meant for the user are raised as `RunnerError(code, **params)` with a code from §5.10; other exceptions are reported as an
   internal error with the exception type, with details in the log.
 - Queued tasks can be cancelled. `status` without a label returns the most recent task of the
   session with its last three progress events.

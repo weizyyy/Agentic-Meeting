@@ -13,7 +13,7 @@ import tomllib
 import pytest
 
 from agentic_meeting.config import EXAMPLE_CONFIG_PATH, REPO_ROOT, load_asr_profile, load_config
-from agentic_meeting.messages import ERRORS, NOTICES, REASONS
+from agentic_meeting.messages import ERRORS, FAILURES, NOTICES, REASONS
 from agentic_meeting.pipeline.tools import realtime_tools
 
 MODEL_NAMES = ("ornith", "confucius", "nemotron", "qwen3", "sortformer")
@@ -98,11 +98,14 @@ def _code_tables(path, heading: str) -> tuple[dict[str, dict[str, str]], set[str
     section = section[: section.index("\n### ", 1)]
     codes: dict[str, dict[str, str]] = {}
     reasons: set[str] = set()
+    column = 0  # 参数在第几列（不算第一列），按表头里带 params 的那一列找
     for name, rest in re.findall(r"^\| `([a-z_.]+)` +\|([^\n]*)$", section, re.M):
-        if name in ("code", "reason"):
-            continue  # 表头
+        if name in ("code", "error_code", "reason"):
+            headers = rest.split("|")
+            column = next((i for i, h in enumerate(headers) if "params" in h), 0)
+            continue
         if "." in name:
-            params = rest.split("|")[1]
+            params = rest.split("|")[column]
             codes[name] = dict(re.findall(r"`(\w+)`[:：] *(string|number)", params))
         else:
             reasons.add(name)
@@ -159,3 +162,13 @@ def test_error_codes_agree_between_docs_server_and_page():
         assert doc_codes == page_codes, f"{doc.relative_to(REPO_ROOT)} 与页面的错误表不一致"
     assert set(ERRORS) == set(page_codes)
     _render_all(ERRORS, page_codes)
+
+
+def test_failure_codes_agree_between_docs_server_and_page():
+    """任务和报告失败原因的代码（interfaces.md §5.10）：文档、服务端和页面的表一致。理由同上。"""
+    page_codes = _page_params("serverFailures.ts", "FAILURE_PARAMS")
+    for doc in DOCS:
+        doc_codes, _ = _code_tables(doc, "5.10")
+        assert doc_codes == page_codes, f"{doc.relative_to(REPO_ROOT)} 与页面的失败原因表不一致"
+    assert set(FAILURES) == set(page_codes)
+    _render_all(FAILURES, page_codes)

@@ -1,7 +1,7 @@
 // 会后报告的显示逻辑（docs/interfaces.md §5.6）。纯函数，可以用 npm test 直接测。
 
 import type { SessionState } from "./api.ts";
-import type { Messages } from "./i18n/index.ts";
+import { failureText, type Messages } from "./i18n/index.ts";
 
 export type ReportStatus = "running" | "done" | "failed";
 
@@ -12,7 +12,10 @@ export interface ReportInfo {
   created_at: number;
   provider: string;
   text_md: string;
+  /** 失败原因的中文；error_code 和 error_params 见 interfaces.md §5.10，显示时用 failureText 翻译 */
   error: string | null;
+  error_code: string | null;
+  error_params: Readonly<Record<string, string | number>>;
 }
 
 /** 生成期间多久问一次服务端。 */
@@ -52,7 +55,7 @@ export function reportHeadline(t: Messages, report: ReportInfo | null): string {
     case "running":
       return t.report.generating(who);
     case "failed":
-      return t.report.failed(report.error ?? t.report.unknownReason);
+      return t.report.failed(failureText(t, report) ?? t.report.unknownReason);
     case "done":
       return t.report.done(who);
   }
