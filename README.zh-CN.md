@@ -16,9 +16,11 @@
 
 <br/><br/>
 
-<img src="docs/assets/screenshot.png" alt="Agentic-Meeting 的网页界面：带说话人的字幕、助理区、后台任务和屏幕时间线" width="880">
+<img src="docs/assets/screenshot.png" alt="Agentic-Meeting 开会时的网页：带说话人的实时字幕、助理的回答、后台任务和共享的画面" width="880">
 
-<sub>一场简短会议之后的页面（演示数据）。</sub>
+<img src="docs/assets/presentation.png" alt="演示模式：深色背景上的大字最新字幕，下方是助理的回答" height="350"> <img src="docs/assets/phone.png" alt="手机旁观同一场会议，分为字幕、助理、任务、画面四页" height="350">
+
+<sub>进行中的会议、给会议室大屏用的演示模式，以及旁观的手机（演示数据）。</sub>
 
 </div>
 

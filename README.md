@@ -17,9 +17,11 @@ answers within about a second when called by name, and hands longer jobs to a ba
 
 <br/><br/>
 
-<img src="docs/assets/screenshot.png" alt="The Agentic-Meeting web page: live captions with speakers, the assistant panel, background tasks and the screen timeline" width="880">
+<img src="docs/assets/screenshot.png" alt="The Agentic-Meeting web page during a meeting: live captions with speakers, the assistant's answer, background tasks and the shared screen" width="880">
 
-<sub>The web page after a short meeting (demo data).</sub>
+<img src="docs/assets/presentation.png" alt="Presentation mode: the latest captions in large type on a dark background, with the assistant's answer below" height="350"> <img src="docs/assets/phone.png" alt="A phone following the same meeting, with captions, assistant, tasks and screen tabs" height="350">
+
+<sub>A meeting in progress, presentation mode for the meeting-room screen, and a phone following along (demo data).</sub>
 
 </div>
 
