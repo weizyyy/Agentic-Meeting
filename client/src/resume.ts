@@ -77,15 +77,6 @@ export function gapPositions(
   return positions;
 }
 
-/** 「12 分钟」「40 秒」「2 小时 05 分」。 */
-export function formatSpan(secs: number): string {
-  const total = Math.max(0, Math.round(secs));
-  if (total < 60) return `${total} 秒`;
-  const minutes = Math.floor(total / 60);
-  if (minutes < 60) return `${minutes} 分钟`;
-  return `${Math.floor(minutes / 60)} 小时 ${String(minutes % 60).padStart(2, "0")} 分`;
-}
-
 /** 一场已中断的会议断了多久了（秒）：从它最后一次活动算到现在。 */
 export function interruptedSecs(session: { last_active_at: number }, nowUnixSecs: number): number {
   return Math.max(0, nowUnixSecs - session.last_active_at);

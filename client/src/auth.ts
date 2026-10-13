@@ -2,6 +2,8 @@
 // 不需要令牌。启用时：页面先问一次登录状态，没登录就显示登录页；登录后拿到的 CSRF 令牌记在 authSession 里，
 // 所有改动数据的请求（包括 WebRTC 的 offer 和 ICE 候选）都带上它。任何接口回 401 时通知页面重新登录。
 
+import { messages } from "./i18n/index.ts";
+
 export const CSRF_HEADER = "X-CSRF-Token";
 
 export interface AuthStatus {
@@ -72,14 +74,14 @@ export function loginErrorText(status: number, body: unknown, retryAfter: string
   if (status === 429) {
     const secs = Number(retryAfter);
     return Number.isFinite(secs) && secs > 0
-      ? `尝试次数过多，请 ${Math.ceil(secs / 60)} 分钟后再试`
-      : "尝试次数过多，请稍后再试";
+      ? messages().login.tooManyIn(Math.ceil(secs / 60))
+      : messages().login.tooMany;
   }
   if (typeof body === "object" && body !== null && "error" in body) {
     const text = (body as { error: unknown }).error;
     if (typeof text === "string" && text) return text;
   }
-  return status === 0 ? "无法连接到服务端" : `登录失败（${status}）`;
+  return status === 0 ? messages().notices.unreachable : messages().login.failed(status);
 }
 
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
@@ -100,7 +102,7 @@ export async function fetchAuthStatus(
   session: AuthSession = authSession,
 ): Promise<AuthStatus> {
   const response = await fetchFn("/api/auth");
-  if (!response.ok) throw new Error(`读取登录状态失败（${response.status}）`);
+  if (!response.ok) throw new Error(messages().login.statusFailed(response.status));
   const status = parseStatus(await readJson(response));
   session.setToken(status.csrf_token);
   return status;

@@ -1,15 +1,9 @@
 // 后台任务面板的纯逻辑（docs/interfaces.md §5.5、§6.1）。不碰 DOM，可以用 npm test 直接测。
 
+import type { Messages } from "./i18n/index.ts";
+
 export const TASK_STATUSES = ["queued", "running", "succeeded", "failed", "cancelled"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
-
-export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
-  queued: "排队中",
-  running: "进行中",
-  succeeded: "已完成",
-  failed: "失败",
-  cancelled: "已取消",
-};
 
 /** 任务面板里的一行。`id` 是完整编号，`label` 是会议内的短编号（t3）。 */
 export interface TaskItem {
@@ -84,12 +78,12 @@ export function replaceTasks(tasks: readonly TaskItem[], items: readonly TaskIte
 }
 
 /** 任务行第二行显示什么：做完了是结论，失败 / 取消是原因，进行中是最近一步。 */
-export function taskSubline(task: TaskItem): string {
-  if (task.status === "succeeded") return task.brief ?? "已完成";
-  if (task.status === "failed") return task.error ? `没办成：${task.error}` : "没办成";
-  if (task.status === "cancelled") return "已取消";
-  if (task.status === "queued") return "排队中，前面的任务做完就开始";
-  return task.lastStep ?? "开始处理";
+export function taskSubline(t: Messages, task: TaskItem): string {
+  if (task.status === "succeeded") return task.brief ?? t.tasks.statuses.succeeded;
+  if (task.status === "failed") return task.error ? t.tasks.failedWith(task.error) : t.tasks.failed;
+  if (task.status === "cancelled") return t.tasks.statuses.cancelled;
+  if (task.status === "queued") return t.tasks.queuedHint;
+  return task.lastStep ?? t.tasks.starting;
 }
 
 /** 产物文件的地址。任务编号和文件名都要编码（文件名可以带子目录）。 */
@@ -114,9 +108,12 @@ export function safeLink(source: string): string | null {
 }
 
 /** 用时：不到一分钟写秒，否则「N 分 SS 秒」。还没结束返回空串。 */
-export function taskDuration(startedAt: number | null, finishedAt: number | null): string {
+export function taskDuration(
+  t: Messages,
+  startedAt: number | null,
+  finishedAt: number | null,
+): string {
   if (startedAt === null || finishedAt === null) return "";
   const secs = Math.max(0, Math.round(finishedAt - startedAt));
-  if (secs < 60) return `${secs} 秒`;
-  return `${Math.floor(secs / 60)} 分 ${String(secs % 60).padStart(2, "0")} 秒`;
+  return t.tasks.duration(Math.floor(secs / 60), secs % 60);
 }

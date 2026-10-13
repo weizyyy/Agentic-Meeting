@@ -1,0 +1,66 @@
+import { defineMessages } from "./define.ts";
+
+/** 顶部栏：会议列表、演示、连接和转录状态、主题、语言、开始 / 结束会议 */
+export const header = defineMessages(
+  {
+    meetings: "会议列表",
+    present: "演示模式",
+    start: "开始新会议",
+    end: "结束会议",
+    logout: "退出登录",
+    connection: {
+      disconnected: "未连接",
+      connecting: "连接中…",
+      connected: "已连接",
+      error: "连接出错",
+      reconnecting: (attempt: number) => `正在重连（第 ${attempt} 次）…`,
+    },
+    recordingLabel: "转录状态",
+    recording: {
+      stopped: "转录已停止",
+      active: "正在转录 · 发言和共享画面保存在服务器",
+      reconnecting: "转录已断开 · 正在重连",
+      connecting: "正在连接 · 尚未转录",
+      idle: "未在本机转录",
+    },
+    microphone: "麦克风",
+    muted: "已静音",
+    theme: "主题",
+    appearance: "外观",
+    themes: { system: "跟随系统", light: "浅色", dark: "深色" },
+    language: "语言",
+    /** 顶部栏语言按钮上的简写 */
+    languageShort: "中文",
+    followBrowser: "跟随浏览器",
+  },
+  {
+    meetings: "Meetings",
+    present: "Present",
+    start: "Start meeting",
+    end: "End meeting",
+    logout: "Log out",
+    connection: {
+      disconnected: "Not connected",
+      connecting: "Connecting…",
+      connected: "Connected",
+      error: "Connection error",
+      reconnecting: (attempt: number) => `Reconnecting (attempt ${attempt})…`,
+    },
+    recordingLabel: "Transcription status",
+    recording: {
+      stopped: "Transcription stopped",
+      active: "Transcribing · saved to server",
+      reconnecting: "Transcription paused · reconnecting",
+      connecting: "Connecting · not transcribing yet",
+      idle: "Not transcribing on this device",
+    },
+    microphone: "Microphone",
+    muted: "Muted",
+    theme: "Theme",
+    appearance: "Appearance",
+    themes: { system: "Follow system", light: "Light", dark: "Dark" },
+    language: "Language",
+    languageShort: "EN",
+    followBrowser: "Follow browser",
+  },
+);

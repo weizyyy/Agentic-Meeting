@@ -3,16 +3,11 @@ import { HistoryIcon, LogOutIcon, MicIcon, PresentationIcon, XIcon } from "lucid
 import { UserAudioControl } from "@/components/pipecat/user-audio-control";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useI18n, type Messages } from "../i18n/index.ts";
 import type { ConnectionState } from "../meetingState.ts";
 import { recordingLabel } from "../sessionView.ts";
+import { LanguageMenu } from "./LanguageMenu.tsx";
 import { ThemeMenu } from "./ThemeMenu.tsx";
-
-const LABELS: Record<ConnectionState, string> = {
-  disconnected: "未连接",
-  connecting: "连接中…",
-  connected: "已连接",
-  error: "连接出错",
-};
 
 /** 连接状态前面的圆点和文字颜色：绿色接通、黄色进行中、红色断开或出错。 */
 const TONES: Record<ConnectionState, string> = {
@@ -24,12 +19,15 @@ const TONES: Record<ConnectionState, string> = {
 
 /** 顶部的连接状态：文字和颜色。自动重连的间隙里显示第几次重连。演示模式也用它。 */
 export function connectionStatus(
+  t: Messages,
   connection: ConnectionState,
   reconnectAttempt: number,
 ): { label: string; tone: string } {
   const reconnecting = reconnectAttempt > 0 && connection !== "connected";
   return {
-    label: reconnecting ? `正在重连（第 ${reconnectAttempt} 次）…` : LABELS[connection],
+    label: reconnecting
+      ? t.header.connection.reconnecting(reconnectAttempt)
+      : t.header.connection[connection],
     tone: TONES[reconnecting ? "connecting" : connection],
   };
 }
@@ -67,16 +65,17 @@ export function ControlBar({
   onPresent,
   onLogout,
 }: Props) {
+  const { t } = useI18n();
   // 自动重连的间隙里连接是断开的，但用户仍然「在会议里」：按钮还是「结束会议」
   const active = connection === "connected" || connection === "connecting" || reconnectAttempt > 0;
   // 麦克风按钮等接通（或接通过、正在重连）再出现：它一挂上就列设备，列设备会再要一次麦克风权限，
   // 连接还在请求权限时挂上，拒绝授权就会多出一次请求和一条重复的「麦克风不可用」
   const micControl = connection === "connected" || reconnectAttempt > 0;
-  const status = connectionStatus(connection, reconnectAttempt);
+  const status = connectionStatus(t, connection, reconnectAttempt);
   return (
     <header className="mb-3 flex flex-wrap items-center gap-2 border-b py-3">
       <MicIcon className="size-4" aria-hidden="true" />
-      <h1 className="text-sm font-medium">组会助理</h1>
+      <h1 className="text-sm font-medium">{t.common.appName}</h1>
       <Button
         variant="ghost"
         aria-expanded={listOpen}
@@ -84,13 +83,13 @@ export function ControlBar({
         onClick={onToggleList}
       >
         <HistoryIcon data-icon="inline-start" />
-        会议列表
+        {t.header.meetings}
       </Button>
       {onPresent && (
         // 投到会议室大屏才用得上，手机上不放
         <Button variant="ghost" className="max-md:hidden" onClick={onPresent}>
           <PresentationIcon data-icon="inline-start" />
-          演示模式
+          {t.header.present}
         </Button>
       )}
       <div className="flex-1" />
@@ -98,15 +97,20 @@ export function ControlBar({
         <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
         <span role="status">{status.label}</span>
       </span>
-      <span className="text-xs text-muted-foreground" role="status" aria-label="转录状态">
-        {recordingLabel(connection, closedReason, reconnectAttempt)}
+      <span
+        className="text-xs text-muted-foreground"
+        role="status"
+        aria-label={t.header.recordingLabel}
+      >
+        {recordingLabel(t, connection, closedReason, reconnectAttempt)}
       </span>
+      <LanguageMenu />
       <ThemeMenu />
       {micControl && (
         <UserAudioControl
           variant="secondary"
-          activeText="麦克风"
-          inactiveText="已静音"
+          activeText={t.header.microphone}
+          inactiveText={t.header.muted}
           noModeSwitch
           // 接通时整组是淡绿色（Figma 的麦克风按钮）；静音时按钮自己换成红色
           className="[&_[data-slot=button]:not([data-state=inactive])]:bg-success [&_[data-slot=button]:not([data-state=inactive])]:text-success-foreground"
@@ -115,7 +119,7 @@ export function ControlBar({
       {active ? (
         <Button variant="destructive" onClick={onStop}>
           <XIcon data-icon="inline-start" />
-          结束会议
+          {t.header.end}
         </Button>
       ) : (
         <Button
@@ -124,13 +128,13 @@ export function ControlBar({
           onClick={onStart}
         >
           <MicIcon data-icon="inline-start" />
-          开始新会议
+          {t.header.start}
         </Button>
       )}
       {onLogout && !active && (
         <Button variant="ghost" onClick={onLogout}>
           <LogOutIcon data-icon="inline-start" />
-          退出登录
+          {t.header.logout}
         </Button>
       )}
     </header>

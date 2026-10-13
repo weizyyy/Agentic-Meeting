@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 
 import type { ConnectionSpan } from "../api.ts";
 import { formatClock, type CaptionLine } from "../captions.ts";
-import { connectionGaps, formatSpan, gapPositions } from "../resume.ts";
+import { formatSpan, useI18n } from "../i18n/index.ts";
+import { connectionGaps, gapPositions } from "../resume.ts";
 import { selectRange, selectSpan, selectableId, toggleSelection } from "../selection.ts";
 import { wallClockLabel, type TimeBase } from "../timeline.ts";
 
@@ -55,6 +56,7 @@ export function CaptionList({
   selected,
   onSelect,
 }: Props) {
+  const { t, language } = useI18n();
   const drag = useRef<Drag | null>(null);
   // 拖完松手时浏览器可能还会补一个点击事件：这一下不算「点一下切换」
   const swallowClick = useRef(false);
@@ -116,7 +118,7 @@ export function CaptionList({
         className="my-3 flex items-center gap-3 text-xs text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border"
         role="separator"
       >
-        中断了 {formatSpan(secs)}
+        {t.captions.gap(formatSpan(t, secs))}
       </p>
     );
   };
@@ -141,7 +143,7 @@ export function CaptionList({
   }, [lines]);
 
   return (
-    <section className="relative flex min-h-0 flex-1 flex-col" aria-label="字幕">
+    <section className="relative flex min-h-0 flex-1 flex-col" aria-label={t.captions.label}>
       <div
         className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
         ref={scroller}
@@ -153,7 +155,7 @@ export function CaptionList({
       >
         {hasOlder && (
           <Button variant="link" size="sm" className="mx-auto mb-2 flex" onClick={onLoadOlder}>
-            加载更早的发言
+            {t.captions.loadOlder}
           </Button>
         )}
         {lines.length === 0 ? (
@@ -162,7 +164,7 @@ export function CaptionList({
           lines.map((line, index) => {
             const id = selectableId(line);
             const picked = id !== null && selected.has(id);
-            const wall = wallClockLabel(line.tStart, timeBase);
+            const wall = wallClockLabel(language, line.tStart, timeBase);
             const assistant = line.source === "assistant";
             const head = (
               <>
@@ -180,11 +182,17 @@ export function CaptionList({
                   {line.speakerName}
                 </span>
                 {wall && (
-                  <time className="font-mono text-xs text-muted-foreground" title="当时的时间">
+                  <time
+                    className="font-mono text-xs text-muted-foreground"
+                    title={t.captions.wallClock}
+                  >
                     {wall}
                   </time>
                 )}
-                <time className="font-mono text-xs text-subtle-foreground" title="会议进行到">
+                <time
+                  className="font-mono text-xs text-subtle-foreground"
+                  title={t.captions.meetingClock}
+                >
                   +{formatClock(line.tStart)}
                 </time>
               </>
@@ -207,8 +215,11 @@ export function CaptionList({
                       type="button"
                       className="-mx-1 inline-flex max-w-full cursor-pointer items-center gap-2 rounded-md px-1 select-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none aria-pressed:bg-client-foreground/15"
                       aria-pressed={picked}
-                      aria-label={`${picked ? "取消选中" : "选中"} ${line.speakerName} 在 ${formatClock(line.tStart)} 的发言`}
-                      title="点一下选中，按住上下拖可以连选；选中后点上方的说话人，就归到他名下"
+                      aria-label={(picked ? t.captions.unselect : t.captions.select)(
+                        line.speakerName,
+                        formatClock(line.tStart),
+                      )}
+                      title={t.captions.selectHint}
                       onMouseDown={(event) => {
                         if (event.button !== 0) return;
                         event.preventDefault(); // 拖的时候不要划选文字
@@ -224,7 +235,7 @@ export function CaptionList({
                   <p className="mt-0.5 text-[0.9375rem] leading-relaxed [overflow-wrap:anywhere]">
                     {line.source === "text" && (
                       <span className="mr-1.5 rounded bg-muted px-1.5 py-px text-xs text-muted-foreground">
-                        文字
+                        {t.captions.typed}
                       </span>
                     )}
                     {line.stable}
@@ -250,7 +261,7 @@ export function CaptionList({
           }}
         >
           <ArrowDownIcon data-icon="inline-start" />
-          跟随最新
+          {t.captions.followLatest}
         </Button>
       )}
     </section>

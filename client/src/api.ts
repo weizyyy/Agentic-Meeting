@@ -4,6 +4,7 @@
 
 import { authSession, withCsrf, type AuthSession } from "./auth.ts";
 import type { HistoryItem } from "./captions.ts";
+import { messages } from "./i18n/index.ts";
 import type { ReportInfo } from "./report.ts";
 import type { FrameItem } from "./screenCapture.ts";
 import type { TaskDetail, TaskItem } from "./tasks.ts";
@@ -126,11 +127,11 @@ export function createApi(
     try {
       response = await fetchFn(path, withCsrf(init, session.csrfToken));
     } catch {
-      throw new ApiError("无法连接到服务端", 0);
+      throw new ApiError(messages().notices.unreachable, 0);
     }
     if (response.status === 401) session.notifyUnauthorized();
     if (!response.ok) {
-      let message = `请求失败（${response.status}）`;
+      let message = messages().notices.requestFailed(response.status);
       try {
         const body: unknown = await response.json();
         if (typeof body === "object" && body !== null && "error" in body) {

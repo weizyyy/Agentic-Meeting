@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { login, type AuthStatus } from "../auth.ts";
+import { useI18n } from "../i18n/index.ts";
 
 interface Props {
   /** 登录已失效、浮在会议页面上方重新登录（会议连接不受影响） */
@@ -14,6 +15,7 @@ interface Props {
 
 /** 访问口令的登录页（docs/interfaces.md §5.7）。 */
 export function LoginPage({ overlay = false, onLoggedIn }: Props) {
+  const { t } = useI18n();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -52,14 +54,14 @@ export function LoginPage({ overlay = false, onLoggedIn }: Props) {
             ) : (
               <MicIcon aria-hidden className="size-5" />
             )}
-            {overlay ? "登录已过期" : "组会助理"}
+            {overlay ? t.login.expired : t.common.appName}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {overlay ? "请重新输入访问口令。会议不受影响。" : "请输入访问口令。"}
+            {overlay ? t.login.expiredHint : t.login.prompt}
           </p>
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="login-password">访问口令</Label>
+          <Label htmlFor="login-password">{t.login.password}</Label>
           <Input
             id="login-password"
             type="password"
@@ -77,7 +79,7 @@ export function LoginPage({ overlay = false, onLoggedIn }: Props) {
           )}
         </div>
         <Button type="submit" disabled={busy || !password}>
-          {busy ? "登录中…" : "登录"}
+          {busy ? t.login.busy : t.login.submit}
         </Button>
       </form>
     </div>

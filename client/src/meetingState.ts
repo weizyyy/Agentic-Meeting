@@ -11,6 +11,7 @@ import {
   type CaptionLine,
   type HistoryItem,
 } from "./captions.ts";
+import { messages } from "./i18n/index.ts";
 import type {
   AssistantStateName,
   CaptionMessage,
@@ -173,13 +174,6 @@ export function connectionOf(transport: string): ConnectionState {
   }
 }
 
-export const SESSION_CLOSED_TEXT: Record<SessionClosedMessage["reason"], string> = {
-  taken_over:
-    "已在另一台设备（或另一个页面）上继续这场会议，这个页面已断开。同一时刻只能有一路连接。",
-  ended: "会议已结束。",
-  server_stopping: "服务端正在停止，连接已断开；它重新起来之后会自动接着开这场会议。",
-};
-
 function pushNotice(state: MeetingState, level: NoticeLevel, text: string): MeetingState {
   const notice: Notice = { id: state.nextNoticeId, level, text };
   return {
@@ -319,7 +313,7 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
     }
     case "sessionClosed":
       return {
-        ...pushNotice(state, "warn", SESSION_CLOSED_TEXT[action.message.reason]),
+        ...pushNotice(state, "warn", messages().notices.closed[action.message.reason]),
         closedReason: action.message.reason,
         liveSessionId: null,
         sharing: false,

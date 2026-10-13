@@ -116,8 +116,9 @@ the web UI. Global options come before the subcommand: `agentic-meeting --config
   features newer than 3.12. `asyncio` throughout, full type annotations. Blocking work (ctypes calls, large file
   I/O, image decoding) runs in threads.
 - Log with `loguru`. `print` is for CLI subcommands and scripts only.
-- Comments, docstrings, UI text and prompts are written in Chinese; identifiers are in English.
-  Match the surrounding file.
+- Comments, docstrings and prompts are written in Chinese; identifiers are in English. Match the
+  surrounding file. Web client text goes in both languages into the catalogs under
+  `client/src/i18n/` and is read with `useI18n()`; never hard-code it in a component.
 - Ruff settings are in `pyproject.toml` (line length 100, rules E, F, I, UP, B, ASYNC).
 - Prettier settings are in root `.prettierrc.json`; use root `npm run format` to format client code,
   JSON, YAML and Markdown. `.prettierignore` excludes upstream/generated/user files and runtime

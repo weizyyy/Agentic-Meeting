@@ -1,43 +1,29 @@
 // 会议列表和会话信息的显示逻辑（纯函数，可以用 npm test 直接测）。
 
-import type { SessionState, SessionSummary, SpeakerInfo } from "./api.ts";
-
-export const STATE_LABELS: Record<SessionState, string> = {
-  live: "进行中",
-  interrupted: "已中断",
-  ended: "已结束",
-};
-
-function pad(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
-/** Unix 秒 → 本地时间的「10月8日 14:03」。 */
-export function formatStartedAt(unixSecs: number): string {
-  const d = new Date(unixSecs * 1000);
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+import type { SessionSummary, SpeakerInfo } from "./api.ts";
+import { formatDateTime } from "./i18n/format.ts";
+import type { Language, Messages } from "./i18n/index.ts";
 
 /** 会议标题；没起名字的用开始时间代替。 */
-export function sessionTitle(session: { title: string; started_at: number }): string {
+export function sessionTitle(
+  t: Messages,
+  language: Language,
+  session: { title: string; started_at: number },
+): string {
   const title = session.title.trim();
-  return title || `未命名会议 · ${formatStartedAt(session.started_at)}`;
-}
-
-/** 时长：不到一分钟、N 分钟、N 小时 NN 分。 */
-export function formatDuration(secs: number): string {
-  const minutes = Math.floor(Math.max(0, secs) / 60);
-  if (minutes < 1) return "不到 1 分钟";
-  if (minutes < 60) return `${minutes} 分钟`;
-  return `${Math.floor(minutes / 60)} 小时 ${pad(minutes % 60)} 分`;
+  return title || t.session.untitled(formatDateTime(language, session.started_at));
 }
 
 /** 列表里每场会议下面那行预览：最后一句话，太长截断。 */
-export function previewLine(summary: Pick<SessionSummary, "preview">, maxChars = 36): string {
+export function previewLine(
+  t: Messages,
+  summary: Pick<SessionSummary, "preview">,
+  maxChars = 36,
+): string {
   const last = summary.preview[summary.preview.length - 1];
   if (!last) return "";
   const text = last.text.length > maxChars ? `${last.text.slice(0, maxChars)}…` : last.text;
-  return `${last.speaker}：${text}`;
+  return t.session.preview(last.speaker, text);
 }
 
 export type ExportFormat = "md" | "json" | "zip";
@@ -103,13 +89,14 @@ export function summaryFromSessionMessage(message: {
 
 /** ready 是本机管线就绪；不能用异端会议的 live 状态或可关闭提示替代。 */
 export function recordingLabel(
+  t: Messages,
   connection: string,
   closedReason: string | null,
   retry: number,
 ): string {
-  if (closedReason !== null) return "转录已停止";
-  if (connection === "connected") return "正在转录 · 发言和共享画面保存在服务器";
-  if (retry > 0) return "转录已断开 · 正在重连";
-  if (connection === "connecting") return "正在连接 · 尚未转录";
-  return "未在本机转录";
+  if (closedReason !== null) return t.header.recording.stopped;
+  if (connection === "connected") return t.header.recording.active;
+  if (retry > 0) return t.header.recording.reconnecting;
+  if (connection === "connecting") return t.header.recording.connecting;
+  return t.header.recording.idle;
 }

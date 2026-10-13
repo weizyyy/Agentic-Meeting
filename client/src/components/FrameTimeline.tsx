@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatClock } from "../captions.ts";
+import { useI18n } from "../i18n/index.ts";
 import {
   adjacentFrameIndex,
   formatFrameTime,
@@ -33,8 +34,9 @@ interface Props {
 
 /** 屏幕时间线：截图缩略图（点击放大）和画面摘要；右上角是共享屏幕的开关。 */
 export function FrameTimeline({ frames, timeBase, sharing, canShare, onStart, onStop }: Props) {
+  const { t, language } = useI18n();
   // 钟点在前（没有时间基准时退回会议时间），会议进行到哪跟在后面
-  const wall = (t: number) => wallClockLabel(t, timeBase) || formatFrameTime(t);
+  const wall = (secs: number) => wallClockLabel(language, secs, timeBase) || formatFrameTime(secs);
   const [openId, setOpenId] = useState<number | null>(null);
   const strip = useRef<HTMLUListElement>(null);
   const openIndex = openId === null ? -1 : frames.findIndex((f) => f.id === openId);
@@ -87,13 +89,13 @@ export function FrameTimeline({ frames, timeBase, sharing, canShare, onStart, on
   const latest = frames.length > 0 ? frames[frames.length - 1] : null;
 
   return (
-    <section className="flex flex-col rounded-xl border bg-card" aria-label="屏幕">
+    <section className="flex flex-col rounded-xl border bg-card" aria-label={t.screen.title}>
       <div className="flex items-center gap-2 px-4 pt-3 pb-2">
-        <h2 className="text-sm font-medium">屏幕</h2>
+        <h2 className="text-sm font-medium">{t.screen.title}</h2>
         {sharing && (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success-foreground">
             <span aria-hidden className="size-1.5 rounded-full bg-current" />
-            共享中
+            {t.screen.sharing}
           </span>
         )}
         {sharing ? (
@@ -104,7 +106,7 @@ export function FrameTimeline({ frames, timeBase, sharing, canShare, onStart, on
             onClick={onStop}
           >
             <MonitorOffIcon data-icon="inline-start" />
-            停止共享
+            {t.screen.stop}
           </Button>
         ) : (
           <Button
@@ -115,15 +117,13 @@ export function FrameTimeline({ frames, timeBase, sharing, canShare, onStart, on
             onClick={onStart}
           >
             <MonitorUpIcon data-icon="inline-start" />
-            共享屏幕
+            {t.screen.share}
           </Button>
         )}
       </div>
       {frames.length === 0 ? (
         <p className="px-4 pb-4 text-sm text-subtle-foreground">
-          {canShare || sharing
-            ? "共享屏幕后，画面有变化时会自动截图，并出现在这里。"
-            : "会议进行中可以共享屏幕，截图会出现在这里。"}
+          {canShare || sharing ? t.screen.emptySharing : t.screen.emptyIdle}
         </p>
       ) : (
         <>
@@ -133,7 +133,7 @@ export function FrameTimeline({ frames, timeBase, sharing, canShare, onStart, on
                 <button
                   type="button"
                   className="group flex flex-col gap-1 rounded-lg text-left outline-none"
-                  title={[`会议进行到 ${formatFrameTime(frame.t)}`, frame.caption]
+                  title={[t.screen.meetingTime(formatFrameTime(frame.t)), frame.caption]
                     .filter(Boolean)
                     .join(" ")}
                   onClick={() => setOpenId(frame.id)}
@@ -143,7 +143,7 @@ export function FrameTimeline({ frames, timeBase, sharing, canShare, onStart, on
                       frame === latest ? "border-client-foreground" : ""
                     }`}
                     src={frameImageUrl(frame.id)}
-                    alt={frame.caption ?? `${formatFrameTime(frame.t)} 的屏幕截图`}
+                    alt={frame.caption ?? t.screen.frameAlt(formatFrameTime(frame.t))}
                     loading="lazy"
                     width={frame.width}
                     height={frame.height}
@@ -176,33 +176,33 @@ export function FrameTimeline({ frames, timeBase, sharing, canShare, onStart, on
           <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-5xl">
             <DialogHeader>
               <DialogTitle className="flex items-baseline gap-2 pr-8">
-                屏幕截图
+                {t.screen.screenshot}
                 <time className="font-mono text-sm font-normal tabular-nums">{wall(open.t)}</time>
                 <time className="font-mono text-xs font-normal text-subtle-foreground tabular-nums">
                   +{formatClock(open.t)}
                 </time>
               </DialogTitle>
-              <DialogDescription>{open.caption ?? "（还没有画面摘要）"}</DialogDescription>
+              <DialogDescription>{open.caption ?? t.screen.noCaption}</DialogDescription>
             </DialogHeader>
             <img
               className="max-h-[70dvh] w-full rounded-lg border bg-muted object-contain"
               src={frameImageUrl(open.id)}
-              alt={open.caption ?? "屏幕截图"}
+              alt={open.caption ?? t.screen.screenshot}
             />
             <DialogFooter className="flex-row items-center justify-between sm:justify-between">
               <Button variant="outline" disabled={openIndex <= 0} onClick={() => step(-1)}>
                 <ChevronLeftIcon data-icon="inline-start" />
-                上一张
+                {t.screen.previous}
               </Button>
               <span className="text-center text-xs text-muted-foreground tabular-nums">
-                {openIndex + 1} / {frames.length} · ← → 切换
+                {t.screen.position(openIndex + 1, frames.length)}
               </span>
               <Button
                 variant="outline"
                 disabled={openIndex >= frames.length - 1}
                 onClick={() => step(1)}
               >
-                下一张
+                {t.screen.next}
                 <ChevronRightIcon data-icon="inline-end" />
               </Button>
             </DialogFooter>

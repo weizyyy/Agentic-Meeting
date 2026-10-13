@@ -26,30 +26,23 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useI18n, type Messages } from "../../i18n/index.ts";
 
 /** Which class of media device to list and control. */
 export type DeviceKind = "audioinput" | "audiooutput" | "videoinput";
 
-const KIND_DEFAULTS: Record<
-  DeviceKind,
-  { placeholder: string; menuLabel: string; fallbackName: string }
-> = {
-  audioinput: {
-    placeholder: "选择麦克风",
-    menuLabel: "麦克风",
-    fallbackName: "麦克风",
-  },
-  audiooutput: {
-    placeholder: "选择扬声器",
-    menuLabel: "扬声器",
-    fallbackName: "扬声器",
-  },
-  videoinput: {
-    placeholder: "选择摄像头",
-    menuLabel: "摄像头",
-    fallbackName: "摄像头",
-  },
-};
+/** 每种设备的占位、菜单标题和没有名字时的叫法，按界面语言取 */
+function kindDefaults(
+  t: Messages,
+  kind: DeviceKind,
+): { placeholder: string; menuLabel: string; fallbackName: string } {
+  const name = {
+    audioinput: t.devices.microphone,
+    audiooutput: t.devices.speaker,
+    videoinput: t.devices.camera,
+  }[kind];
+  return { placeholder: t.devices.choose(name), menuLabel: name, fallbackName: name };
+}
 
 /**
  * Devices, selection, and updater for one device kind, sourced from the
@@ -100,31 +93,32 @@ export function usePipecatDeviceState(kind: DeviceKind): {
   isLoading: boolean;
   unavailableText?: string;
 } {
+  const { t } = useI18n();
   const { mic, cam } = useMediaState();
   const state = kind === "videoinput" ? cam : mic;
   return {
     isLoading: state.state === "initializing",
     unavailableText:
       state.state === "error"
-        ? deviceErrorText(state.reason, KIND_DEFAULTS[kind].fallbackName)
+        ? deviceErrorText(t, state.reason, kindDefaults(t, kind).fallbackName)
         : undefined,
   };
 }
 
 /** Short, user-facing message for a device error. */
-function deviceErrorText(reason: DeviceErrorReason, fallbackName: string): string {
+function deviceErrorText(t: Messages, reason: DeviceErrorReason, fallbackName: string): string {
   switch (reason) {
     case "blocked":
-      return `${fallbackName} access blocked`;
+      return t.devices.blocked(fallbackName);
     case "already-in-use":
-      return `${fallbackName} in use`;
+      return t.devices.inUse(fallbackName);
     case "not-found":
-      return `No ${fallbackName.toLowerCase()} found`;
+      return t.devices.notFound(fallbackName);
     case "not-supported":
-      return `${fallbackName} not supported`;
+      return t.devices.notSupported(fallbackName);
     case "unknown":
     default:
-      return `${fallbackName} unavailable`;
+      return t.devices.unavailable(fallbackName);
   }
 }
 
@@ -183,7 +177,8 @@ export function DeviceSelectView({
   className,
   ...triggerProps
 }: DeviceSelectViewProps) {
-  const defaults = KIND_DEFAULTS[kind];
+  const { t } = useI18n();
+  const defaults = kindDefaults(t, kind);
   const selected = asMediaDevice(selectedDevice);
   const selectedValue = selected?.deviceId ?? null;
   const blocked = isLoading || !!unavailableText;
@@ -238,7 +233,7 @@ export function DeviceSelectView({
           ))
         ) : (
           <SelectItem value="__none" disabled>
-            没有找到设备
+            {t.devices.noDevices}
           </SelectItem>
         )}
       </SelectContent>
@@ -373,7 +368,8 @@ export function DeviceDropdownContent({
 }: DeviceDropdownContentProps) {
   const { devices, selectedDevice, onDeviceChange, kind, isLoading, loadingText, unavailableText } =
     useDeviceDropdownContext();
-  const defaults = KIND_DEFAULTS[kind];
+  const { t } = useI18n();
+  const defaults = kindDefaults(t, kind);
   const resolvedLabel = menuLabel === undefined ? defaults.menuLabel : menuLabel;
 
   return (
@@ -392,7 +388,7 @@ export function DeviceDropdownContent({
             className="text-muted-foreground flex items-center gap-1.5 font-normal"
           >
             <Loader2Icon className="size-3.5 animate-spin" />
-            {loadingText ?? "正在读取设备…"}
+            {loadingText ?? t.devices.loading}
           </DropdownMenuLabel>
         ) : unavailableText ? (
           <DropdownMenuLabel className="text-muted-foreground font-normal">
@@ -412,7 +408,7 @@ export function DeviceDropdownContent({
           ))
         ) : (
           <DropdownMenuLabel className="text-muted-foreground font-normal">
-            没有找到设备
+            {t.devices.noDevices}
           </DropdownMenuLabel>
         )}
       </DropdownMenuGroup>

@@ -96,7 +96,10 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
   全程使用 `asyncio`。阻塞调用（ctypes、大文件读写、图像解码）放入线程执行。
 - 日志使用 `loguru`（与 Pipecat 一致）。`print` 仅用于命令行子命令和脚本。
 - 类型标注完整。公共函数和类编写文档字符串，说明做什么以及为什么。
-- 注释、文档字符串、界面文案和提示词使用中文，标识符使用英文。
+- 注释、文档字符串和提示词使用中文，标识符使用英文。网页客户端的文案放在 `client/src/i18n/` 的目录里，
+  按页面区域一个文件，中文和英文并排写在同一个 `defineMessages(zhCN, en)` 调用里；组件通过 `useI18n()`
+  读取。英文目录的类型由中文推出，少一个键、多一个键或带参数的文案参数不一致，`npm run build` 的类型检查
+  （也就是 CI 的 Web client 任务）就会失败。浏览器控制台的日志和命令行输出仍是中文。
 - 配置只从 `AppConfig` 读取，模块内不另设默认模型或默认地址。
 - 新增配置项时同步修改 `config.py`、`config/config.example.toml`、interfaces.md §1 和
   [configuration.md](configuration.md)，并补充测试。
@@ -105,7 +108,7 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
   颜色都是 `client/src/index.css` 中的 CSS 变量：shadcn 的中性色、[Pipecat UI](https://ui.pipecat.ai)
   的语义色（active、inactive、agent、client）和本项目补充的几个（subtle、success、warning）。
   `client/src/components/ui/` 是 shadcn 组件，`client/src/components/pipecat/` 是 Pipecat UI 组件，
-  都是 shadcn 命令行复制进来的源码，可以修改（界面文字已改成中文）。在 `client/` 下用
+  都是 shadcn 命令行复制进来的源码，可以修改（界面文字从文案目录读取）。在 `client/` 下用
   `npx shadcn@latest add <组件>` 或 `npx shadcn@latest add @pipecat/<组件>` 添加新组件，再在根目录执行
   `npm run format`。还没迁移的组件，样式仍在 `client/src/styles.css`，使用同一套变量。
 

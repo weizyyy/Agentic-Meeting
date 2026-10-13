@@ -2,6 +2,8 @@
 // 都是纯函数，可以用 npm test 直接测。
 
 import type { ConnectionSpan } from "./api.ts";
+import { formatTimeOfDay } from "./i18n/format.ts";
+import type { Language } from "./i18n/index.ts";
 
 /** 一场会议的时间基准：开始的时刻，和各次连接在两条轨上的对应关系。 */
 export interface TimeBase {
@@ -29,14 +31,7 @@ export function wallClockAt(t: number, base: TimeBase): number {
   return base.startedAt + t;
 }
 
-/** 墙上的钟点「14:03:05」，按浏览器所在时区。 */
-export function formatWallClock(unixSecs: number): string {
-  const d = new Date(unixSecs * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-}
-
-/** `t` 那一刻墙上的钟点；不知道是哪场会议（没有时间基准）时返回空串。 */
-export function wallClockLabel(t: number, base: TimeBase | null): string {
-  return base === null ? "" : formatWallClock(wallClockAt(t, base));
+/** `t` 那一刻墙上的钟点「14:03:05」（浏览器所在时区）；不知道是哪场会议（没有时间基准）时返回空串。 */
+export function wallClockLabel(language: Language, t: number, base: TimeBase | null): string {
+  return base === null ? "" : formatTimeOfDay(language, wallClockAt(t, base));
 }

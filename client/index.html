@@ -11,13 +11,29 @@
     <script>
       // 主脚本没运行起来（浏览器太旧解析不了，或没加载完整）时说明原因，不留一张白页。
       // 这段要在旧浏览器里也能跑：只用 ES5。模块脚本在 load 之前一定已经运行过。
+      // 语言和页面一样：页面上选过的优先，否则看浏览器的语言偏好（src/i18n/language.ts）。
       window.addEventListener("load", function () {
         if (document.documentElement.getAttribute("data-started")) return;
+        var lang = "";
+        try {
+          lang = window.localStorage.getItem("agentic-meeting.language") || "";
+        } catch (e) {}
+        if (lang !== "zh-CN" && lang !== "en") {
+          var prefs = navigator.languages || [navigator.language || ""];
+          lang = "en";
+          for (var i = 0; i < prefs.length; i++) {
+            if (/^zh(-|$)/i.test(prefs[i])) lang = "zh-CN";
+            if (/^(zh|en)(-|$)/i.test(prefs[i])) break;
+          }
+        }
         var note = document.createElement("p");
         note.className = "unsupported";
         note.setAttribute("role", "alert");
+        note.setAttribute("lang", lang);
         note.textContent =
-          "页面没能启动。浏览器版本可能太旧，请使用 %MIN_BROWSERS% 或更新的版本；已经是新版本的话，请刷新页面重试。";
+          lang === "zh-CN"
+            ? "页面没能启动。浏览器版本可能太旧，请使用 %MIN_BROWSERS_ZH% 或更新的版本；已经是新版本的话，请刷新页面重试。"
+            : "The page could not start. The browser may be too old: use %MIN_BROWSERS_EN% or newer. If it is already up to date, reload the page.";
         document.getElementById("root").appendChild(note);
       });
     </script>

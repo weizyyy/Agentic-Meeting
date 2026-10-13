@@ -2,16 +2,10 @@ import { MessageSquareTextIcon, Volume2Icon, XIcon } from "lucide-react";
 
 import { AudioVisualizerBar } from "@/components/pipecat/audio-visualizer-bar";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "../i18n/index.ts";
 import type { Notice, ReplyMode } from "../meetingState.ts";
 import type { AssistantStateName, NoticeLevel } from "../protocol.ts";
 import { TextInput } from "./TextInput.tsx";
-
-const STATE_LABELS: Record<AssistantStateName, string> = {
-  idle: "待命",
-  listening: "在听",
-  thinking: "思考中",
-  speaking: "朗读中",
-};
 
 /** 状态条的底色：待命是灰的，在听、思考、朗读时是助理的紫色 */
 const STATE_TONES: Record<AssistantStateName, string> = {
@@ -48,10 +42,14 @@ export function AssistantPanel({
   onSend,
   onDismissNotice,
 }: Props) {
+  const { t } = useI18n();
   return (
-    <section className="flex flex-1 flex-col rounded-xl border bg-card" aria-label="助理">
+    <section
+      className="flex flex-1 flex-col rounded-xl border bg-card"
+      aria-label={t.assistant.title}
+    >
       <div className="flex items-center gap-2 px-4 pt-3 pb-2">
-        <h2 className="text-sm font-medium">助理</h2>
+        <h2 className="text-sm font-medium">{t.assistant.title}</h2>
         {text && replyMode && (
           <span className="ml-auto inline-flex items-center gap-1 text-xs text-agent-foreground">
             {replyMode === "voice" ? (
@@ -59,7 +57,7 @@ export function AssistantPanel({
             ) : (
               <MessageSquareTextIcon aria-hidden className="size-3.5" />
             )}
-            {replyMode === "voice" ? "语音回答" : "文字回答"}
+            {replyMode === "voice" ? t.assistant.voiceReply : t.assistant.textReply}
           </span>
         )}
       </div>
@@ -79,7 +77,7 @@ export function AssistantPanel({
               thinkingHeight={0.6}
             />
           </span>
-          {STATE_LABELS[state]}
+          {t.assistant.states[state]}
         </p>
         {notices.length > 0 && (
           <ul className="flex flex-col gap-1.5">
@@ -93,7 +91,7 @@ export function AssistantPanel({
                   variant="ghost"
                   size="icon-xs"
                   className="text-current hover:bg-current/10 hover:text-current"
-                  aria-label="关闭提示"
+                  aria-label={t.assistant.dismissNotice}
                   onClick={() => onDismissNotice(notice.id)}
                 >
                   <XIcon />
@@ -107,9 +105,7 @@ export function AssistantPanel({
           {text ? (
             <p className="whitespace-pre-wrap">{text}</p>
           ) : (
-            <p className="text-subtle-foreground">
-              叫一声助理的名字，或在下面打字提问，它的回答会显示在这里。
-            </p>
+            <p className="text-subtle-foreground">{t.assistant.empty}</p>
           )}
         </div>
         <TextInput enabled={canSend} onSend={onSend} />

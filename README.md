@@ -29,9 +29,10 @@ answers within about a second when called by name, and hands longer jobs to a ba
 
 > [!NOTE]
 > Agentic-Meeting is under heavy development. Configuration keys, interfaces and the database
-> schema may change between releases; the [roadmap](ROADMAP.md) shows what is planned. The web UI,
-> the prompts and the CLI messages are currently in Chinese, and the default configuration targets
-> Mandarin meetings with English technical terms mixed in.
+> schema may change between releases; the [roadmap](ROADMAP.md) shows what is planned. The web UI
+> is available in Chinese and English; the prompts, server messages and CLI output are currently in
+> Chinese, and the default configuration targets Mandarin meetings with English technical terms
+> mixed in.
 
 Agentic-Meeting is an AI assistant for meetings held in a room rather than in a video call. It runs
 on a GPU workstation in that room and is used from a browser. To our knowledge it is among the

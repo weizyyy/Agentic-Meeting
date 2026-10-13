@@ -16,7 +16,10 @@ export default defineConfig({
     {
       // index.html 里兜底提示的最低版本和构建目标出自同一处（src/browserSupport.ts）。
       name: "min-browsers",
-      transformIndexHtml: (html) => html.replaceAll("%MIN_BROWSERS%", minBrowsersText()),
+      transformIndexHtml: (html) =>
+        html
+          .replaceAll("%MIN_BROWSERS_ZH%", minBrowsersText("、"))
+          .replaceAll("%MIN_BROWSERS_EN%", minBrowsersText(", ")),
     },
   ],
   resolve: {

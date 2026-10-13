@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, type Dispatch } from "react";
 
 import { ApiError, type Api } from "./api.ts";
+import { messages } from "./i18n/index.ts";
 import type { Action } from "./meetingState.ts";
 import {
   THUMB_HEIGHT,
@@ -53,7 +54,7 @@ async function encode(canvas: HTMLCanvasElement): Promise<Blob> {
   if (webp && webp.type === "image/webp") return webp;
   const jpeg = await toBlob(canvas, "image/jpeg", JPEG_QUALITY);
   if (jpeg && jpeg.type === "image/jpeg") return jpeg;
-  throw new Error("浏览器无法把画面编码成图片");
+  throw new Error(messages().screen.encodeFailed);
 }
 
 /**
@@ -119,7 +120,7 @@ export function useScreenShare({
       dispatch({
         type: "notice",
         level: "error",
-        text: "这个浏览器不能共享屏幕（需要桌面浏览器，并通过 HTTPS 或 localhost 访问）",
+        text: messages().screen.unsupported,
       });
       return;
     }
@@ -136,8 +137,8 @@ export function useScreenShare({
       pending.current = null;
       // 用户在选择窗口里点了取消：不算出错
       if (!(error instanceof DOMException && error.name === "NotAllowedError")) {
-        const text = error instanceof Error ? error.message : "未知错误";
-        dispatch({ type: "notice", level: "error", text: `无法共享屏幕：${text}` });
+        const text = error instanceof Error ? error.message : messages().common.unknownError;
+        dispatch({ type: "notice", level: "error", text: messages().screen.shareFailed(text) });
       }
       return;
     }
@@ -194,8 +195,10 @@ export function useScreenShare({
         // 连续失败只提示第一次，之后每个节拍照常重试
         if (failures === 1) {
           const text =
-            error instanceof ApiError || error instanceof Error ? error.message : "未知错误";
-          dispatch({ type: "notice", level: "warn", text: `截图上传失败：${text}` });
+            error instanceof ApiError || error instanceof Error
+              ? error.message
+              : messages().common.unknownError;
+          dispatch({ type: "notice", level: "warn", text: messages().screen.uploadFailed(text) });
         }
       } finally {
         busy = false;

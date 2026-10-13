@@ -2,8 +2,9 @@
 
 **English** · [简体中文](zh-CN/user-guide.md)
 
-How to use the web page during and after a meeting. The interface is in Chinese; button labels are
-quoted as they appear, with an English gloss.
+How to use the web page during and after a meeting. The interface is available in Chinese and
+English (see **Language** under [Meetings](#meetings)); button labels are quoted as they appear in
+Chinese, followed by the English label.
 
 - [Supported browsers](#supported-browsers)
 - [Meetings](#meetings)
@@ -60,7 +61,7 @@ password prompt covers the page and the meeting continues underneath.
 takes over the connection; the previous page is notified and switches to read-only.
 
 **Resuming.** The timeline continues where it left off, and the gap is shown in the captions
-(for example a **中断了 12 分钟** (Paused for 12 minutes) divider). Speaker names, screenshots and tasks are kept, and the assistant
+(for example a **中断了 12 分钟** (Interrupted for 12 minutes) divider). Speaker names, screenshots and tasks are kept, and the assistant
 remembers the earlier discussion through the running summary and the last ten minutes of transcript.
 After a short network drop the page reconnects on its own, up to five attempts.
 
@@ -79,7 +80,14 @@ speaker, and the bars on the button move with the sound it picks up.
 **浅色** (Light) and **深色** (Dark). The choice is kept in this browser and also applies to the
 password page.
 
-**Presenting.** On a wide window, **演示模式** (Presentation mode) in the top bar turns the page into
+**Language.** The interface follows the browser's language preference: Chinese for a browser that
+prefers Chinese, English otherwise. The language button in the top bar (**中文** or **EN**) switches
+between **跟随浏览器** (Follow browser), **中文** and **English**; the choice is kept in this browser,
+applies at once and does not interrupt a running meeting. Dates and numbers follow the chosen
+language. Captions, the assistant's answers, reports and messages sent by the server stay in the
+language they were produced in.
+
+**Presenting.** On a wide window, **演示模式** (Present) in the top bar turns the page into
 a dark full-screen view for a meeting-room display: the meeting title, the last three captions in
 large type, and the assistant's state and answer. The newest caption is always shown. Press `Esc` or
 **退出演示** (Exit presentation) to go back; audio keeps playing while presenting. If the browser

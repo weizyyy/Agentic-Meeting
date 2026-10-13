@@ -109,7 +109,13 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
   run in threads.
 - Logging uses `loguru`, as Pipecat does. `print` is reserved for CLI subcommands and scripts.
 - Full type annotations. Public functions and classes have docstrings that explain what and why.
-- Comments, docstrings, UI text and prompts are written in Chinese; identifiers are in English.
+- Comments, docstrings and prompts are written in Chinese; identifiers are in English. Web client
+  text lives in the catalogs under `client/src/i18n/`, one file per area of the page, with the
+  Chinese and English versions side by side in one `defineMessages(zhCN, en)` call; components
+  read them through `useI18n()`. The English catalog's type is derived from the Chinese one, so a
+  missing or extra key, or a message whose parameters differ, fails the type check in
+  `npm run build` and the CI Web client job. Browser console messages and command-line output stay
+  in Chinese.
 - Configuration is read from `AppConfig` only. Modules do not define their own default models or
   endpoints.
 - A new configuration key is added in `config.py`, `config/config.example.toml`, interfaces.md §1
@@ -120,7 +126,7 @@ UV_PROJECT_ENVIRONMENT=.venv-3.14 uv run --python 3.14 --extra agent pytest
   colors of [Pipecat UI](https://ui.pipecat.ai) (active, inactive, agent, client) and a few of the
   project's own (subtle, success, warning). `client/src/components/ui/` holds shadcn components and
   `client/src/components/pipecat/` holds Pipecat UI components; both are source copied in by the
-  shadcn CLI and may be edited (their UI text is translated to Chinese). Add more with
+  shadcn CLI and may be edited (their UI text comes from the catalogs). Add more with
   `npx shadcn@latest add <component>` or `npx shadcn@latest add @pipecat/<component>` from
   `client/`, then run root `npm run format`. Components not yet migrated keep their rules in
   `client/src/styles.css`, which uses the same variables.

@@ -22,14 +22,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import type { SessionSummary } from "../api.ts";
-import {
-  STATE_LABELS,
-  canDelete,
-  formatDuration,
-  formatStartedAt,
-  previewLine,
-  sessionTitle,
-} from "../sessionView.ts";
+import { formatDateTime, formatNumber } from "../i18n/format.ts";
+import { formatDuration, useI18n } from "../i18n/index.ts";
+import { canDelete, previewLine, sessionTitle } from "../sessionView.ts";
 import { STATE_TONES } from "./SessionBanner.tsx";
 
 interface Props {
@@ -61,6 +56,7 @@ export function SessionList({
   keepPending,
   onClose,
 }: Props) {
+  const { t, language } = useI18n();
   const [editing, setEditing] = useState<{ id: string; title: string } | null>(null);
   // 等用户确认删除的那场会议
   const [deleting, setDeleting] = useState<SessionSummary | null>(null);
@@ -83,24 +79,29 @@ export function SessionList({
         className="w-[min(400px,92vw)] gap-0 sm:max-w-none"
       >
         <SheetHeader className="flex-row items-center justify-between border-b py-3">
-          <SheetTitle>最近的会议</SheetTitle>
-          <Button variant="ghost" size="icon-sm" aria-label="关闭会议列表" onClick={onClose}>
+          <SheetTitle>{t.session.list.title}</SheetTitle>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t.session.list.close}
+            onClick={onClose}
+          >
             <XIcon />
           </Button>
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
           {locked && (
             <p className="rounded-lg bg-warning px-3 py-2 text-warning-foreground">
-              会议进行中，结束后才能查看其他会议。
+              {t.session.list.locked}
             </p>
           )}
           {sessions.length === 0 ? (
-            <p className="text-subtle-foreground">还没有会议记录。</p>
+            <p className="text-subtle-foreground">{t.session.list.empty}</p>
           ) : (
             <ul className="flex flex-col gap-2">
               {sessions.map((s) => {
-                const title = sessionTitle(s);
-                const preview = s.deletion_pending ? null : previewLine(s);
+                const title = sessionTitle(t, language, s);
+                const preview = s.deletion_pending ? null : previewLine(t, s);
                 return (
                   <li
                     key={s.id}
@@ -111,7 +112,7 @@ export function SessionList({
                     {editing?.id === s.id ? (
                       <div className="p-1">
                         <Input
-                          aria-label="会议标题"
+                          aria-label={t.session.title}
                           value={editing.title}
                           maxLength={200}
                           autoFocus
@@ -142,13 +143,17 @@ export function SessionList({
                             }`}
                           >
                             <span aria-hidden className="size-1.5 rounded-full bg-current" />
-                            {s.deletion_pending ? "待删除" : STATE_LABELS[s.state]}
+                            {s.deletion_pending
+                              ? t.session.deletionPending
+                              : t.session.states[s.state]}
                           </span>
-                          <span>{formatStartedAt(s.started_at)}</span>
+                          <span>{formatDateTime(language, s.started_at)}</span>
                           <span aria-hidden>·</span>
-                          <span className="tabular-nums">{formatDuration(s.duration_secs)}</span>
+                          <span className="tabular-nums">{formatDuration(t, s.duration_secs)}</span>
                           <span aria-hidden>·</span>
-                          <span>{s.utterance_count} 条</span>
+                          <span>
+                            {t.session.utterancesShort(formatNumber(language, s.utterance_count))}
+                          </span>
                         </span>
                         {preview && (
                           <span className="line-clamp-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">
@@ -162,9 +167,9 @@ export function SessionList({
                         variant="ghost"
                         size="xs"
                         aria-pressed={s.keep}
-                        aria-label={`保留：${title}`}
+                        aria-label={t.session.list.keepLabel(title)}
                         disabled={s.deletion_pending || keepPending.has(s.id)}
-                        title="免于自动清理；仍可人工删除"
+                        title={t.common.keepHint}
                         onClick={() => onKeep(s.id, !s.keep)}
                       >
                         {s.keep ? (
@@ -172,45 +177,45 @@ export function SessionList({
                         ) : (
                           <BookmarkIcon data-icon="inline-start" />
                         )}
-                        {keepPending.has(s.id) ? "保存中…" : s.keep ? "已保留" : "保留"}
+                        {keepPending.has(s.id)
+                          ? t.common.saving
+                          : s.keep
+                            ? t.common.kept
+                            : t.common.keep}
                       </Button>
                       {!locked && !s.deletion_pending && (
                         <Button
                           variant="ghost"
                           size="xs"
-                          aria-label={`继续：${title}`}
-                          title={
-                            s.state === "live"
-                              ? "这场会议正在另一台设备上进行；点了之后连接会转到这台设备"
-                              : undefined
-                          }
+                          aria-label={t.session.list.resumeLabel(title)}
+                          title={s.state === "live" ? t.session.list.takeOverHint : undefined}
                           onClick={() => onResume(s.id)}
                         >
                           <PlayIcon data-icon="inline-start" />
-                          {s.state === "live" ? "接过来继续" : "继续"}
+                          {s.state === "live" ? t.session.list.takeOver : t.session.resume}
                         </Button>
                       )}
                       <Button
                         variant="ghost"
                         size="xs"
                         disabled={s.deletion_pending}
-                        aria-label={`重命名：${title}`}
+                        aria-label={t.session.list.renameLabel(title)}
                         onClick={() => setEditing({ id: s.id, title: s.title })}
                       >
                         <PencilIcon data-icon="inline-start" />
-                        重命名
+                        {t.session.list.rename}
                       </Button>
                       <Button
                         variant="ghost"
                         size="xs"
                         className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        aria-label={`删除：${title}`}
+                        aria-label={t.session.list.deleteLabel(title)}
                         disabled={!canDelete(s)}
-                        title={canDelete(s) ? undefined : "会议进行中，请先结束"}
+                        title={canDelete(s) ? undefined : t.session.list.deleteBlocked}
                         onClick={() => setDeleting(s)}
                       >
                         <Trash2Icon data-icon="inline-start" />
-                        {s.deletion_pending ? "重试删除" : "删除"}
+                        {s.deletion_pending ? t.session.list.retryDelete : t.common.delete}
                       </Button>
                     </div>
                   </li>
@@ -229,13 +234,13 @@ export function SessionList({
           {deleting && (
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>删除「{sessionTitle(deleting)}」？</AlertDialogTitle>
-                <AlertDialogDescription>
-                  它的全部发言、截图和任务记录都会被删除，不能恢复。
-                </AlertDialogDescription>
+                <AlertDialogTitle>
+                  {t.session.list.confirmTitle(sessionTitle(t, language, deleting))}
+                </AlertDialogTitle>
+                <AlertDialogDescription>{t.session.list.confirmBody}</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>取消</AlertDialogCancel>
+                <AlertDialogCancel>{t.common.cancel}</AlertDialogCancel>
                 <AlertDialogAction
                   variant="destructive"
                   onClick={() => {
@@ -244,7 +249,7 @@ export function SessionList({
                   }}
                 >
                   <Trash2Icon data-icon="inline-start" />
-                  删除
+                  {t.common.delete}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

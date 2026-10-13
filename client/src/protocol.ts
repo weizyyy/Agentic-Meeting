@@ -3,6 +3,7 @@
 // assistant_state、notice、
 // frame、frame_caption、task、task_event；不认识的类型收到时忽略。
 
+import { messages } from "./i18n/index.ts";
 import { TASK_STATUSES, type TaskStatus } from "./tasks.ts";
 
 export interface CaptionMessage {
@@ -151,15 +152,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** 校验并收窄服务端发来的消息；格式不对或类型不认识返回 null（不抛异常，字幕不能因为一条坏消息停下）。 */
 /**
  * RTVI 的 error 消息（`{error, fatal}`）要不要显示给用户：只显示致命的。
- * 不致命的（某个服务暂时不可用）由服务端另发中文的 notice，这里返回 null。
+ * 不致命的（某个服务暂时不可用）由服务端另发 notice，这里返回 null。
  */
 export function fatalErrorText(data: unknown): string | null {
   if (typeof data !== "object" || data === null) return null;
   const { error, fatal } = data as { error?: unknown; fatal?: unknown };
   if (fatal !== true) return null;
   return typeof error === "string" && error.trim()
-    ? `服务端出错：${error}`
-    : "服务端出错，连接可能已经中断";
+    ? messages().notices.serverError(error)
+    : messages().notices.serverErrorUnknown;
 }
 
 export function parseServerMessage(data: unknown): ServerMessage | null {

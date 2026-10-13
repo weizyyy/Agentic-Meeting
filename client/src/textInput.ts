@@ -2,13 +2,17 @@
 
 export const MAX_TEXT_CHARS = 2000;
 
-export type Validation = { ok: true; text: string } | { ok: false; reason: string };
+/** 不通过的原因：空消息，或超过上限（界面按当前语言写成文字） */
+export type Validation =
+  | { ok: true; text: string }
+  | { ok: false; reason: "empty" }
+  | { ok: false; reason: "tooLong"; max: number };
 
 /** 校验要发给助理的文字；通过时返回去掉首尾空白的文本。长度按字符（不是 UTF-16 码元）数。 */
 export function validateText(raw: string, max: number = MAX_TEXT_CHARS): Validation {
   const text = raw.trim();
-  if (!text) return { ok: false, reason: "消息是空的，没有发送" };
-  if ([...text].length > max) return { ok: false, reason: `消息太长（最多 ${max} 字），没有发送` };
+  if (!text) return { ok: false, reason: "empty" };
+  if ([...text].length > max) return { ok: false, reason: "tooLong", max };
   return { ok: true, text };
 }
 

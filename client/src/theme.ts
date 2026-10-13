@@ -5,12 +5,6 @@ export type ThemeChoice = "system" | "light" | "dark";
 
 export const THEME_CHOICES: readonly ThemeChoice[] = ["system", "light", "dark"];
 
-export const THEME_LABELS: Record<ThemeChoice, string> = {
-  system: "跟随系统",
-  light: "浅色",
-  dark: "深色",
-};
-
 /** 存在 localStorage 里的键；只是这个浏览器的偏好，不上传服务端。 */
 const STORAGE_KEY = "agentic-meeting.theme";
 

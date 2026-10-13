@@ -18,9 +18,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useI18n } from "../i18n/index.ts";
 import { formatFrameTime, frameImageUrl } from "../screenCapture.ts";
 import {
-  TASK_STATUS_LABELS,
   artifactUrl,
   isFinished,
   isImageArtifact,
@@ -64,9 +64,10 @@ interface Props {
 
 /** 后台任务面板：列表（状态、最近一步或结论），点开看详细结果、来源、产物、进度，以及这次任务外发了什么。 */
 export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
+  const { t } = useI18n();
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
-  const open = openId === null ? null : (tasks.find((t) => t.id === openId) ?? null);
+  const open = openId === null ? null : (tasks.find((task) => task.id === openId) ?? null);
 
   // 打开时取一次；任务状态变了（比如做完了）再取一次，拿到结果
   const openStatus = open?.status;
@@ -90,9 +91,9 @@ export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
     // 右列放不下时先让任务列表缩小、在框里滚动，助理的回答保持完整
     <section
       className="flex max-h-[55%] min-h-24 shrink-[100] flex-col rounded-xl border bg-card max-md:max-h-none"
-      aria-label="后台任务"
+      aria-label={t.tasks.title}
     >
-      <h2 className="px-4 pt-3 pb-2 text-sm font-medium">后台任务</h2>
+      <h2 className="px-4 pt-3 pb-2 text-sm font-medium">{t.tasks.title}</h2>
       <ul className="flex min-h-0 flex-col gap-2 overflow-y-auto px-4 pb-4">
         {[...tasks].reverse().map((task) => (
           <li key={task.id}>
@@ -110,17 +111,15 @@ export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
                 </span>
                 <span className="flex flex-wrap items-center gap-x-1.5 text-xs">
                   <span className="font-mono text-subtle-foreground">{task.label}</span>
-                  <span className={STATUS_TEXT[task.status]}>
-                    {TASK_STATUS_LABELS[task.status]}
-                  </span>
+                  <span className={STATUS_TEXT[task.status]}>{t.tasks.statuses[task.status]}</span>
                   {task.modality === "text" && (
                     <Badge variant="secondary" className="h-4 px-1.5">
-                      文字
+                      {t.tasks.typed}
                     </Badge>
                   )}
                 </span>
                 <span className="line-clamp-2 text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                  {taskSubline(task)}
+                  {taskSubline(t, task)}
                 </span>
               </span>
             </button>
@@ -137,12 +136,12 @@ export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
           <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 pr-8 text-lg">
-                任务 {open.label}
+                {t.tasks.task(open.label)}
                 <span
                   className={`inline-flex items-center gap-1 text-sm font-normal ${STATUS_TEXT[open.status]}`}
                 >
                   <StatusIcon status={open.status} />
-                  {TASK_STATUS_LABELS[open.status]}
+                  {t.tasks.statuses[open.status]}
                 </span>
               </DialogTitle>
               <DialogDescription className="text-foreground">{open.goal}</DialogDescription>
@@ -158,18 +157,18 @@ export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
               </p>
             )}
             {detail === null || detail.id !== open.id ? (
-              <p className="text-subtle-foreground">正在读取…</p>
+              <p className="text-subtle-foreground">{t.tasks.loading}</p>
             ) : (
               <TaskBody detail={detail} />
             )}
             <DialogFooter>
               {!isFinished(open.status) && (
                 <Button variant="destructive" onClick={() => onCancel(open.id)}>
-                  取消任务
+                  {t.tasks.cancel}
                 </Button>
               )}
               <Button variant="outline" onClick={() => setOpenId(null)}>
-                关闭
+                {t.common.close}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -184,14 +183,15 @@ function Heading({ children }: { children: ReactNode }) {
 }
 
 function TaskBody({ detail }: { detail: TaskDetail }) {
-  const duration = taskDuration(detail.started_at, detail.finished_at);
+  const { t } = useI18n();
+  const duration = taskDuration(t, detail.started_at, detail.finished_at);
   const images = detail.artifacts.filter(isImageArtifact);
   const files = detail.artifacts.filter((name) => !isImageArtifact(name));
   return (
     <>
       {detail.detail_md && (
         <div>
-          <Heading>详细结果</Heading>
+          <Heading>{t.tasks.detail}</Heading>
           {/* 远端模型写的内容按纯文字显示，不当 HTML 解释 */}
           <pre className="font-sans leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
             {detail.detail_md}
@@ -214,7 +214,7 @@ function TaskBody({ detail }: { detail: TaskDetail }) {
       )}
       {files.length > 0 && (
         <div>
-          <Heading>产物文件</Heading>
+          <Heading>{t.tasks.artifacts}</Heading>
           <ul className="list-disc pl-5 [overflow-wrap:anywhere]">
             {files.map((name) => (
               <li key={name}>
@@ -228,7 +228,7 @@ function TaskBody({ detail }: { detail: TaskDetail }) {
       )}
       {detail.sources.length > 0 && (
         <div>
-          <Heading>来源</Heading>
+          <Heading>{t.tasks.sources}</Heading>
           <ul className="list-disc pl-5 [overflow-wrap:anywhere]">
             {detail.sources.map((source) => {
               const href = safeLink(source);
@@ -248,7 +248,7 @@ function TaskBody({ detail }: { detail: TaskDetail }) {
         </div>
       )}
       <div>
-        <Heading>进度{duration && `（用时 ${duration}）`}</Heading>
+        <Heading>{duration ? t.tasks.progressTook(duration) : t.tasks.progress}</Heading>
         <ol className="list-decimal pl-5 [overflow-wrap:anywhere]">
           {detail.events.map((event, index) => (
             <li
@@ -267,17 +267,19 @@ function TaskBody({ detail }: { detail: TaskDetail }) {
         </ol>
       </div>
       <div className="rounded-lg bg-muted px-3 py-2.5">
-        <Heading>这次任务外发的内容</Heading>
+        <Heading>{t.tasks.outbound}</Heading>
         <p>
           {detail.outbound.model_host
-            ? `发给了 ${detail.outbound.model_host} 上的模型：`
-            : "发给了后台模型："}
-          任务目标（上面那段话）、{formatFrameTime(detail.outbound.t_from)} 到{" "}
-          {formatFrameTime(detail.outbound.t_to)} 的会议转录
+            ? t.tasks.sentTo(detail.outbound.model_host)
+            : t.tasks.sentToAgent}
+          {t.tasks.sentRange(
+            formatFrameTime(detail.outbound.t_from),
+            formatFrameTime(detail.outbound.t_to),
+          )}
           {detail.outbound.frames.length > 0
-            ? `，以及下面 ${detail.outbound.frames.length} 张屏幕截图。`
-            : "，没有带屏幕截图。"}
-          {` 交办人：${detail.requested_by}。`}
+            ? t.tasks.withFrames(detail.outbound.frames.length)
+            : t.tasks.withoutFrames}
+          {t.tasks.requestedBy(detail.requested_by)}
         </p>
         {detail.outbound.frames.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
@@ -286,7 +288,7 @@ function TaskBody({ detail }: { detail: TaskDetail }) {
                 <img
                   className="block aspect-video w-40 rounded-md border object-cover"
                   src={frameImageUrl(frame.id)}
-                  alt={`${formatFrameTime(frame.t)} 的屏幕截图`}
+                  alt={t.tasks.frameAlt(formatFrameTime(frame.t))}
                   loading="lazy"
                 />
               </a>

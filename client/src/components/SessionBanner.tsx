@@ -17,15 +17,10 @@ import {
 import { Input } from "@/components/ui/input";
 import type { SessionState, SessionSummary } from "../api.ts";
 import type { ConnectionState } from "../meetingState.ts";
-import { formatSpan, interruptedSecs } from "../resume.ts";
-import {
-  STATE_LABELS,
-  canResume,
-  exportUrl,
-  formatDuration,
-  formatStartedAt,
-  sessionTitle,
-} from "../sessionView.ts";
+import { formatDateTime, formatNumber } from "../i18n/format.ts";
+import { formatDuration, formatSpan, useI18n } from "../i18n/index.ts";
+import { interruptedSecs } from "../resume.ts";
+import { canResume, exportUrl, sessionTitle } from "../sessionView.ts";
 
 interface Props {
   session: SessionSummary | null;
@@ -79,6 +74,7 @@ export function SessionBanner({
   onResume,
   onStart,
 }: Props) {
+  const { t, language } = useI18n();
   const [editing, setEditing] = useState<string | null>(null);
   // 「已中断 12 分钟」要跟着时间走：半分钟刷新一次
   const [now, setNow] = useState(() => Date.now() / 1000);
@@ -88,11 +84,7 @@ export function SessionBanner({
   }, []);
 
   if (!session) {
-    return (
-      <p className="mb-4 text-sm text-muted-foreground">
-        还没有会议。点右上角的「开始新会议」，说的话会实时显示在下面，并保存在服务端。
-      </p>
-    );
+    return <p className="mb-4 text-sm text-muted-foreground">{t.session.none}</p>;
   }
 
   const commit = () => {
@@ -107,21 +99,21 @@ export function SessionBanner({
     <div
       className="mb-4 flex flex-wrap items-start gap-x-4 gap-y-3"
       role="group"
-      aria-label="当前查看的会议"
+      aria-label={t.session.current}
     >
       <div className="min-w-64 flex-1">
         <div className="flex min-h-9 items-center gap-1">
           {editing === null ? (
             <>
               <h2 className="truncate text-2xl font-semibold tracking-tight">
-                {sessionTitle(session)}
+                {sessionTitle(t, language, session)}
               </h2>
               <Button
                 variant="ghost"
                 size="icon-sm"
                 className="text-muted-foreground"
                 disabled={pending}
-                aria-label="重命名这场会议"
+                aria-label={t.session.rename}
                 onClick={() => setEditing(session.title)}
               >
                 <PencilIcon />
@@ -130,7 +122,7 @@ export function SessionBanner({
           ) : (
             <Input
               className="h-9 max-w-md text-lg md:text-lg"
-              aria-label="会议标题"
+              aria-label={t.session.title}
               value={editing}
               maxLength={200}
               autoFocus
@@ -150,26 +142,26 @@ export function SessionBanner({
             }`}
           >
             <span aria-hidden className="size-1.5 rounded-full bg-current" />
-            {pending ? "待删除" : STATE_LABELS[session.state]}
+            {pending ? t.session.deletionPending : t.session.states[session.state]}
           </span>
-          <span>开始于 {formatStartedAt(session.started_at)}</span>
+          <span>{t.session.startedAt(formatDateTime(language, session.started_at))}</span>
           <span aria-hidden>·</span>
-          <span className="tabular-nums">{formatDuration(session.duration_secs)}</span>
+          <span className="tabular-nums">{formatDuration(t, session.duration_secs)}</span>
           <span aria-hidden>·</span>
-          <span>{session.utterance_count} 条发言</span>
+          <span>{t.session.utterances(formatNumber(language, session.utterance_count))}</span>
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {session.state === "ended" && idle && (
           <Button variant="outline" onClick={() => onResume(session.id)}>
-            继续这场会议
+            {t.session.resumeEnded}
           </Button>
         )}
         <Button
           variant="ghost"
           aria-pressed={session.keep}
           disabled={pending || keepPending}
-          title="免于自动清理；仍可人工删除"
+          title={t.common.keepHint}
           onClick={() => onKeep(session.id, !session.keep)}
         >
           {session.keep ? (
@@ -177,18 +169,18 @@ export function SessionBanner({
           ) : (
             <BookmarkIcon data-icon="inline-start" />
           )}
-          {keepPending ? "保存中…" : session.keep ? "已保留" : "保留"}
+          {keepPending ? t.common.saving : session.keep ? t.common.kept : t.common.keep}
         </Button>
         {!pending && (
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="outline" />}>
               <DownloadIcon data-icon="inline-start" />
-              导出
+              {t.session.export}
               <ChevronDownIcon data-icon="inline-end" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem render={<a href={exportUrl(session.id)} download />}>
-                转录
+                {t.session.exportTranscript}
                 <span className="ml-auto text-xs text-muted-foreground">Markdown</span>
               </DropdownMenuItem>
               <DropdownMenuItem render={<a href={exportUrl(session.id, "json")} download />}>
@@ -196,43 +188,41 @@ export function SessionBanner({
               </DropdownMenuItem>
               <DropdownMenuItem
                 render={<a href={exportUrl(session.id, "zip")} download />}
-                title="转录、JSON、报告、全部截图和任务产物，打成一个压缩包"
+                title={t.session.exportFullHint}
               >
-                完整包
-                <span className="ml-auto text-xs text-muted-foreground">含截图和产物</span>
+                {t.session.exportFull}
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {t.session.exportFullNote}
+                </span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )}
       </div>
-      {pending && (
-        <Hint tone="error">删除尚未完成，内容可能已部分移除。请在会议列表重试删除。</Hint>
-      )}
-      {reconnectAttempt > 0 && (
-        <Hint tone="warn">连接断开了，正在自动重连（第 {reconnectAttempt} 次）…</Hint>
-      )}
+      {pending && <Hint tone="error">{t.session.deletionIncomplete}</Hint>}
+      {reconnectAttempt > 0 && <Hint tone="warn">{t.session.reconnecting(reconnectAttempt)}</Hint>}
       {watching && !pending && (
         <Hint tone="info">
-          正在另一台设备上进行，这里只读，每 3 秒刷新一次。
+          {t.session.watching}
           <Button variant="outline" size="sm" onClick={() => onResume(session.id)}>
-            在这台设备上继续
+            {t.session.takeOverHere}
           </Button>
         </Hint>
       )}
       {interrupted && (
         <Hint tone="warn">
           {interruptedSecs(session, now) < 60
-            ? "这场会议刚刚中断"
-            : `这场会议已中断 ${formatSpan(interruptedSecs(session, now))}`}
+            ? t.session.justInterrupted
+            : t.session.interruptedFor(formatSpan(t, interruptedSecs(session, now)))}
           <Button
             size="sm"
             className="bg-active text-active-foreground hover:bg-active/85"
             onClick={() => onResume(session.id)}
           >
-            继续
+            {t.session.resume}
           </Button>
           <Button variant="ghost" size="sm" onClick={onStart}>
-            开始新会议
+            {t.header.start}
           </Button>
         </Hint>
       )}

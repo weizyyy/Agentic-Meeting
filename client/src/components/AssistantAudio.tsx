@@ -3,6 +3,7 @@ import { Volume2Icon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useI18n } from "../i18n/index.ts";
 
 /**
  * 播放助理的声音（代替 Pipecat 自带的 PipecatClientAudio）。
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/button";
  * 这时不再悄悄没声音，而是显示一个按钮，用户点一下就在这次点击里重新播放。
  */
 export function AssistantAudio() {
+  const { t } = useI18n();
   const audio = useRef<HTMLAudioElement>(null);
   const track = usePipecatClientMediaTrack("audio", "bot");
   const [blocked, setBlocked] = useState(false);
@@ -45,9 +47,9 @@ export function AssistantAudio() {
           role="alert"
         >
           <Volume2Icon aria-hidden className="size-4" />
-          浏览器拦下了助理的声音。
+          {t.assistant.audioBlocked}
           <Button size="sm" variant="outline" onClick={() => void play()}>
-            打开助理声音
+            {t.assistant.enableAudio}
           </Button>
         </p>
       )}

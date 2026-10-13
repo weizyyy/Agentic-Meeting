@@ -27,6 +27,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The report is laid out section by section, with the action items as a checklist, instead of as
   plain text. On a wide window a **会议资料** (Meeting materials) card beside it counts the
   utterances, tasks and screenshots and links to the captions and the full archive.
+- The interface is available in Chinese and English. It follows the browser's language by default,
+  and the language button in the top bar switches it on the spot without interrupting the meeting;
+  dates and numbers follow the chosen language. Messages sent by the server are not translated
+  yet.
 - **演示模式** (Presentation mode) in the top bar shows the meeting full screen for a shared
   meeting-room display: dark, with the last three captions in large type and the assistant's state
   and answer. `Esc` returns to the workspace.

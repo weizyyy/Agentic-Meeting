@@ -5,6 +5,7 @@ import { AudioVisualizerBar } from "@/components/pipecat/audio-visualizer-bar";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
+import { useI18n } from "../i18n/index.ts";
 import type { CaptionLine } from "../captions.ts";
 import type { ConnectionState } from "../meetingState.ts";
 import type { AssistantStateName } from "../protocol.ts";
@@ -12,13 +13,6 @@ import { connectionStatus } from "./ControlBar.tsx";
 
 /** 演示时只放最近这几条，字大到会议室后排也看得清 */
 const SHOWN_LINES = 3;
-
-const ASSISTANT_LABELS: Record<AssistantStateName, string> = {
-  idle: "",
-  listening: "助理在听…",
-  thinking: "助理在思考…",
-  speaking: "助理在回答",
-};
 
 interface Props {
   title: string;
@@ -43,6 +37,7 @@ export function PresentationView({
   assistantText,
   onExit,
 }: Props) {
+  const { t } = useI18n();
   const exitRef = useRef(onExit);
   exitRef.current = onExit;
 
@@ -75,7 +70,7 @@ export function PresentationView({
     };
   }, []);
 
-  const status = connectionStatus(connection, reconnectAttempt);
+  const status = connectionStatus(t, connection, reconnectAttempt);
   const lines = captions.filter((line) => line.stable || line.unstable).slice(-SHOWN_LINES);
   const assistantActive = assistantState !== "idle" || assistantText !== "";
 
@@ -84,11 +79,11 @@ export function PresentationView({
       className="dark fixed inset-0 z-40 flex flex-col bg-background text-foreground"
       role="dialog"
       aria-modal="true"
-      aria-label="演示模式"
+      aria-label={t.assistant.presentation.label}
     >
       <header className="flex items-center gap-3 border-b px-6 py-3">
         <MicIcon aria-hidden className="size-4" />
-        <span className="text-sm font-medium">组会助理</span>
+        <span className="text-sm font-medium">{t.common.appName}</span>
         <span className="flex-1" />
         <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", status.tone)}>
           <span aria-hidden className="size-1.5 rounded-full bg-current" />
@@ -96,14 +91,17 @@ export function PresentationView({
         </span>
         <Button variant="ghost" autoFocus onClick={onExit}>
           <Minimize2Icon data-icon="inline-start" />
-          退出演示
+          {t.assistant.presentation.exit}
         </Button>
       </header>
       <main className="flex min-h-0 flex-1 flex-col gap-5 overflow-hidden px-6 py-8 md:px-12">
         <h2 className="text-2xl font-semibold text-muted-foreground md:text-3xl">{title}</h2>
-        <section className="flex min-h-0 flex-1 flex-col justify-end gap-4" aria-label="实时字幕">
+        <section
+          className="flex min-h-0 flex-1 flex-col justify-end gap-4"
+          aria-label={t.assistant.presentation.captions}
+        >
           {lines.length === 0 ? (
-            <p className="text-2xl text-subtle-foreground">说的话会实时显示在这里。</p>
+            <p className="text-2xl text-subtle-foreground">{t.assistant.presentation.empty}</p>
           ) : (
             lines.map((line, index) => {
               const latest = index === lines.length - 1;
@@ -154,12 +152,12 @@ export function PresentationView({
               />
             </span>
             <p className="line-clamp-2 text-2xl font-semibold md:text-3xl">
-              {assistantText || ASSISTANT_LABELS[assistantState]}
+              {assistantText || t.assistant.presentation.states[assistantState]}
             </p>
           </div>
         )}
         <p className="flex items-center gap-1.5 text-xs text-subtle-foreground">
-          <Kbd>Esc</Kbd> 退出演示 · 字幕自动跟随最新
+          <Kbd>Esc</Kbd> {t.assistant.presentation.hint}
         </p>
       </main>
     </div>

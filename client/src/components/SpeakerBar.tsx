@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 import type { SpeakerInfo } from "../api.ts";
+import { useI18n } from "../i18n/index.ts";
 import { assignTargets } from "../selection.ts";
 import { mergeTargets, nameSuggestions, renamableSpeakers } from "../sessionView.ts";
 
@@ -49,6 +50,7 @@ export function SpeakerBar({
   onAssign,
   onClearSelection,
 }: Props) {
+  const { t } = useI18n();
   const [editing, setEditing] = useState<{ idx: number; name: string } | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
   const assigning = selectedCount > 0;
@@ -64,9 +66,9 @@ export function SpeakerBar({
       if (name) onAssign({ newSpeaker: name });
     };
     return (
-      <div className={ROW} role="group" aria-label="把选中的发言归到">
+      <div className={ROW} role="group" aria-label={t.captions.speakers.assignLabel}>
         <span className="text-xs font-medium text-client-foreground">
-          已选 {selectedCount} 条，归到
+          {t.captions.speakers.selected(selectedCount)}
         </span>
         {assignTargets(speakers).map((p) => (
           <Button
@@ -74,7 +76,7 @@ export function SpeakerBar({
             variant="outline"
             size="xs"
             className={`${CHIP} border-client-foreground/50 hover:bg-client`}
-            title={`把选中的 ${selectedCount} 条发言归到「${p.display_name}」名下`}
+            title={t.captions.speakers.assignTo(selectedCount, p.display_name)}
             onClick={() => onAssign({ speakerIdx: p.idx })}
           >
             <Dot />
@@ -86,11 +88,11 @@ export function SpeakerBar({
             variant="outline"
             size="xs"
             className={`${CHIP} border-dashed border-client-foreground/50 hover:bg-client`}
-            title="新建一个说话人，把选中的发言归到他名下"
+            title={t.captions.speakers.newSpeakerHint}
             onClick={() => setAdding("")}
           >
             <PlusIcon data-icon="inline-start" />
-            新说话人
+            {t.captions.speakers.newSpeaker}
           </Button>
         ) : (
           <span
@@ -101,8 +103,8 @@ export function SpeakerBar({
           >
             <Input
               className={NAME_INPUT}
-              aria-label="新说话人的名字"
-              placeholder="名字，回车确认"
+              aria-label={t.captions.speakers.newSpeakerName}
+              placeholder={t.captions.speakers.namePlaceholder}
               list="speaker-names"
               value={adding}
               maxLength={50}
@@ -123,7 +125,7 @@ export function SpeakerBar({
             </datalist>
             <MemberChoices
               names={nameSuggestions(members, speakers, null)}
-              label={(name) => `新建说话人「${name}」，把选中的发言归到他名下`}
+              label={t.captions.speakers.newSpeakerAs}
               onPick={(name) => {
                 setAdding(null);
                 onAssign({ newSpeaker: name });
@@ -133,7 +135,7 @@ export function SpeakerBar({
         )}
         <Button variant="ghost" size="xs" onClick={onClearSelection}>
           <XIcon data-icon="inline-start" />
-          取消选择
+          {t.captions.speakers.clearSelection}
         </Button>
       </div>
     );
@@ -152,8 +154,8 @@ export function SpeakerBar({
   };
 
   return (
-    <div className={ROW} role="group" aria-label="说话人">
-      <span className="text-xs text-muted-foreground">说话人</span>
+    <div className={ROW} role="group" aria-label={t.captions.speakers.label}>
+      <span className="text-xs text-muted-foreground">{t.captions.speakers.label}</span>
       {people.map((p) =>
         editing?.idx === p.idx ? (
           <span
@@ -166,7 +168,7 @@ export function SpeakerBar({
           >
             <Input
               className={NAME_INPUT}
-              aria-label={`给「${p.display_name}」改名`}
+              aria-label={t.captions.speakers.renameLabel(p.display_name)}
               list="speaker-names"
               value={editing.name}
               maxLength={50}
@@ -184,7 +186,7 @@ export function SpeakerBar({
             </datalist>
             <MemberChoices
               names={nameSuggestions(members, speakers, p.idx).filter((n) => n !== p.display_name)}
-              label={(name) => `把「${p.display_name}」改名为「${name}」`}
+              label={(name) => t.captions.speakers.renameTo(p.display_name, name)}
               onPick={(name) => {
                 setEditing(null);
                 onRename(p.idx, name);
@@ -193,7 +195,7 @@ export function SpeakerBar({
             {mergeTargets(speakers, p.idx).length > 0 && (
               <select
                 className="h-6 rounded-full border border-input bg-background px-2 text-xs text-foreground dark:bg-input/30"
-                aria-label={`把「${p.display_name}」合并到另一个说话人`}
+                aria-label={t.captions.speakers.mergeLabel(p.display_name)}
                 value=""
                 onChange={(event) => {
                   const into = Number(event.target.value);
@@ -202,14 +204,14 @@ export function SpeakerBar({
                   if (
                     target &&
                     window.confirm(
-                      `把「${p.display_name}」的全部发言都算到「${target.display_name}」名下吗？合并之后不能拆开。`,
+                      t.captions.speakers.mergeConfirm(p.display_name, target.display_name),
                     )
                   ) {
                     onMerge(p.idx, into);
                   }
                 }}
               >
-                <option value="">合并到…</option>
+                <option value="">{t.captions.speakers.mergeInto}</option>
                 {mergeTargets(speakers, p.idx).map((target) => (
                   <option key={target.idx} value={target.idx}>
                     {target.display_name}
@@ -224,7 +226,7 @@ export function SpeakerBar({
             variant="outline"
             size="xs"
             className={CHIP}
-            title="点击改名，或合并到另一个说话人"
+            title={t.captions.speakers.chipHint}
             onClick={() => setEditing({ idx: p.idx, name: p.display_name })}
           >
             <Dot />
@@ -249,9 +251,14 @@ function MemberChoices({
   label: (name: string) => string;
   onPick: (name: string) => void;
 }) {
+  const { t } = useI18n();
   if (names.length === 0) return null;
   return (
-    <span className="inline-flex flex-wrap gap-1" role="group" aria-label="成员名单">
+    <span
+      className="inline-flex flex-wrap gap-1"
+      role="group"
+      aria-label={t.captions.speakers.members}
+    >
       {names.map((name) => (
         <Button
           key={name}

@@ -13,6 +13,8 @@ import { SessionBanner } from "./components/SessionBanner.tsx";
 import { SessionList } from "./components/SessionList.tsx";
 import { SpeakerBar } from "./components/SpeakerBar.tsx";
 import { TaskPanel } from "./components/TaskPanel.tsx";
+import { unsupportedText } from "./browserSupport.ts";
+import { useI18n } from "./i18n/index.ts";
 import { pruneSelection } from "./selection.ts";
 import { sessionTitle } from "./sessionView.ts";
 import type { TimeBase } from "./timeline.ts";
@@ -24,6 +26,7 @@ interface Props {
 }
 
 export function App({ onLogout }: Props = {}) {
+  const { t, language } = useI18n();
   const meeting = useMeetingClient();
   const { client, state } = meeting;
   const [listOpen, setListOpen] = useState(false);
@@ -53,10 +56,10 @@ export function App({ onLogout }: Props = {}) {
     state.reconnectAttempt > 0;
 
   const emptyText = inMeeting
-    ? "会议已经开始，说的话会实时显示在这里。"
+    ? t.session.emptyCaptions.live
     : state.viewing
-      ? "这场会议还没有发言记录。"
-      : "点右上角的「开始新会议」，说话的内容会实时显示在这里。";
+      ? t.session.emptyCaptions.history
+      : t.session.emptyCaptions.none;
 
   return (
     <PipecatClientProvider client={client}>
@@ -81,7 +84,7 @@ export function App({ onLogout }: Props = {}) {
             className="mb-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
             role="alert"
           >
-            {meeting.unsupported}
+            {unsupportedText(t, meeting.unsupported)}
           </p>
         )}
         <AssistantAudio />
@@ -106,16 +109,16 @@ export function App({ onLogout }: Props = {}) {
               className="min-h-0 min-w-0 gap-0 overflow-hidden rounded-xl border bg-card [grid-area:captions]"
             >
               <div className="flex items-center gap-2 border-b px-4 py-2">
-                <TabsList aria-label="字幕和报告">
+                <TabsList aria-label={t.session.tabs.label}>
                   <TabsTrigger value="captions" className="px-3">
-                    字幕
+                    {t.session.tabs.captions}
                   </TabsTrigger>
                   <TabsTrigger value="report" className="px-3">
-                    报告
+                    {t.session.tabs.report}
                     {state.report?.status === "running" && (
                       <span
                         className="size-1.5 rounded-full bg-warning-foreground"
-                        aria-label="生成中"
+                        aria-label={t.session.tabs.generating}
                       />
                     )}
                   </TabsTrigger>
@@ -207,7 +210,7 @@ export function App({ onLogout }: Props = {}) {
         {presenting && state.viewing && (
           // 放在 Provider 里面：演示时助理的声音和音量条照常
           <PresentationView
-            title={sessionTitle(state.viewing)}
+            title={sessionTitle(t, language, state.viewing)}
             connection={state.connection}
             reconnectAttempt={state.reconnectAttempt}
             captions={state.captions}

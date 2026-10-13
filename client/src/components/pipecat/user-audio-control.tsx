@@ -31,6 +31,7 @@ import {
 import { Kbd } from "@/components/ui/kbd";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { useI18n, type Messages } from "../../i18n/index.ts";
 
 type ButtonProps = React.ComponentProps<typeof Button>;
 
@@ -244,7 +245,7 @@ export function UserAudioControlView({
   noModeSwitch = false,
   onMicEnabledChange,
   pttKey = "Backquote",
-  pttKeyLabel = "按 [key] 说话",
+  pttKeyLabel,
   debounceMs = 200,
   pttActiveOutline = true,
   onPttOn,
@@ -254,6 +255,7 @@ export function UserAudioControlView({
   className,
   children,
 }: UserAudioControlViewProps) {
+  const { t } = useI18n();
   const hasMics = !noMicrophones && (mics?.length ?? 0) > 0;
   const hasSpeakers = !noSpeakers && (speakers?.length ?? 0) > 0;
   const noDropdown = noDevicePicker || (noMicrophones && noSpeakers);
@@ -419,10 +421,10 @@ export function UserAudioControlView({
             !iconOnly
               ? undefined
               : isLoading
-                ? "麦克风准备中"
+                ? t.devices.micLoading
                 : typeof unavailableText === "string"
                   ? unavailableText
-                  : "麦克风不可用"
+                  : t.devices.micUnavailable
           }
           className={cn("grow", !iconOnly && "min-w-32")}
         >
@@ -442,7 +444,12 @@ export function UserAudioControlView({
             button doesn't collapse; it stays hidden for unavailable, which
             is a terminal state until permissions change. */}
         {isLoading && !noDropdown && (
-          <Button variant={variant} size={iconSize(size)} disabled aria-label="音频设备">
+          <Button
+            variant={variant}
+            size={iconSize(size)}
+            disabled
+            aria-label={t.devices.audioDevices}
+          >
             <ChevronDownIcon />
           </Button>
         )}
@@ -460,7 +467,13 @@ export function UserAudioControlView({
         data-mode={mode}
         aria-pressed={isMicEnabled}
         aria-label={
-          stateText ? undefined : isPtt ? "按住说话" : isMicEnabled ? "关闭麦克风" : "打开麦克风"
+          stateText
+            ? undefined
+            : isPtt
+              ? t.devices.pushToTalk
+              : isMicEnabled
+                ? t.devices.muteMic
+                : t.devices.unmuteMic
         }
         aria-keyshortcuts={isPtt && pttKey ? keyLabel(pttKey) : undefined}
         className={cn(
@@ -504,7 +517,10 @@ export function UserAudioControlView({
         {!noIcon && (isMicEnabled ? <MicIcon /> : <MicOffIcon />)}
         {stateText}
         {children}
-        {isPtt && !iconOnly && pttKey && pttKeyLabel && renderKeyHint(pttKeyLabel, pttKey)}
+        {isPtt &&
+          !iconOnly &&
+          pttKey &&
+          renderKeyHint(pttKeyLabel ?? t.devices.pushToTalkKey, pttKey)}
         {!noVisualizer && !iconOnly && (
           <AudioVisualizerBarView
             track={isMicEnabled ? audioTrack : null}
@@ -530,7 +546,7 @@ export function UserAudioControlView({
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
-              <Button variant={variant} size={iconSize(size)} aria-label="音频设备">
+              <Button variant={variant} size={iconSize(size)} aria-label={t.devices.audioDevices}>
                 <ChevronDownIcon />
               </Button>
             }
@@ -541,7 +557,7 @@ export function UserAudioControlView({
               <DropdownMenuGroup>
                 <DropdownMenuLabel className="text-muted-foreground flex items-center gap-1.5 text-xs">
                   <MicIcon className="size-3" />
-                  麦克风
+                  {t.devices.microphone}
                 </DropdownMenuLabel>
                 {mics!.map((device, index) => (
                   <DropdownMenuCheckboxItem
@@ -551,7 +567,7 @@ export function UserAudioControlView({
                       if (checked) onMicChange?.(device.deviceId);
                     }}
                   >
-                    {formatDeviceLabel(device, "麦克风")}
+                    {formatDeviceLabel(device, t.devices.microphone)}
                   </DropdownMenuCheckboxItem>
                 ))}
               </DropdownMenuGroup>
@@ -561,7 +577,7 @@ export function UserAudioControlView({
               <DropdownMenuGroup>
                 <DropdownMenuLabel className="text-muted-foreground flex items-center gap-1.5 text-xs">
                   <Volume2Icon className="size-3" />
-                  扬声器
+                  {t.devices.speaker}
                 </DropdownMenuLabel>
                 {speakers!.map((device, index) => (
                   <DropdownMenuCheckboxItem
@@ -571,7 +587,7 @@ export function UserAudioControlView({
                       if (checked) onSpeakerChange?.(device.deviceId);
                     }}
                   >
-                    {formatDeviceLabel(device, "扬声器")}
+                    {formatDeviceLabel(device, t.devices.speaker)}
                   </DropdownMenuCheckboxItem>
                 ))}
               </DropdownMenuGroup>
@@ -579,7 +595,7 @@ export function UserAudioControlView({
             {!hasMics && !hasSpeakers && (
               <DropdownMenuGroup>
                 <DropdownMenuLabel className="text-muted-foreground font-normal">
-                  没有找到设备
+                  {t.devices.noDevices}
                 </DropdownMenuLabel>
               </DropdownMenuGroup>
             )}
@@ -601,7 +617,7 @@ export function UserAudioControlView({
                       }
                     }}
                   >
-                    按住说话
+                    {t.devices.pushToTalk}
                     {/* Inert visual — the menu item handles the toggle. */}
                     <Switch checked={isPtt} tabIndex={-1} className="pointer-events-none ml-auto" />
                   </DropdownMenuItem>
@@ -616,19 +632,19 @@ export function UserAudioControlView({
 }
 
 /** Short, user-facing message for a mic device error. */
-function micErrorText(reason: DeviceErrorReason): string {
+function micErrorText(t: Messages, reason: DeviceErrorReason): string {
   switch (reason) {
     case "blocked":
-      return "麦克风被浏览器拦截";
+      return t.devices.micBlocked;
     case "already-in-use":
-      return "麦克风被占用";
+      return t.devices.micInUse;
     case "not-found":
-      return "没有麦克风";
+      return t.devices.micNotFound;
     case "not-supported":
-      return "浏览器不支持音频采集";
+      return t.devices.micNotSupported;
     case "unknown":
     default:
-      return "麦克风不可用";
+      return t.devices.micUnavailable;
   }
 }
 
@@ -687,9 +703,10 @@ export function UserAudioControl({
   // "uninitialized" is deliberately not treated as loading: it also covers
   // post-init setups where the transport didn't acquire the mic. In those
   // cases nothing is in flight, so the control just renders muted.
+  const { t } = useI18n();
   const { mic } = useMediaState();
   const isLoading = mic.state === "initializing";
-  const derivedUnavailable = mic.state === "error" ? micErrorText(mic.reason) : undefined;
+  const derivedUnavailable = mic.state === "error" ? micErrorText(t, mic.reason) : undefined;
 
   return (
     <PipecatClientMicToggle>

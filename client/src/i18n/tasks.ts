@@ -1,0 +1,73 @@
+import { defineMessages } from "./define.ts";
+
+/** 后台任务列表和任务详情 */
+export const tasks = defineMessages(
+  {
+    title: "后台任务",
+    statuses: {
+      queued: "排队中",
+      running: "进行中",
+      succeeded: "已完成",
+      failed: "失败",
+      cancelled: "已取消",
+    },
+    typed: "文字",
+    failedWith: (error: string) => `没办成：${error}`,
+    failed: "没办成",
+    queuedHint: "排队中，前面的任务做完就开始",
+    starting: "开始处理",
+    task: (label: string) => `任务 ${label}`,
+    loading: "正在读取…",
+    cancel: "取消任务",
+    detail: "详细结果",
+    artifacts: "产物文件",
+    sources: "来源",
+    progress: "进度",
+    progressTook: (duration: string) => `进度（用时 ${duration}）`,
+    duration: (minutes: number, seconds: number) =>
+      minutes > 0 ? `${minutes} 分 ${String(seconds).padStart(2, "0")} 秒` : `${seconds} 秒`,
+    outbound: "这次任务外发的内容",
+    sentTo: (host: string) => `发给了 ${host} 上的模型：`,
+    sentToAgent: "发给了后台模型：",
+    sentRange: (from: string, to: string) => `任务目标（上面那段话）、${from} 到 ${to} 的会议转录`,
+    withFrames: (n: number) => `，以及下面 ${n} 张屏幕截图。`,
+    withoutFrames: "，没有带屏幕截图。",
+    requestedBy: (who: string) => ` 交办人：${who}。`,
+    frameAlt: (time: string) => `${time} 的屏幕截图`,
+  },
+  {
+    title: "Background tasks",
+    statuses: {
+      queued: "Queued",
+      running: "Running",
+      succeeded: "Done",
+      failed: "Failed",
+      cancelled: "Cancelled",
+    },
+    typed: "Typed",
+    failedWith: (error: string) => `Failed: ${error}`,
+    failed: "Failed",
+    queuedHint: "Queued; starts when the earlier tasks finish",
+    starting: "Starting",
+    task: (label: string) => `Task ${label}`,
+    loading: "Loading…",
+    cancel: "Cancel task",
+    detail: "Full result",
+    artifacts: "Output files",
+    sources: "Sources",
+    progress: "Progress",
+    progressTook: (duration: string) => `Progress (took ${duration})`,
+    duration: (minutes: number, seconds: number) =>
+      minutes > 0 ? `${minutes} min ${String(seconds).padStart(2, "0")} s` : `${seconds} s`,
+    outbound: "What this task sent out",
+    sentTo: (host: string) => `Sent to the model on ${host}: `,
+    sentToAgent: "Sent to the background model: ",
+    sentRange: (from: string, to: string) =>
+      `the task goal (above) and the meeting transcript from ${from} to ${to}`,
+    withFrames: (n: number) =>
+      n === 1 ? ", plus the screenshot below." : `, plus the ${n} screenshots below.`,
+    withoutFrames: ", without screenshots.",
+    requestedBy: (who: string) => ` Requested by ${who}.`,
+    frameAlt: (time: string) => `Screenshot at ${time}`,
+  },
+);
