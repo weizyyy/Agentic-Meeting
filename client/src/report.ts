@@ -60,3 +60,41 @@ export function reportHeadline(report: ReportInfo | null): string {
       return `由${who}生成。`;
   }
 }
+
+/** 报告里的一段：列表的一条，或一行普通文字。 */
+export interface ReportBlock {
+  kind: "item" | "text";
+  text: string;
+}
+
+/** 报告的一节；第一个标题之前的文字归在没有标题的一节里。 */
+export interface ReportSection {
+  title: string | null;
+  blocks: ReportBlock[];
+}
+
+/**
+ * 把报告拆成小节，好按节排版。提示词只让模型用「## 」标题和「- 」列表两种标记（config/prompts/report.md），
+ * 这里也只认这两种（多几个 # 或用 * 开头的列表同样认）；别的行原样当文字，从不当 HTML 解释。
+ */
+export function parseReport(markdown: string): ReportSection[] {
+  const sections: ReportSection[] = [];
+  let current: ReportSection | null = null;
+  for (const raw of markdown.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const heading = /^#{1,6}\s+(.*)$/.exec(line);
+    if (heading) {
+      current = { title: heading[1].trim(), blocks: [] };
+      sections.push(current);
+      continue;
+    }
+    if (!current) {
+      current = { title: null, blocks: [] };
+      sections.push(current);
+    }
+    const item = /^[-*+]\s+(.*)$/.exec(line);
+    current.blocks.push(item ? { kind: "item", text: item[1] } : { kind: "text", text: line });
+  }
+  return sections;
+}

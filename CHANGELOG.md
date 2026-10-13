@@ -24,6 +24,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The meeting list, the delete confirmation, the access-password page and the remaining notices move
   to the new components. The meeting list slides in from the right, and deleting a meeting asks for
   confirmation in a dialog instead of the browser's own prompt.
+- The report is laid out section by section, with the action items as a checklist, instead of as
+  plain text. On a wide window a **会议资料** (Meeting materials) card beside it counts the
+  utterances, tasks and screenshots and links to the captions and the full archive.
 
 ### Changed
 

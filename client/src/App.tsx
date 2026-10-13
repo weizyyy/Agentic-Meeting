@@ -146,7 +146,10 @@ export function App({ onLogout }: Props = {}) {
                 <ReportPanel
                   session={state.viewing}
                   report={state.report}
+                  taskCount={state.tasks.length}
+                  frameCount={state.frames.length}
                   onGenerate={() => void meeting.generateReport()}
+                  onShowCaptions={() => setTab("captions")}
                 />
               </TabsContent>
             </Tabs>

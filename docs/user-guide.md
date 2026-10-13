@@ -151,8 +151,10 @@ Running code requires the Docker sandbox; without it the agent can still search 
 
 **Report.** After a meeting has ended or been interrupted, switch to the **报告** (Report) tab and
 click **生成报告** (Generate report). The report has six sections — summary, discussion points,
-decisions, action items, background tasks and a screenshot index — and can be downloaded as
-Markdown or regenerated.
+decisions, action items, background tasks and a screenshot index — shown section by section with
+the action items as a checklist, and can be downloaded as Markdown or regenerated. On a wide window a
+**会议资料** (Meeting materials) card next to the report counts the utterances, tasks and screenshots
+and links back to the captions and to the full archive.
 
 **Export.** **导出** (Export) next to the meeting title offers three downloads, also available while
 the meeting is live:
