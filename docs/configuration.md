@@ -210,7 +210,7 @@ Automatic input gain, applied before voice activity detection.
 | `min_interval_secs` | `2.0`            | Minimum time between change-triggered screenshots                                       |
 | `heartbeat_secs`    | `60.0`           | Screenshot interval when the picture is static                                          |
 | `max_side_px`       | `1920`           | Longest side of an uploaded screenshot                                                  |
-| `change_threshold`  | `0.04`           | How much the most-changed block of the thumbnail must differ (0–1) to count as a change |
+| `change_threshold`  | `0.5`            | How much the most-changed block of the thumbnail must differ (0–1) to count as a change |
 | `caption`           | `true`           | Generate a text summary for each new picture                                            |
 | `caption_provider`  | `"realtime_llm"` | Who writes the summaries: `"realtime_llm"` or `"agent_llm"`                             |
 

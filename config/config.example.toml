@@ -246,7 +246,7 @@ enabled = true
 min_interval_secs = 2.0
 heartbeat_secs = 60.0
 max_side_px = 1920
-change_threshold = 0.5     # 画面上变化最大的那一小块差多少算「变了」（0–1）；鼠标移动、时钟跳秒不该超过它
+change_threshold = 0.5      # 画面上变化最大的那一小块差多少算「变了」（0–1）；鼠标移动、时钟跳秒不该超过它
 caption = true
 caption_provider = "realtime_llm"   # 或 "agent_llm"（交给远端模型，省本地 GPU）
 

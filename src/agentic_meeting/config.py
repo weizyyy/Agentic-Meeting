@@ -467,7 +467,7 @@ class ScreenConfig(_Model):
     min_interval_secs: float = 2.0  # 画面变化触发的最小间隔
     heartbeat_secs: float = 60.0  # 画面不变时的兜底间隔
     max_side_px: int = 1920
-    change_threshold: float = Field(default=0.04, ge=0, le=1)
+    change_threshold: float = Field(default=0.5, ge=0, le=1)
     caption: bool = True  # 是否生成画面文字摘要
     caption_provider: Literal["realtime_llm", "agent_llm"] = "realtime_llm"
 

@@ -19,7 +19,7 @@ export const DEFAULT_SCREEN_CONFIG: ScreenConfig = {
   minIntervalSecs: 2,
   heartbeatSecs: 60,
   maxSidePx: 1920,
-  changeThreshold: 0.04,
+  changeThreshold: 0.5,
 };
 
 /** 判断画面变化用的缩略图尺寸（服务端用同样的尺寸再判一次）。 */

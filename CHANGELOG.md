@@ -12,10 +12,11 @@ This release completes the v0.4 milestone: the web client is redesigned on a des
 light and dark themes, is available in Chinese and English, works on phones and on a shared
 meeting-room display, and can be used with a keyboard and a screen reader.
 
-Upgrading from 0.3.0: nothing to change in the configuration. The task and report tables each gain
-two columns for translated failure reasons, added automatically on start. Firefox 128 is now the
-oldest supported Firefox. The server's messages keep their Chinese text, so other clients keep
-working.
+Upgrading from 0.3.0: no configuration change is required, but `screen.change_threshold` now
+defaults to 0.5 instead of 0.04, so fewer screenshots count as changed. The task and report tables
+each gain two columns for translated failure reasons, added automatically on start. Firefox 128 is
+now the oldest supported Firefox. The server's messages keep their Chinese text, so other clients
+keep working.
 
 ### Added
 
@@ -73,8 +74,10 @@ working.
 - The microphone level meter and its quiet-input chip in the top bar are replaced by the bars on
   the microphone button. A microphone that stays too quiet is still reported by the server's notice
   ([#58]).
-- The example configuration sets `screen.change_threshold` to 0.5 ([#64]). The built-in default
-  stays 0.04.
+- `screen.change_threshold` defaults to 0.5 (was 0.04), in the built-in default, the example
+  configuration and the page's own fallback ([#64]). Only larger changes on a shared screen count
+  as a new picture, so the timeline and the assistant's context collect fewer screenshots; set it
+  back to 0.04 to keep the old behavior.
 
 ### Removed
 

@@ -204,7 +204,7 @@ ice_servers = [
 | `min_interval_secs` | `2.0`            | 由画面变化触发的截图之间的最小间隔                    |
 | `heartbeat_secs`    | `60.0`           | 画面静止时的截图间隔                                  |
 | `max_side_px`       | `1920`           | 上传截图的最长边                                      |
-| `change_threshold`  | `0.04`           | 缩略图中变化最大的小块相差多少（0–1）才算画面发生变化 |
+| `change_threshold`  | `0.5`            | 缩略图中变化最大的小块相差多少（0–1）才算画面发生变化 |
 | `caption`           | `true`           | 为每个新画面生成文字摘要                              |
 | `caption_provider`  | `"realtime_llm"` | 画面摘要由谁生成：`"realtime_llm"` 或 `"agent_llm"`   |
 
