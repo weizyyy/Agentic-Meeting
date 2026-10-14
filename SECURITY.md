@@ -6,8 +6,8 @@ Security fixes are applied to the latest release only.
 
 | Version | Supported |
 | ------- | --------- |
-| 0.3.x   | Yes       |
-| < 0.3   | No        |
+| 0.4.x   | Yes       |
+| < 0.4   | No        |
 
 ## Reporting a vulnerability
 
@@ -53,8 +53,8 @@ Agentic-Meeting is designed for a trusted local network.
 
 | 版本  | 是否支持 |
 | ----- | -------- |
-| 0.3.x | 是       |
-| < 0.3 | 否       |
+| 0.4.x | 是       |
+| < 0.4 | 否       |
 
 ## 报告漏洞
 

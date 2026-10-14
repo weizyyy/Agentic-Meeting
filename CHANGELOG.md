@@ -6,71 +6,100 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-14
+
+This release completes the v0.4 milestone: the web client is redesigned on a design system with
+light and dark themes, is available in Chinese and English, works on phones and on a shared
+meeting-room display, and can be used with a keyboard and a screen reader.
+
+Upgrading from 0.3.0: nothing to change in the configuration. The task and report tables each gain
+two columns for translated failure reasons, added automatically on start. Firefox 128 is now the
+oldest supported Firefox. The server's messages keep their Chinese text, so other clients keep
+working.
+
 ### Added
 
-- The web client is rebuilt on Tailwind CSS 4, shadcn components and [Pipecat UI](https://ui.pipecat.ai),
-  starting with the top bar: connection status, a theme menu (follow system, light or dark), and
-  Pipecat's microphone control, which mutes and unmutes and picks the microphone and speaker. The
-  rest of the page takes the same colors and themes and moves to the new components in later
-  releases.
-- The meeting title, speakers and captions move to the new components. The title row has
-  **保留** (Keep) and an **导出** (Export) menu; each caption puts the speaker and times on one line
-  above the text, assistant answers are tinted, and **跟随最新** (Follow latest) appears while you
-  scroll back through earlier captions.
-- The assistant, background tasks and screen panels move to the new components. The screen panel
-  now sits under the captions; the assistant shows its state with Pipecat's voice bars, tasks show a
-  status icon, and task details and enlarged screenshots open in dialogs, with **上一张** (Previous)
-  and **下一张** (Next) buttons next to the arrow keys.
-- The meeting list, the delete confirmation, the access-password page and the remaining notices move
-  to the new components. The meeting list slides in from the right, and deleting a meeting asks for
-  confirmation in a dialog instead of the browser's own prompt.
+- The web client is rebuilt on Tailwind CSS 4, shadcn components and
+  [Pipecat UI](https://ui.pipecat.ai) ([#58], [#61], [#65], [#66]). A theme menu in the top bar follows the system or picks light or
+  dark, and Pipecat's microphone control mutes and unmutes and picks the microphone and speaker.
+  The title row has **保留** (Keep) and an **导出** (Export) menu; each caption puts the speaker
+  and times on one line above the text, assistant answers are tinted, and **跟随最新** (Follow
+  latest) appears while you scroll back. The screen panel sits under the captions, the assistant
+  shows its state with Pipecat's voice bars, and task details and enlarged screenshots open in
+  dialogs, with **上一张** (Previous) and **下一张** (Next) buttons next to the arrow keys. The
+  meeting list slides in from the right, and deleting a meeting asks for confirmation in a dialog
+  instead of the browser's own prompt.
 - The report is laid out section by section, with the action items as a checklist, instead of as
   plain text. On a wide window a **会议资料** (Meeting materials) card beside it counts the
-  utterances, tasks and screenshots and links to the captions and the full archive.
+  utterances, tasks and screenshots and links to the captions and the full archive ([#67]).
+- **演示模式** (Presentation mode) in the top bar shows the meeting full screen for a shared
+  meeting-room display: dark, with the last three captions in large type and the assistant's state
+  and answer. `Esc` returns to the workspace ([#68]).
 - The interface is available in Chinese and English. It follows the browser's language by default,
   and the language button in the top bar switches it on the spot without interrupting the meeting;
-  dates and numbers follow the chosen language. Notices the server sends during a meeting (a
-  service is unavailable, a typed message is queued, the meeting is being transcribed) and errors
-  from server requests (a wrong password, a screenshot that is too large) follow it too, and so do
-  the reasons a background task or report failed.
+  dates and numbers follow the chosen language ([#69]). Notices the server sends during a meeting
+  (a service is unavailable, a typed message is queued, the meeting is being transcribed), errors
+  from server requests (a wrong password, a screenshot that is too large) and the reasons a
+  background task or report failed follow it too ([#70], [#71], [#72]). Browser console messages
+  and command-line output stay in Chinese.
 - On a phone the meeting page splits into **字幕** (Captions), **助理** (Assistant), **任务**
   (Tasks) and **画面** (Screen) tabs, and the top bar shrinks to icons. The page can be added to the
   home screen and opens there without the browser's address bar. Phone browsers cannot share the
-  screen, so the share button is left out there.
+  screen, so the share button is left out there ([#73]).
 - A device following a meeting without holding the connection, such as a phone, can type questions
   to the assistant. They join the same queue as questions typed on the meeting's own page, and the
-  answer appears in the captions. The follower view now also refreshes background tasks.
+  answer appears in the captions. The follower view now also refreshes background tasks ([#74]).
 - Recording from a phone keeps the screen on where the browser allows it, and a yellow line under
   the tabs says that locking the phone or switching away can cut off the recording. When the
   system stopped the microphone for a few seconds or more, a notice says for how long. The user
-  guide lists what each phone browser can do.
-- **演示模式** (Presentation mode) in the top bar shows the meeting full screen for a shared
-  meeting-room display: dark, with the last three captions in large type and the assistant's state
-  and answer. `Esc` returns to the workspace.
+  guide lists what each phone browser can do ([#75]).
 - The page works better with a keyboard and screen readers. Text and controls meet the WCAG AA
   contrast ratio in both themes, the caption area shows a focus ring and scrolls with the arrow
   keys, new notices and answers to typed questions are announced, presentation mode hides the page
   behind it from screen readers and the keyboard, and animations are skipped when the system asks
-  for reduced motion.
+  for reduced motion ([#77]).
+- The README shows the redesigned page on a desktop, in presentation mode and on a phone ([#76]).
 
 ### Changed
 
 - Firefox 128 is now the oldest supported Firefox (was 114), because the stylesheet uses features
-  it added. Chrome, Edge and Safari minimums are unchanged.
+  it added. Chrome, Edge and Safari minimums are unchanged ([#58]).
 - The `notice` data-channel message carries a `code` and `params` next to its Chinese `text`, so the
   page can show it in its own language. Error responses from `/api` likewise carry `code` and
   `params` next to `error`. Tasks and reports (`/api/tasks`, the `task` message,
   `/api/sessions/{id}/report`) carry `error_code` and `error_params` next to their failure reason
   `error`, and the database gains the matching columns, added on start. Clients that only read
-  `text` or `error` keep working.
+  `text` or `error` keep working ([#70], [#71], [#72]).
 - The microphone level meter and its quiet-input chip in the top bar are replaced by the bars on
-  the microphone button. A microphone that stays too quiet is still reported by the server's notice.
+  the microphone button. A microphone that stays too quiet is still reported by the server's notice
+  ([#58]).
+- The example configuration sets `screen.change_threshold` to 0.5 ([#64]). The built-in default
+  stays 0.04.
 
 ### Removed
 
 - The Playwright browser end-to-end tests, their test server and the _Browser end-to-end_ CI job.
   In 14 failed runs they caught one product defect; the other 13 were problems in the tests
-  themselves, and the job was the slowest in CI. Server behavior stays covered by `tests/e2e/`.
+  themselves, and the job was the slowest in CI. Server behavior stays covered by `tests/e2e/`
+  ([#63]).
+
+[#58]: https://github.com/weizyyy/Agentic-Meeting/pull/58
+[#61]: https://github.com/weizyyy/Agentic-Meeting/pull/61
+[#63]: https://github.com/weizyyy/Agentic-Meeting/pull/63
+[#64]: https://github.com/weizyyy/Agentic-Meeting/pull/64
+[#65]: https://github.com/weizyyy/Agentic-Meeting/pull/65
+[#66]: https://github.com/weizyyy/Agentic-Meeting/pull/66
+[#67]: https://github.com/weizyyy/Agentic-Meeting/pull/67
+[#68]: https://github.com/weizyyy/Agentic-Meeting/pull/68
+[#69]: https://github.com/weizyyy/Agentic-Meeting/pull/69
+[#70]: https://github.com/weizyyy/Agentic-Meeting/pull/70
+[#71]: https://github.com/weizyyy/Agentic-Meeting/pull/71
+[#72]: https://github.com/weizyyy/Agentic-Meeting/pull/72
+[#73]: https://github.com/weizyyy/Agentic-Meeting/pull/73
+[#74]: https://github.com/weizyyy/Agentic-Meeting/pull/74
+[#75]: https://github.com/weizyyy/Agentic-Meeting/pull/75
+[#76]: https://github.com/weizyyy/Agentic-Meeting/pull/76
+[#77]: https://github.com/weizyyy/Agentic-Meeting/pull/77
 
 ## [0.3.0] - 2026-10-12
 
@@ -318,7 +347,8 @@ First public release.
 - The longest continuous run tested is 54 minutes.
 - The web UI, prompts and CLI messages are available in Chinese only.
 
-[Unreleased]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/weizyyy/Agentic-Meeting/compare/v0.1.1...v0.2.0

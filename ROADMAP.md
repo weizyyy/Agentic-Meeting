@@ -34,13 +34,13 @@ Verify the system beyond the platform it was developed on and make it easier to 
 
 ## [v0.4 – Frontend redesign](https://github.com/weizyyy/Agentic-Meeting/milestone/3)
 
-Rebuild the web client and open it to more languages and devices.
+Rebuild the web client and open it to more languages and devices. **Released in [0.4.0](CHANGELOG.md#040---2026-10-14).**
 
-| Item                                                                   | Issue                                                       |
-| ---------------------------------------------------------------------- | ----------------------------------------------------------- |
-| Redesign on a design system: themes, responsive layouts, accessibility | [#18](https://github.com/weizyyy/Agentic-Meeting/issues/18) |
-| Interface translations, starting with Chinese and English              | [#19](https://github.com/weizyyy/Agentic-Meeting/issues/19) |
-| Phones as companion devices on Android and iOS                         | [#20](https://github.com/weizyyy/Agentic-Meeting/issues/20) |
+| Item                                                                                   | Issue                                                       |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Redesign on a design system: themes, responsive layouts, accessibility (done in 0.4.0) | [#18](https://github.com/weizyyy/Agentic-Meeting/issues/18) |
+| Interface translations, starting with Chinese and English (done in 0.4.0)              | [#19](https://github.com/weizyyy/Agentic-Meeting/issues/19) |
+| Phones as companion devices on Android and iOS (done in 0.4.0)                         | [#20](https://github.com/weizyyy/Agentic-Meeting/issues/20) |
 
 ## [v0.5 – Multi-user and parallel meetings](https://github.com/weizyyy/Agentic-Meeting/milestone/4)
 

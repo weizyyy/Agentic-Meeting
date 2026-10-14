@@ -213,12 +213,11 @@ Full results and methodology are in [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Project status
 
-The current release is 0.3.0. The project is at an early stage and changes quickly.
+The current release is 0.4.0. The project is at an early stage and changes quickly.
 
 - Verified with real models on Windows 11 with NVIDIA GPUs. The automated end-to-end tests, which
-  run the whole application with fake inference services, pass on Windows and Linux, and the web
-  client is tested in Chromium, Firefox and WebKit. On macOS the web client has been checked by hand
-  in Chrome, Edge, Firefox and Safari.
+  run the whole application with fake inference services, pass on Windows and Linux. On macOS the
+  web client has been checked by hand in Chrome, Edge, Firefox and Safari.
 - The longest continuous run tested so far is 54 minutes.
 - Latency figures were measured with the realtime LLM behind an OpenAI-compatible endpoint; the
   llama.cpp deployment mode is covered by the end-to-end tests.
@@ -229,10 +228,10 @@ See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 Version 0.2 added an access password, deployment guidance, health endpoints and data retention;
 0.2.1 added container images and clearer messages when a browser cannot hold a meeting; 0.3.0
-completed desktop browser compatibility and added a GPU memory estimate to `agentic-meeting check`.
-Planned next, in order: a redesigned and translated web client; live watching, per-meeting access
-and parallel meetings. Lower GPU memory requirements remain a long-term goal. See
-[ROADMAP.md](ROADMAP.md).
+completed desktop browser compatibility and added a GPU memory estimate to `agentic-meeting check`;
+0.4.0 redesigned the web client, translated it into English and made it usable on phones. Planned
+next: live watching, per-meeting access and parallel meetings. Lower GPU memory requirements remain
+a long-term goal. See [ROADMAP.md](ROADMAP.md).
 
 ## Contributing
 

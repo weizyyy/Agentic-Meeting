@@ -90,7 +90,7 @@ Compose 从 `.env` 读取的变量：
 | `TTS_MODEL`、`TTS_CODEC`、`TTS_LANGUAGE`                                              | —、—、`Chinese`             | talker 和 codec 的 GGUF，`tts.launch.default_language`        |
 | `EMBEDDING_MODEL`、`EMBEDDING_POOLING`                                                | —、`last`                   | 嵌入模型 GGUF 及其池化方式                                    |
 | `AGENTIC_MEETING_UID`、`AGENTIC_MEETING_GID`                                          | `1000`                      | 应用容器里的用户                                              |
-| `AGENTIC_MEETING_TAG`、`AGENTIC_MEETING_TTS_TAG`                                      | `cpu`，或叠加文件对应的版本 | 镜像标签，例如 `0.3.0-cuda` 可固定在某个发布版本              |
+| `AGENTIC_MEETING_TAG`、`AGENTIC_MEETING_TTS_TAG`                                      | `cpu`，或叠加文件对应的版本 | 镜像标签，例如 `0.4.0-cuda` 可固定在某个发布版本              |
 | `LLAMA_SERVER_TAG`、`LLAMA_SERVER_CUDA_TAG`、`LLAMA_SERVER_VULKAN_TAG`                | 锁定的构建号                | llama.cpp 镜像的标签                                          |
 
 用 `-a`、`--alias` 传的请求名 `realtime`、`tts`、`embedding` 与 `realtime_llm.llama_server.model`、`tts.model`、

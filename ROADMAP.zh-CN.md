@@ -32,13 +32,13 @@
 
 ## [v0.4 – 前端重构](https://github.com/weizyyy/Agentic-Meeting/milestone/3)
 
-重做网页客户端，并支持更多语言和设备。
+重做网页客户端，并支持更多语言和设备。**已在 [0.4.0](CHANGELOG.md#040---2026-10-14) 发布。**
 
-| 事项                                           | 议题                                                        |
-| ---------------------------------------------- | ----------------------------------------------------------- |
-| 基于设计规范重新设计：主题、响应式布局、无障碍 | [#18](https://github.com/weizyyy/Agentic-Meeting/issues/18) |
-| 界面多语言，首批为中文和英文                   | [#19](https://github.com/weizyyy/Agentic-Meeting/issues/19) |
-| Android 与 iOS 手机作为辅助设备                | [#20](https://github.com/weizyyy/Agentic-Meeting/issues/20) |
+| 事项                                                              | 议题                                                        |
+| ----------------------------------------------------------------- | ----------------------------------------------------------- |
+| 基于设计规范重新设计：主题、响应式布局、无障碍（已在 0.4.0 完成） | [#18](https://github.com/weizyyy/Agentic-Meeting/issues/18) |
+| 界面多语言，首批为中文和英文（已在 0.4.0 完成）                   | [#19](https://github.com/weizyyy/Agentic-Meeting/issues/19) |
+| Android 与 iOS 手机作为辅助设备（已在 0.4.0 完成）                | [#20](https://github.com/weizyyy/Agentic-Meeting/issues/20) |
 
 ## [v0.5 – 多用户与并行会议](https://github.com/weizyyy/Agentic-Meeting/milestone/4)
 
