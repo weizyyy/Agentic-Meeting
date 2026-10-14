@@ -80,202 +80,203 @@ export function App({ onLogout }: Props = {}) {
   return (
     <PipecatClientProvider client={client}>
       <div className="app">
-        <ControlBar
-          connection={state.connection}
-          reconnectAttempt={state.reconnectAttempt}
-          closedReason={state.closedReason}
-          listOpen={listOpen}
-          onToggleList={() => {
-            setListOpen((open) => !open);
-            void meeting.refreshSessions();
-          }}
-          canStart={meeting.unsupported === null}
-          onStart={() => void meeting.start()}
-          onStop={() => void meeting.stop()}
-          onPresent={state.viewing ? () => setPresenting(true) : undefined}
-          onLogout={onLogout}
-        />
-        {meeting.unsupported && (
-          <p
-            className="mb-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            role="alert"
-          >
-            {unsupportedText(t, meeting.unsupported)}
-          </p>
-        )}
-        <AssistantAudio />
-        {state.connection === "connected" && (
-          // 手机上录音的限制（docs/user-guide.md「手机上」）；宽屏的电脑没有这个问题
-          <p
-            className="mb-3 flex items-start gap-2 rounded-lg bg-warning px-3 py-2 text-sm text-warning-foreground md:hidden"
-            role="note"
-          >
-            <TriangleAlertIcon aria-hidden className="mt-0.5 size-4 shrink-0" />
-            {meeting.keepAwake === "held"
-              ? t.session.phoneRecording.held
-              : t.session.phoneRecording.notHeld}
-          </p>
-        )}
-        <SessionBanner
-          session={state.viewing}
-          connection={state.connection}
-          reconnectAttempt={state.reconnectAttempt}
-          watching={meeting.watching}
-          keepPending={meeting.keepPending.has(state.viewing?.id ?? "")}
-          onKeep={(id, keep) => void meeting.keepSession(id, keep)}
-          onRename={(id, title) => void meeting.renameSession(id, title)}
-          onResume={(id) => void meeting.resume(id)}
-          onStart={() => void meeting.start()}
-        />
-        {!state.viewing?.deletion_pending && (
-          // 手机上分页：字幕、助理、任务、画面，一次一块占满下面的高度
-          <Tabs
-            value={section}
-            onValueChange={(value: Section) => setSection(value)}
-            className="mb-3 md:hidden"
-          >
-            <TabsList aria-label={t.session.sections.label} className="w-full">
-              <TabsTrigger value="captions">{t.session.sections.captions}</TabsTrigger>
-              <TabsTrigger value="assistant">
-                {t.session.sections.assistant}
-                {state.notices.length > 0 && (
-                  <span
-                    className="size-1.5 rounded-full bg-warning-foreground"
-                    aria-label={t.session.sections.notices(state.notices.length)}
-                  />
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="tasks">
-                {t.session.sections.tasks}
-                {unfinishedTasks > 0 && (
-                  <span
-                    className="rounded-full bg-agent px-1.5 text-xs text-agent-foreground tabular-nums"
-                    aria-label={t.session.sections.active(unfinishedTasks)}
-                  >
-                    {unfinishedTasks}
-                  </span>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="screen">{t.session.sections.screen}</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        )}
-        {!state.viewing?.deletion_pending && (
-          // 宽屏两列：左边字幕（报告）在上、屏幕在下，右边助理和后台任务；
-          // 手机上只显示当前分页的那一块
-          <main className="flex min-h-0 flex-1 flex-col gap-4 md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,360px)] md:grid-rows-[minmax(0,1fr)_auto] md:[grid-template-areas:'captions_side'_'screen_side']">
-            <Tabs
-              value={tab}
-              onValueChange={(value: "captions" | "report") => setTab(value)}
-              className={`min-h-0 min-w-0 flex-1 gap-0 overflow-hidden rounded-xl border bg-card [grid-area:captions] ${shownOn("captions", section)}`}
+        {/* 演示时整个工作区不可交互、读屏软件也跳过，只剩演示视图（它是模态的） */}
+        <div className="contents" inert={presenting}>
+          <ControlBar
+            connection={state.connection}
+            reconnectAttempt={state.reconnectAttempt}
+            closedReason={state.closedReason}
+            listOpen={listOpen}
+            onToggleList={() => {
+              setListOpen((open) => !open);
+              void meeting.refreshSessions();
+            }}
+            canStart={meeting.unsupported === null}
+            onStart={() => void meeting.start()}
+            onStop={() => void meeting.stop()}
+            onPresent={state.viewing ? () => setPresenting(true) : undefined}
+            onLogout={onLogout}
+          />
+          {meeting.unsupported && (
+            <p
+              className="mb-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              role="alert"
             >
-              <div className="flex items-center gap-2 border-b px-4 py-2">
-                <TabsList aria-label={t.session.tabs.label}>
-                  <TabsTrigger value="captions" className="px-3">
-                    {t.session.tabs.captions}
-                  </TabsTrigger>
-                  <TabsTrigger value="report" className="px-3">
-                    {t.session.tabs.report}
-                    {state.report?.status === "running" && (
+              {unsupportedText(t, meeting.unsupported)}
+            </p>
+          )}
+          <AssistantAudio />
+          <SessionBanner
+            session={state.viewing}
+            connection={state.connection}
+            reconnectAttempt={state.reconnectAttempt}
+            watching={meeting.watching}
+            keepPending={meeting.keepPending.has(state.viewing?.id ?? "")}
+            onKeep={(id, keep) => void meeting.keepSession(id, keep)}
+            onRename={(id, title) => void meeting.renameSession(id, title)}
+            onResume={(id) => void meeting.resume(id)}
+            onStart={() => void meeting.start()}
+          />
+          {!state.viewing?.deletion_pending && (
+            // 宽屏两列：左边字幕（报告）在上、屏幕在下，右边助理和后台任务；
+            // 手机上只显示当前分页的那一块
+            <main className="flex min-h-0 flex-1 flex-col gap-4 md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,360px)] md:grid-rows-[minmax(0,1fr)_auto] md:[grid-template-areas:'captions_side'_'screen_side']">
+              {/* 手机上分页：字幕、助理、任务、画面，一次一块占满下面的高度 */}
+              <Tabs
+                value={section}
+                onValueChange={(value: Section) => setSection(value)}
+                className="md:hidden"
+              >
+                <TabsList aria-label={t.session.sections.label} className="w-full">
+                  <TabsTrigger value="captions">{t.session.sections.captions}</TabsTrigger>
+                  <TabsTrigger value="assistant">
+                    {t.session.sections.assistant}
+                    {state.notices.length > 0 && (
                       <span
                         className="size-1.5 rounded-full bg-warning-foreground"
-                        aria-label={t.session.tabs.generating}
+                        aria-label={t.session.sections.notices(state.notices.length)}
                       />
                     )}
                   </TabsTrigger>
+                  <TabsTrigger value="tasks">
+                    {t.session.sections.tasks}
+                    {unfinishedTasks > 0 && (
+                      <span
+                        className="rounded-full bg-agent px-1.5 text-xs text-agent-foreground tabular-nums"
+                        aria-label={t.session.sections.active(unfinishedTasks)}
+                      >
+                        {unfinishedTasks}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="screen">{t.session.sections.screen}</TabsTrigger>
                 </TabsList>
+              </Tabs>
+              {state.connection === "connected" && (
+                // 手机上录音的限制（docs/user-guide.md「手机上」）；宽屏的电脑没有这个问题
+                <p
+                  className="flex items-start gap-2 rounded-lg bg-warning px-3 py-2 text-sm text-warning-foreground md:hidden"
+                  role="note"
+                >
+                  <TriangleAlertIcon aria-hidden className="mt-0.5 size-4 shrink-0" />
+                  {meeting.keepAwake === "held"
+                    ? t.session.phoneRecording.held
+                    : t.session.phoneRecording.notHeld}
+                </p>
+              )}
+              <Tabs
+                value={tab}
+                onValueChange={(value: "captions" | "report") => setTab(value)}
+                className={`min-h-0 min-w-0 flex-1 gap-0 overflow-hidden rounded-xl border bg-card [grid-area:captions] ${shownOn("captions", section)}`}
+              >
+                <div className="flex items-center gap-2 border-b px-4 py-2">
+                  <TabsList aria-label={t.session.tabs.label}>
+                    <TabsTrigger value="captions" className="px-3">
+                      {t.session.tabs.captions}
+                    </TabsTrigger>
+                    <TabsTrigger value="report" className="px-3">
+                      {t.session.tabs.report}
+                      {state.report?.status === "running" && (
+                        <span
+                          className="size-1.5 rounded-full bg-warning-foreground"
+                          aria-label={t.session.tabs.generating}
+                        />
+                      )}
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+                <TabsContent value="captions" className="flex min-h-0 flex-col" tabIndex={-1}>
+                  <SpeakerBar
+                    speakers={state.speakers}
+                    members={state.members}
+                    onRename={(idx, name) => void meeting.renameSpeaker(idx, name)}
+                    onMerge={(idx, into) => void meeting.mergeSpeakers(idx, into)}
+                    selectedCount={selected.size}
+                    onAssign={(target) => {
+                      void meeting.assignSpeaker([...selected], target).then((done) => {
+                        if (done) setSelected(new Set());
+                      });
+                    }}
+                    onClearSelection={() => setSelected(new Set())}
+                  />
+                  <CaptionList
+                    lines={state.captions}
+                    hasOlder={state.hasOlder}
+                    connections={state.connections}
+                    emptyText={emptyText}
+                    onLoadOlder={() => void meeting.loadOlder()}
+                    timeBase={timeBase}
+                    selected={selected}
+                    onSelect={setSelected}
+                  />
+                </TabsContent>
+                <TabsContent value="report" className="flex min-h-0 flex-col" tabIndex={-1}>
+                  <ReportPanel
+                    session={state.viewing}
+                    report={state.report}
+                    taskCount={state.tasks.length}
+                    frameCount={state.frames.length}
+                    onGenerate={() => void meeting.generateReport()}
+                    onShowCaptions={() => setTab("captions")}
+                  />
+                </TabsContent>
+              </Tabs>
+              <div
+                className={`flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto [grid-area:side] ${section === "assistant" || section === "tasks" ? "" : "max-md:hidden"}`}
+              >
+                <div className={`flex flex-1 flex-col ${shownOn("assistant", section)}`}>
+                  <AssistantPanel
+                    state={state.assistantState}
+                    text={state.assistantText}
+                    replyMode={state.replyMode}
+                    notices={state.notices}
+                    canSend={state.connection === "connected" || meeting.watching}
+                    watching={meeting.watching}
+                    onSend={meeting.sendText}
+                    onDismissNotice={meeting.dismissNotice}
+                  />
+                </div>
+                <div className={`contents ${shownOn("tasks", section)}`}>
+                  <TaskPanel
+                    tasks={state.tasks}
+                    onLoad={meeting.loadTask}
+                    onCancel={(id) => void meeting.cancelTask(id)}
+                  />
+                </div>
               </div>
-              <TabsContent value="captions" className="flex min-h-0 flex-col">
-                <SpeakerBar
-                  speakers={state.speakers}
-                  members={state.members}
-                  onRename={(idx, name) => void meeting.renameSpeaker(idx, name)}
-                  onMerge={(idx, into) => void meeting.mergeSpeakers(idx, into)}
-                  selectedCount={selected.size}
-                  onAssign={(target) => {
-                    void meeting.assignSpeaker([...selected], target).then((done) => {
-                      if (done) setSelected(new Set());
-                    });
-                  }}
-                  onClearSelection={() => setSelected(new Set())}
-                />
-                <CaptionList
-                  lines={state.captions}
-                  hasOlder={state.hasOlder}
-                  connections={state.connections}
-                  emptyText={emptyText}
-                  onLoadOlder={() => void meeting.loadOlder()}
+              <div className={`min-w-0 [grid-area:screen] ${shownOn("screen", section)}`}>
+                <FrameTimeline
+                  frames={state.frames}
                   timeBase={timeBase}
-                  selected={selected}
-                  onSelect={setSelected}
-                />
-              </TabsContent>
-              <TabsContent value="report" className="flex min-h-0 flex-col">
-                <ReportPanel
-                  session={state.viewing}
-                  report={state.report}
-                  taskCount={state.tasks.length}
-                  frameCount={state.frames.length}
-                  onGenerate={() => void meeting.generateReport()}
-                  onShowCaptions={() => setTab("captions")}
-                />
-              </TabsContent>
-            </Tabs>
-            <div
-              className={`flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto [grid-area:side] ${section === "assistant" || section === "tasks" ? "" : "max-md:hidden"}`}
-            >
-              <div className={`flex flex-1 flex-col ${shownOn("assistant", section)}`}>
-                <AssistantPanel
-                  state={state.assistantState}
-                  text={state.assistantText}
-                  replyMode={state.replyMode}
-                  notices={state.notices}
-                  canSend={state.connection === "connected" || meeting.watching}
-                  watching={meeting.watching}
-                  onSend={meeting.sendText}
-                  onDismissNotice={meeting.dismissNotice}
+                  sharing={state.sharing}
+                  canShare={state.connection === "connected" && state.screen.enabled}
+                  shareSupported={SHARE_SUPPORTED}
+                  onStart={() => void meeting.startScreenShare()}
+                  onStop={meeting.stopScreenShare}
                 />
               </div>
-              <div className={`contents ${shownOn("tasks", section)}`}>
-                <TaskPanel
-                  tasks={state.tasks}
-                  onLoad={meeting.loadTask}
-                  onCancel={(id) => void meeting.cancelTask(id)}
-                />
-              </div>
-            </div>
-            <div className={`min-w-0 [grid-area:screen] ${shownOn("screen", section)}`}>
-              <FrameTimeline
-                frames={state.frames}
-                timeBase={timeBase}
-                sharing={state.sharing}
-                canShare={state.connection === "connected" && state.screen.enabled}
-                shareSupported={SHARE_SUPPORTED}
-                onStart={() => void meeting.startScreenShare()}
-                onStop={meeting.stopScreenShare}
-              />
-            </div>
-          </main>
-        )}
-        <SessionList
-          open={listOpen}
-          sessions={state.sessions}
-          viewingId={state.viewing?.id ?? null}
-          locked={inMeeting}
-          onSelect={(id) => {
-            void meeting.selectSession(id);
-            setListOpen(false);
-          }}
-          onResume={(id) => {
-            void meeting.resume(id);
-            setListOpen(false);
-          }}
-          onRename={(id, title) => void meeting.renameSession(id, title)}
-          keepPending={meeting.keepPending}
-          onKeep={(id, keep) => void meeting.keepSession(id, keep)}
-          onDelete={(id) => void meeting.deleteSession(id)}
-          onClose={() => setListOpen(false)}
-        />
+            </main>
+          )}
+          <SessionList
+            open={listOpen}
+            sessions={state.sessions}
+            viewingId={state.viewing?.id ?? null}
+            locked={inMeeting}
+            onSelect={(id) => {
+              void meeting.selectSession(id);
+              setListOpen(false);
+            }}
+            onResume={(id) => {
+              void meeting.resume(id);
+              setListOpen(false);
+            }}
+            onRename={(id, title) => void meeting.renameSession(id, title)}
+            keepPending={meeting.keepPending}
+            onKeep={(id, keep) => void meeting.keepSession(id, keep)}
+            onDelete={(id) => void meeting.deleteSession(id)}
+            onClose={() => setListOpen(false)}
+          />
+        </div>
         {presenting && state.viewing && (
           // 放在 Provider 里面：演示时助理的声音和音量条照常
           <PresentationView

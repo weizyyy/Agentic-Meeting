@@ -144,8 +144,10 @@ export function CaptionList({
 
   return (
     <section className="relative flex min-h-0 flex-1 flex-col" aria-label={t.captions.label}>
+      {/* 能获得焦点，键盘用户才能用方向键滚动字幕 */}
       <div
-        className="min-h-0 flex-1 overflow-y-auto px-2 py-2"
+        className="min-h-0 flex-1 overflow-y-auto px-2 py-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset"
+        tabIndex={0}
         ref={scroller}
         onScroll={(event) => {
           const el = event.currentTarget;

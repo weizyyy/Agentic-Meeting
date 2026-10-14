@@ -188,7 +188,7 @@ export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
 }
 
 function Heading({ children }: { children: ReactNode }) {
-  return <h4 className="mb-1 text-xs font-medium text-muted-foreground">{children}</h4>;
+  return <h3 className="mb-1 text-xs font-medium text-muted-foreground">{children}</h3>;
 }
 
 function TaskBody({ detail }: { detail: TaskDetail }) {

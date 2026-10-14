@@ -43,8 +43,9 @@ type ButtonProps = React.ComponentProps<typeof Button>;
 const INACTIVE_VARIANT_CLASSES: Record<string, string> = {
   default: "bg-inactive text-inactive-foreground hover:bg-inactive/80",
   outline:
-    "border-inactive/30 bg-inactive/10 text-inactive hover:bg-inactive/20 hover:text-inactive dark:bg-inactive/20",
-  secondary: "bg-inactive/10 text-inactive hover:bg-inactive/20 dark:bg-inactive/20",
+    "border-inactive/30 bg-inactive/10 text-inactive hover:bg-inactive/15 hover:text-inactive dark:bg-inactive/20 dark:hover:bg-inactive/25",
+  secondary:
+    "bg-inactive/10 text-inactive hover:bg-inactive/15 dark:bg-inactive/20 dark:hover:bg-inactive/25",
   ghost: "text-inactive hover:text-inactive",
 };
 

@@ -96,9 +96,8 @@ export function SessionBanner({
   const pending = session.deletion_pending;
 
   return (
-    <div
+    <section
       className="mb-4 flex flex-wrap items-start gap-x-4 gap-y-3"
-      role="group"
       aria-label={t.session.current}
     >
       <div className="min-w-64 flex-1">
@@ -226,6 +225,6 @@ export function SessionBanner({
           </Button>
         </Hint>
       )}
-    </div>
+    </section>
   );
 }

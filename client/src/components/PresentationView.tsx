@@ -110,7 +110,7 @@ export function PresentationView({
                   key={line.segmentId ?? `u${line.utteranceId ?? index}`}
                   className={`rounded-2xl px-6 py-5 ${
                     line.source === "assistant" ? "bg-agent" : "bg-card"
-                  } ${latest ? "" : "opacity-60"}`}
+                  }`}
                 >
                   <p
                     className={`mb-2 text-base font-medium ${
@@ -123,7 +123,9 @@ export function PresentationView({
                   </p>
                   <p
                     className={`leading-snug font-semibold [overflow-wrap:anywhere] ${
-                      latest ? "text-3xl md:text-4xl xl:text-5xl" : "text-2xl md:text-3xl"
+                      latest
+                        ? "text-3xl md:text-4xl xl:text-5xl"
+                        : "text-2xl text-muted-foreground md:text-3xl"
                     }`}
                   >
                     {line.stable}

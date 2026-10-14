@@ -103,7 +103,7 @@ it opens without the browser's address bar.
 
 **Recording on a phone.** A phone can hold the meeting like a computer, but phone systems stop the
 microphone when the screen locks or the page goes to the background, so keep the page in front.
-While recording, a yellow line above the meeting says so, and the page keeps the screen on if the
+While recording, a yellow line under the tabs says so, and the page keeps the screen on if the
 browser allows it; if it cannot, the line says so too and a longer auto-lock time helps. When the
 microphone was stopped for three seconds or more, a notice says for how long; nothing said in that
 time is in the captions. A long break can also drop the connection, which then reconnects on its
@@ -117,6 +117,13 @@ own as on a computer.
 
 On every phone the assistant answers typed questions in text and speaks spoken ones; if its voice
 does not play, tap **打开助理声音** (Turn on assistant voice). Screen sharing is not available.
+
+**Keyboard and screen readers.** Every control can be reached with `Tab` and shows a focus ring;
+once the captions have focus, the arrow keys scroll them, and `Esc` closes dialogs and
+presentation mode. Screen readers announce new notices and the answer to a typed question; spoken
+answers are heard anyway, and captions are not read out so that they do not talk over the meeting.
+Text meets the WCAG AA contrast ratio in both themes, and animations are skipped when the system
+asks for reduced motion.
 
 ## Captions and speakers
 

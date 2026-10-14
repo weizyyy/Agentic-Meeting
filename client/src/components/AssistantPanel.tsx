@@ -82,27 +82,34 @@ export function AssistantPanel({
           </span>
           {t.assistant.states[state]}
         </p>
-        {notices.length > 0 && (
-          <ul className="flex flex-col gap-1.5">
-            {notices.map((notice) => (
-              <li
-                key={notice.id}
-                className={`flex items-start gap-2 rounded-lg py-1.5 pr-1.5 pl-3 text-sm ${NOTICE_TONES[notice.level]}`}
-              >
-                <span className="min-w-0 flex-1 py-0.5">{noticeText(t, notice)}</span>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className="text-current hover:bg-current/10 hover:text-current"
-                  aria-label={t.assistant.dismissNotice}
-                  onClick={() => onDismissNotice(notice.id)}
+        {/* 提示区一直在页面上，读屏软件才会念出新加的提示 */}
+        <div aria-live="polite" aria-relevant="additions">
+          {notices.length > 0 && (
+            <ul className="flex flex-col gap-1.5">
+              {notices.map((notice) => (
+                <li
+                  key={notice.id}
+                  className={`flex items-start gap-2 rounded-lg py-1.5 pr-1.5 pl-3 text-sm ${NOTICE_TONES[notice.level]}`}
                 >
-                  <XIcon />
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
+                  <span className="min-w-0 flex-1 py-0.5">{noticeText(t, notice)}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-current hover:bg-current/10 hover:text-current"
+                    aria-label={t.assistant.dismissNotice}
+                    onClick={() => onDismissNotice(notice.id)}
+                  >
+                    <XIcon />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {/* 打字问的只有文字回答：说完了再让读屏软件念一遍（语音回答本来就听得到） */}
+        <p className="sr-only" role="status">
+          {replyMode === "text" && state === "idle" ? text : ""}
+        </p>
         {/* 回答至少留四行；再长只在框里滚动，不把面板撑高 */}
         <div className="min-h-[6.5em] flex-1 basis-0 overflow-y-auto text-sm leading-relaxed">
           {text ? (

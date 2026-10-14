@@ -78,8 +78,9 @@ export function ReportPanel({
 
   return (
     <section
-      className="flex min-h-0 flex-1 gap-6 overflow-y-auto px-4 py-4 md:px-6"
+      className="flex min-h-0 flex-1 gap-6 overflow-y-auto px-4 py-4 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset md:px-6"
       aria-label={t.report.label}
+      tabIndex={0}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -121,7 +122,7 @@ export function ReportPanel({
         )}
       </div>
       {session && (
-        <aside
+        <section
           className="sticky top-0 hidden w-56 shrink-0 flex-col gap-3 self-start rounded-xl border p-4 lg:flex"
           aria-label={t.report.materials}
         >
@@ -147,7 +148,7 @@ export function ReportPanel({
               {t.report.exportFull}
             </Button>
           </div>
-        </aside>
+        </section>
       )}
     </section>
   );

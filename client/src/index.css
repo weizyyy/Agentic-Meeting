@@ -2,7 +2,8 @@
    src/components/ui/ 是 shadcn 的基础组件，src/components/pipecat/ 是 Pipecat UI 的组件，
    都由 shadcn 命令行复制进来（components.json，docs/development.md「Web client」）。
    颜色全部是这里的变量：shadcn 的中性色，加 Pipecat UI 的语义色（active / inactive / agent / client），
-   再加本项目自己的几个（subtle、success、warning）。深色主题由 <html class="dark"> 切换（src/theme.ts）。 */
+   再加本项目自己的几个（subtle、success、warning）。深色主题由 <html class="dark"> 切换（src/theme.ts）。
+   文字色和它所在的底色要达到 WCAG AA 的对比度（4.5:1），改颜色后用 axe 之类的工具在两种主题下各查一遍。 */
 
 @import "tailwindcss";
 @import "tw-animate-css";
@@ -124,19 +125,19 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  --muted-foreground: oklch(0.52 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  --destructive: oklch(0.505 0.213 27.518);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
 
   /* Pipecat UI 的语义色（ui.pipecat.ai/docs/theming）：
      active 接通、inactive 静音或断开、agent 助理、client 用户 */
-  --active-background: oklch(0.696 0.17 162.48);
+  --active-background: oklch(0.508 0.118 165.612);
   --active-foreground: oklch(0.979 0.021 166.113);
-  --inactive-background: oklch(0.702 0.189 22.23);
+  --inactive-background: oklch(0.505 0.213 27.518);
   --inactive-foreground: oklch(0.971 0.013 17.38);
   --agent-background: oklch(0.606 0.25 292.717 / 10%);
   --agent-foreground: oklch(0.541 0.281 293.009);
@@ -144,12 +145,12 @@
   --client-foreground: oklch(0.546 0.245 262.881);
 
   /* 本项目补充：浅一档的说明文字、可以当文字用的绿色、提醒用的黄色 */
-  --subtle-foreground: oklch(0.708 0 0);
+  --subtle-foreground: oklch(0.556 0 0);
   --success-background: oklch(0.696 0.17 162.48 / 12%);
   --success-foreground: oklch(0.508 0.118 165.612);
   --warning-background: oklch(0.879 0.169 91.605 / 25%);
-  --warning-foreground: oklch(0.555 0.163 48.998);
-  --destructive-background: oklch(0.577 0.245 27.325 / 10%);
+  --warning-foreground: oklch(0.473 0.137 46.201);
+  --destructive-background: oklch(0.505 0.213 27.518 / 10%);
 }
 
 .dark {
@@ -173,13 +174,15 @@
   --ring: oklch(0.556 0 0);
 
   --active-background: oklch(0.702 0.158 160.44);
-  --active-foreground: oklch(0.979 0.021 166.11);
+  --active-foreground: oklch(0.262 0.051 172.552);
+  --inactive-background: oklch(0.704 0.191 22.216);
+  --inactive-foreground: oklch(0.258 0.092 26.042);
   --agent-background: oklch(0.606 0.25 292.717 / 22%);
   --agent-foreground: oklch(0.702 0.183 293.541);
   --client-background: oklch(0.623 0.214 259.815 / 20%);
   --client-foreground: oklch(0.707 0.165 254.624);
 
-  --subtle-foreground: oklch(0.556 0 0);
+  --subtle-foreground: oklch(0.62 0 0);
   --success-background: oklch(0.696 0.17 162.48 / 18%);
   --success-foreground: oklch(0.765 0.177 163.223);
   --warning-background: oklch(0.795 0.184 86.047 / 15%);
@@ -203,5 +206,17 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+  }
+
+  /* 系统设了「减少动态效果」时，弹出、滑入和平滑滚动都直接到位 */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
