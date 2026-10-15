@@ -110,7 +110,8 @@ uv run agentic-meeting check
 uv run agentic-meeting serve --with-services
 ```
 
-该命令先启动本地推理服务并等待其就绪，再启动应用；按 `Ctrl+C` 全部停止。
+该命令先启动本地推理服务并等待其就绪，再启动应用；按 `Ctrl+C`（Windows 上也可以按 `Ctrl+Break`）全部停止：
+应用先收尾会议，再停掉推理服务并等它们退出。停止过程卡住时再按一次，立即退出，推理服务也一并强制结束。
 浏览器打开 <http://localhost:7860>，点击「开始新会议」并允许使用麦克风。
 
 推理服务也可以单独管理：

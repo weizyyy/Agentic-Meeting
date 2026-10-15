@@ -93,9 +93,17 @@ async def ice_candidate(request: SmallWebRTCPatchRequest):
   `SmallWebRTCRequestHandler(ice_servers=None)` 只提供 host 候选，同一局域网内够用。处理器里的 ICE 服务器
   只作用于服务端这一端的连接，浏览器那一端要另外给（§12）。
 - 程序化启动：`uvicorn.Server(uvicorn.Config(app, host=..., port=..., ssl_certfile=..., ssl_keyfile=...)).serve()`
-  在已有的事件循环里运行；它自己接管 SIGINT，收到 Ctrl+C 后优雅关闭并返回（或再抛 `KeyboardInterrupt`），
-  所以 `serve --with-services` 把「停推理服务」放在 `finally` 里。`fastapi`、`uvicorn` 由 `pipecat-ai[runner]`
-  带入，没有单独列在 `pyproject.toml` 里。
+  在已有的事件循环里运行；它自己接管 SIGINT（Windows 上还有 SIGBREAK），优雅关闭之后用 `signal.raise_signal`
+  把收到的信号再发一次。在 `asyncio.run` 下这会取消主协程，主协程 `finally` 里的收尾到第一个 `await` 就被打断：
+  `serve --with-services` 以前只给推理服务发了停止信号，不等它们退出就结束了。所以 `cli.py` 用 `asyncio.Runner`
+  运行应用，再用第二次 `runner.run()` 停推理服务。Windows 上 SIGBREAK 的默认动作是立即结束进程，所以 `serve`
+  让 Ctrl+Break 和 Ctrl+C 用同一个处理函数。`fastapi`、`uvicorn` 由 `pipecat-ai[runner]` 带入，没有单独列在
+  `pyproject.toml` 里。
+- uvicorn 的关闭流程里有第二次信号也结束不了的等待：第二次 `Ctrl+C` 只跳过等待未完成的请求（连带跳过 lifespan
+  收尾），第二次 Ctrl+Break 什么都不做；最后一步对 asyncio 服务器的 `Server.wait_closed()` 在 uvicorn 自己的连接
+  都关掉之后执行，没有时限、不打日志，事件循环漏记了哪条连接的关闭，就会在「Shutting down」之后一直等下去。
+  `web/app.py` 的 `MeetingServer` 给这一步设了 2 秒时限，并把关闭过程中收到的任何第二次信号当作「立即退出」：
+  强制结束 `--with-services` 拉起的推理服务，然后结束进程。
 - 传输的事件：`on_client_connected(transport, connection)`、`on_client_disconnected(transport, connection)`、
   `on_app_message(transport, message, sender)`，用 `@transport.event_handler("...")` 注册。
 - 本项目不使用自带运行器的 `main()`，它会接管整个 FastAPI 应用和命令行。

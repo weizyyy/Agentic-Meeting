@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import signal
 import sys
 import unicodedata
 from pathlib import Path
@@ -261,35 +263,37 @@ def _check_before_start(cfg: AppConfig) -> bool:
     return True
 
 
-async def _run_serve(cfg: AppConfig, specs: list[ServiceSpec], *, with_services: bool) -> int:
-    """（可选地先拉起推理服务，）再启动 HTTP 应用，直到被中断；退出时停掉自己拉起的服务。"""
+async def _run_serve(
+    cfg: AppConfig, specs: list[ServiceSpec], supervisor: Supervisor | None
+) -> int:
+    """（有 ``supervisor`` 时先拉起推理服务，）再启动 HTTP 应用，直到被中断。服务由调用方停掉。"""
     from agentic_meeting.web.app import make_server  # 延迟导入：check / services 不需要 Pipecat
 
-    supervisor = Supervisor(specs, cfg=cfg) if with_services else None
-    try:
-        if supervisor is not None:
-            try:
-                await _bring_up(cfg, specs, supervisor)
-            except ServiceStartError as e:
-                print(f"\n启动失败：{e}")
-                return 1
-        else:
-            # 没有让本命令拉起服务：只看一眼它们是否可达，不通就提醒，不拦着启动。
-            results = await _probe_all(specs)
-            down = [name for name, result in results.items() if not result.ok]
-            if down:
-                print(
-                    f"提醒：{'、'.join(down)} 当前不通，相关功能会降级；"
-                    "可以另开终端运行 services up，或下次加 --with-services。"
-                )
+    if sys.platform == "win32":
+        # Ctrl+Break 按 Ctrl+C 处理：取消主协程，照常收尾。不设的话，模型加载期间按下会直接结束进程；
+        # uvicorn 关闭后把收到的 Ctrl+Break 原样再发一次时，也会在停服务之前结束进程。
+        signal.signal(signal.SIGBREAK, signal.getsignal(signal.SIGINT))
+    if supervisor is not None:
+        try:
+            await _bring_up(cfg, specs, supervisor)
+        except ServiceStartError as e:
+            print(f"\n启动失败：{e}")
+            return 1
+    else:
+        # 没有让本命令拉起服务：只看一眼它们是否可达，不通就提醒，不拦着启动。
+        results = await _probe_all(specs)
+        down = [name for name, result in results.items() if not result.ok]
+        if down:
+            print(
+                f"提醒：{'、'.join(down)} 当前不通，相关功能会降级；"
+                "可以另开终端运行 services up，或下次加 --with-services。"
+            )
 
-        scheme = "https" if cfg.server.tls_cert else "http"
-        print(f"\n服务地址：{scheme}://localhost:{cfg.server.port}　按 Ctrl+C 停止。")
-        await make_server(cfg).serve()
-        return 0
-    finally:
-        if supervisor is not None:
-            await supervisor.stop()
+    scheme = "https" if cfg.server.tls_cert else "http"
+    print(f"\n服务地址：{scheme}://localhost:{cfg.server.port}　按 Ctrl+C 停止。")
+    on_force_quit = supervisor.kill if supervisor is not None else None
+    await make_server(cfg, on_force_quit=on_force_quit).serve()
+    return 0
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -310,11 +314,22 @@ def cmd_serve(args: argparse.Namespace) -> int:
         print(e)
         return 2
 
-    try:
-        return asyncio.run(_run_serve(cfg, specs, with_services=args.with_services))
-    except KeyboardInterrupt:
+    supervisor = Supervisor(specs, cfg=cfg) if args.with_services else None
+    with asyncio.Runner() as runner:
+        try:
+            code = runner.run(_run_serve(cfg, specs, supervisor))
+        except KeyboardInterrupt:
+            code = None
+        finally:
+            # 推理服务在单独的一轮里停。uvicorn 正常关闭后会把收到的 Ctrl+C 再发一次，主协程因此被取消；
+            # 放在主协程的 finally 里停，会停到一半就被打断，不等进程退出。停的时候再按 Ctrl+C 就不等了。
+            if supervisor is not None:
+                with contextlib.suppress(KeyboardInterrupt):
+                    runner.run(supervisor.stop())
+    if code is None:
         print("\n已停止。")
         return 0
+    return code
 
 
 def main() -> None:

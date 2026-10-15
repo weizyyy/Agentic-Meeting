@@ -104,8 +104,22 @@ async def ice_candidate(request: SmallWebRTCPatchRequest):
   single LAN. The handler's ICE servers apply to the server's peer connection only; the browser
   needs its own (§12).
 - Starting programmatically: `uvicorn.Server(uvicorn.Config(app, ...)).serve()` runs inside an
-  existing event loop and handles SIGINT itself, so `serve --with-services` stops the inference
-  services in a `finally` block. `fastapi` and `uvicorn` come with `pipecat-ai[runner]`.
+  existing event loop and handles SIGINT (and SIGBREAK on Windows) itself. After its graceful
+  shutdown it raises the captured signal again with `signal.raise_signal`. Under `asyncio.run` that
+  cancels the main coroutine, so cleanup awaited in the coroutine's `finally` is cut off at its
+  first `await`: `serve --with-services` used to send the inference services their stop signal
+  and exit without waiting for them. `cli.py` therefore runs the app with `asyncio.Runner` and
+  stops the services in a second `runner.run()` call. On Windows the default SIGBREAK action ends
+  the process at once, so `serve` handles Ctrl+Break with the same handler as Ctrl+C. `fastapi`
+  and `uvicorn` come with `pipecat-ai[runner]`.
+- uvicorn's shutdown has waits that a second signal does not end: a second `Ctrl+C` only skips
+  waiting for open requests (and then the lifespan shutdown), a second Ctrl+Break does nothing,
+  and the final `Server.wait_closed()` on the asyncio server, which runs after uvicorn's own
+  connections are closed, has no timeout and logs nothing. A connection the event loop never
+  counts as closed leaves it waiting after "Shutting down" for good. `MeetingServer` in
+  `web/app.py` bounds that wait to two seconds and treats any second signal during shutdown as
+  "quit now": it kills the inference services started with `--with-services` and ends the
+  process.
 - Transport events, registered with `@transport.event_handler("...")`:
   `on_client_connected(transport, connection)`, `on_client_disconnected(transport, connection)`,
   `on_app_message(transport, message, sender)`.

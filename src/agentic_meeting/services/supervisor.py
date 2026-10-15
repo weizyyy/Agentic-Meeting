@@ -821,6 +821,15 @@ class Supervisor:
         for client in clients:
             await client.aclose()
 
+    def kill(self) -> None:
+        """立即强制结束本次启动的服务，不等它们退出（进程马上就要退出时用）。复用的服务不动。"""
+        for child in self._children.values():
+            if child.proc is not None and child.proc.returncode is None:
+                try:
+                    child.proc.kill()
+                except ProcessLookupError:
+                    pass
+
     def status(self) -> list[dict]:
         """各服务的进程状态（不做网络请求）。
 

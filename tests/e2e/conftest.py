@@ -69,6 +69,13 @@ class App:
     def log_text(self) -> str:
         return self.log.read_text(encoding="utf-8", errors="replace")
 
+    def interrupt(self) -> None:
+        """按一次 Ctrl+C（Windows 上是 Ctrl+Break，见 ``stop``）。"""
+        if sys.platform == "win32":
+            self.process.send_signal(signal.CTRL_BREAK_EVENT)
+        else:
+            self.process.send_signal(signal.SIGINT)
+
     def stop(self, timeout: float = 30) -> int:
         """像用户按 Ctrl+C 一样停下，让应用正常收尾（数据库写回、文件句柄关闭）。
 
@@ -77,10 +84,7 @@ class App:
         真正的解释器是它的子进程。
         """
         if self.process.poll() is None:
-            if sys.platform == "win32":
-                self.process.send_signal(signal.CTRL_BREAK_EVENT)
-            else:
-                self.process.send_signal(signal.SIGINT)
+            self.interrupt()
             try:
                 self.process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
