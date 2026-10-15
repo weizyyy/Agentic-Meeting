@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import asyncio
+import socket
+import struct
 import sys
 import time
 
@@ -127,6 +129,31 @@ async def test_ctrl_c_during_a_meeting_stops_the_server(start_app, meeting_facto
         await app.shutdown(timeout_secs=20)  # 超时会被强行结束
         assert time.monotonic() - started < 10, "按一次 Ctrl+C 没有停下"
         await phone.wait_for(lambda: phone.ended, "事件流随应用退出结束")
+
+
+def _reset_connections(base_url: str) -> None:
+    """像浏览器那样把几条连接直接重置掉（RST）：收完响应后、发完请求还没收响应时、刚连上什么都没发时。"""
+    host, port = base_url.removeprefix("http://").split(":")
+    request = f"GET /api/time HTTP/1.1\r\nHost: {host}\r\n\r\n".encode()
+    for stage in ("answered", "asked", "connected"):
+        with socket.create_connection((host, int(port)), timeout=10) as sock:
+            if stage != "connected":
+                sock.sendall(request)
+            if stage == "answered":
+                assert sock.recv(65536).startswith(b"HTTP/1.1 200")
+            # linger 为 0 时关闭发的是 RST，不是正常的 FIN
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+
+
+async def test_reset_connections_do_not_keep_the_server_from_stopping(app, http):
+    """浏览器断开时常常直接重置连接。之后按一次 Ctrl+C（Windows 上是 Ctrl+Break）应当照常停下，
+    不能卡在「Shutting down」。"""
+    await asyncio.to_thread(_reset_connections, app.base_url)
+    assert (await http.get("/api/time")).status_code == 200  # 服务端已经处理完那几条连接
+    started = time.monotonic()
+    await app.shutdown(timeout_secs=20)  # 超时会被强行结束
+    assert time.monotonic() - started < 10, "按一次停止键没有停下"
+    assert "Application shutdown complete" in app.log_text()
 
 
 @pytest.mark.parametrize("service", ["asr", "llm"])
