@@ -42,6 +42,32 @@ CREATE TABLE IF NOT EXISTS meeting_members (
     PRIMARY KEY (session_id, principal_id)
 );
 
+-- 分享来源与精确登录的临时租约，不改变永久成员授权。
+CREATE TABLE IF NOT EXISTS meeting_shares (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('password', 'link')),
+    credential_hash TEXT NOT NULL,
+    salt TEXT,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    allow_questions INTEGER NOT NULL CHECK (allow_questions IN (0, 1)),
+    CHECK ((kind = 'password' AND salt IS NOT NULL) OR (kind = 'link' AND salt IS NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_share_password ON meeting_shares(session_id) WHERE kind = 'password';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_share_token ON meeting_shares(credential_hash) WHERE kind = 'link';
+CREATE TABLE IF NOT EXISTS share_access (
+    login_digest TEXT NOT NULL REFERENCES login_sessions(digest) ON DELETE CASCADE,
+    share_id TEXT NOT NULL REFERENCES meeting_shares(id) ON DELETE CASCADE,
+    expires_at REAL NOT NULL,
+    PRIMARY KEY (login_digest, share_id)
+);
+CREATE INDEX IF NOT EXISTS idx_share_access_source ON share_access(share_id);
+CREATE TABLE IF NOT EXISTS guest_logins (
+    login_digest TEXT PRIMARY KEY REFERENCES login_sessions(digest) ON DELETE CASCADE,
+    principal_id TEXT NOT NULL REFERENCES principals(id)
+);
+
 -- 每次连接一行。t_from / t_to 是这次连接覆盖的会话时间轴（秒）；中断的空档就是相邻两行之间的缝。
 -- 会话状态不存列：ended_at 非空 = 已结束；为空时应用内存里有活动连接 = 进行中，否则 = 已中断。
 CREATE TABLE IF NOT EXISTS session_connections (

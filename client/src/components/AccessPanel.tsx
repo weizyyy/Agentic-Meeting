@@ -3,6 +3,7 @@ import { createApi, type MeetingMember, type SessionSummary } from "../api.ts";
 import type { AuthStatus } from "../auth.ts";
 import { useI18n } from "../i18n/index.ts";
 import { Button } from "./ui/button";
+import { SharePanel } from "./SharePanel.tsx";
 import { Input } from "./ui/input";
 
 const api = createApi();
@@ -56,8 +57,15 @@ export function AccessPanel({
   return (
     <section className="border-b p-3 text-sm">
       <p>
-        {t.login.identity}: {auth.principal?.display_name} ({auth.principal?.id})
+        {t.login.identity}: {auth.principal?.guest ? t.sharing.guest : auth.principal?.display_name}{" "}
+        ({auth.principal?.id})
       </p>
+      {session?.access?.share_expires_at && (
+        <p>
+          {t.sharing.scope} {t.sharing.expires}:{" "}
+          {new Date(session.access.share_expires_at * 1000).toLocaleString()}
+        </p>
+      )}
       {session && <p>{session.access?.tool_enabled ? t.login.toolOwner : t.login.readOnly}</p>}
       {host && (
         <details>
@@ -113,6 +121,7 @@ export function AccessPanel({
           </form>
         </details>
       )}
+      {host && sid && <SharePanel key={sid} sessionId={sid} />}
       {error && (
         <p role="alert" className="text-destructive">
           {error}

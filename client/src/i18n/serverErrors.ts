@@ -9,6 +9,8 @@ type Kind = "string" | "number";
 
 /** 每个代码带的参数及其类型：收到的参数对不上就不翻译。 */
 export const ERROR_PARAMS = {
+  "share.invalid": {},
+  "share.limit": {},
   "access.denied": {},
   "access.invalid_member": {},
   "access.last_host": {},
@@ -70,6 +72,8 @@ export const serverErrors = defineMessages(
     "request.failed": ({ status }: { status: number }) => `请求失败（${status}）`,
     "route.not_found": "没有这个接口或页面",
     "auth.required": "请先登录",
+    "share.invalid": "分享无效或已到期／撤销",
+    "share.limit": "本会议最多8个有效链接",
     "access.denied": "无权执行此操作",
     "access.invalid_member": "成员不存在或不能主持会议",
     "access.last_host": "会议必须保留一位主持人",
@@ -123,6 +127,8 @@ export const serverErrors = defineMessages(
     "request.failed": ({ status }) => `The request failed (${status}).`,
     "route.not_found": "There is no such endpoint or page.",
     "auth.required": "Please log in first.",
+    "share.invalid": "This share is invalid, expired or revoked.",
+    "share.limit": "This meeting allows at most eight active links.",
     "access.denied": "You cannot perform this action.",
     "access.invalid_member": "The member is unavailable or cannot host.",
     "access.last_host": "A meeting must retain a host.",

@@ -1156,57 +1156,59 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 它的 `detail` 是给接口调用者看的中文说明，页面不翻译。`request.failed` 用于不经本应用处理器抛出的错误（如 405），
 `status` 是 HTTP 状态码。就绪检查的 503 响应（§5.8）是状态快照，不是错误。
 
-| `code`                      | 状态码        | `params`                               | 中文 `error`                                                       |
-| --------------------------- | ------------- | -------------------------------------- | ------------------------------------------------------------------ |
-| `request.invalid`           | 400, 404, 422 | `detail`：string                       | 请求格式有误：{detail}                                             |
-| `request.too_large`         | 413           | —                                      | 请求体太大                                                         |
-| `request.failed`            | 任意          | `status`：number                       | 请求失败（{status}）                                               |
-| `route.not_found`           | 404           | —                                      | 没有这个接口或页面                                                 |
-| `auth.required`             | 401           | —                                      | 请先登录                                                           |
-| `auth.csrf`                 | 403           | —                                      | 请求缺少有效的安全令牌，请刷新页面后重试                           |
-| `auth.wrong_password`       | 401           | —                                      | 口令不对                                                           |
-| `auth.too_many`             | 429           | —                                      | 尝试次数过多，请稍后再试                                           |
-| `auth.not_enabled`          | 404           | —                                      | 没有启用访问口令                                                   |
-| `access.denied`             | —             | 无权执行此操作                         |
-| `access.invalid_member`     | —             | 成员不存在或不能主持会议               |
-| `access.last_host`          | —             | 会议必须保留一位主持人                 |
-| `access.busy`               | —             | 录音服务正忙                           |
-| `text.context_too_large`    | —             | 问题和提示超出上下文预算               |
-| `text.interrupted`          | —             | 只读问答被实时应答打断，请稍后重新提问 |
-| `text.busy`                 | —             | 只读问答队列已满或已有问题处理中       |
-| `text.timeout`              | —             | 只读问答等待超时                       |
-| `text.failed`               | —             | 只读问答没有完成                       |
-| `storage.not_ready`         | 503           | —                                      | 存储尚未就绪                                                       |
-| `cleanup.not_ready`         | 503           | —                                      | 清理尚未就绪                                                       |
-| `session.not_found`         | 404           | —                                      | 找不到这场会议                                                     |
-| `session.none`              | 404           | —                                      | 现在没有会议                                                       |
-| `session.busy`              | 409           | —                                      | 会议正在处理或等待删除，请稍后重试                                 |
-| `session.not_live`          | 409           | —                                      | 这场会议现在没有在进行，消息没有发送                               |
-| `session.delete_incomplete` | 500           | —                                      | 删除未完成，会议待删除，请稍后重试                                 |
-| `session.title_too_long`    | 400           | `max`：number                          | 标题太长（最多 {max} 字）                                          |
-| `speaker.not_found`         | 404           | —                                      | 这场会议里没有这个说话人                                           |
-| `speaker.name_too_long`     | 400           | `max`：number                          | 名字太长（最多 {max} 字）                                          |
-| `speaker.not_mergeable`     | 400           | —                                      | 只能合并说话人区分给出的说话人（助理、文字输入、「未知」不能合并） |
-| `speaker.merge_self`        | 400           | —                                      | 不能把说话人合并到自己                                             |
-| `utterances.too_many`       | 400           | `max`：number                          | 一次最多改 {max} 条发言                                            |
-| `frames.disabled`           | 403           | —                                      | 截图功能已在配置里关闭                                             |
-| `frames.no_live_session`    | 404           | —                                      | 现在没有进行中的会议，截图没有保存                                 |
-| `frame.not_found`           | 404           | —                                      | 找不到这张截图                                                     |
-| `frame.bad_format`          | 400           | —                                      | 只接受 WebP 或 JPEG 格式的截图                                     |
-| `frame.too_wide`            | 400           | `max`：number                          | 截图的长边不能超过 {max} 像素                                      |
-| `frame.invalid`             | 400           | —                                      | 上传的文件不是有效的图片                                           |
-| `frame.too_large`           | 413           | `max_mb`：number                       | 截图太大（最多 {max_mb} MB）                                       |
-| `frame.empty`               | 400           | —                                      | 上传的文件是空的                                                   |
-| `frame.clock_skew`          | 400           | `max`：number                          | 截图的采集时间与服务端时间相差超过 {max} 秒，请刷新页面重新对时    |
-| `frame.save_failed`         | 500           | —                                      | 截图保存失败（磁盘不可写？）                                       |
-| `task.not_found`            | 404           | —                                      | 找不到这个任务                                                     |
-| `tasks.disabled`            | 503           | —                                      | 后台任务功能没有开启                                               |
-| `artifact.not_found`        | 404           | —                                      | 找不到这个产物文件                                                 |
-| `report.session_live`       | 409           | —                                      | 会议正在进行，结束或断开之后才能生成报告                           |
-| `report.no_model`           | 503           | —                                      | 没有可用的模型，生成不了报告                                       |
-| `report.busy`               | 409           | —                                      | 这场会议已经有一份报告正在生成                                     |
-| `report.not_found`          | 404           | —                                      | 这场会议还没有报告                                                 |
-| `report.not_ready`          | 404           | —                                      | 这场会议还没有生成好的报告                                         |
+| `code`                      | 状态码        | `params`                                               | 中文 `error`                                                       |
+| --------------------------- | ------------- | ------------------------------------------------------ | ------------------------------------------------------------------ |
+| `request.invalid`           | 400, 404, 422 | `detail`：string                                       | 请求格式有误：{detail}                                             |
+| `request.too_large`         | 413           | —                                                      | 请求体太大                                                         |
+| `request.failed`            | 任意          | `status`：number                                       | 请求失败（{status}）                                               |
+| `route.not_found`           | 404           | —                                                      | 没有这个接口或页面                                                 |
+| `share.invalid`             | —             | Invalid, expired or revoked share / 分享无效或到期撤销 |
+| `share.limit`               | —             | Eight active links maximum / 最多8个有效链接           |
+| `auth.required`             | 401           | —                                                      | 请先登录                                                           |
+| `auth.csrf`                 | 403           | —                                                      | 请求缺少有效的安全令牌，请刷新页面后重试                           |
+| `auth.wrong_password`       | 401           | —                                                      | 口令不对                                                           |
+| `auth.too_many`             | 429           | —                                                      | 尝试次数过多，请稍后再试                                           |
+| `auth.not_enabled`          | 404           | —                                                      | 没有启用访问口令                                                   |
+| `access.denied`             | —             | 无权执行此操作                                         |
+| `access.invalid_member`     | —             | 成员不存在或不能主持会议                               |
+| `access.last_host`          | —             | 会议必须保留一位主持人                                 |
+| `access.busy`               | —             | 录音服务正忙                                           |
+| `text.context_too_large`    | —             | 问题和提示超出上下文预算                               |
+| `text.interrupted`          | —             | 只读问答被实时应答打断，请稍后重新提问                 |
+| `text.busy`                 | —             | 只读问答队列已满或已有问题处理中                       |
+| `text.timeout`              | —             | 只读问答等待超时                                       |
+| `text.failed`               | —             | 只读问答没有完成                                       |
+| `storage.not_ready`         | 503           | —                                                      | 存储尚未就绪                                                       |
+| `cleanup.not_ready`         | 503           | —                                                      | 清理尚未就绪                                                       |
+| `session.not_found`         | 404           | —                                                      | 找不到这场会议                                                     |
+| `session.none`              | 404           | —                                                      | 现在没有会议                                                       |
+| `session.busy`              | 409           | —                                                      | 会议正在处理或等待删除，请稍后重试                                 |
+| `session.not_live`          | 409           | —                                                      | 这场会议现在没有在进行，消息没有发送                               |
+| `session.delete_incomplete` | 500           | —                                                      | 删除未完成，会议待删除，请稍后重试                                 |
+| `session.title_too_long`    | 400           | `max`：number                                          | 标题太长（最多 {max} 字）                                          |
+| `speaker.not_found`         | 404           | —                                                      | 这场会议里没有这个说话人                                           |
+| `speaker.name_too_long`     | 400           | `max`：number                                          | 名字太长（最多 {max} 字）                                          |
+| `speaker.not_mergeable`     | 400           | —                                                      | 只能合并说话人区分给出的说话人（助理、文字输入、「未知」不能合并） |
+| `speaker.merge_self`        | 400           | —                                                      | 不能把说话人合并到自己                                             |
+| `utterances.too_many`       | 400           | `max`：number                                          | 一次最多改 {max} 条发言                                            |
+| `frames.disabled`           | 403           | —                                                      | 截图功能已在配置里关闭                                             |
+| `frames.no_live_session`    | 404           | —                                                      | 现在没有进行中的会议，截图没有保存                                 |
+| `frame.not_found`           | 404           | —                                                      | 找不到这张截图                                                     |
+| `frame.bad_format`          | 400           | —                                                      | 只接受 WebP 或 JPEG 格式的截图                                     |
+| `frame.too_wide`            | 400           | `max`：number                                          | 截图的长边不能超过 {max} 像素                                      |
+| `frame.invalid`             | 400           | —                                                      | 上传的文件不是有效的图片                                           |
+| `frame.too_large`           | 413           | `max_mb`：number                                       | 截图太大（最多 {max_mb} MB）                                       |
+| `frame.empty`               | 400           | —                                                      | 上传的文件是空的                                                   |
+| `frame.clock_skew`          | 400           | `max`：number                                          | 截图的采集时间与服务端时间相差超过 {max} 秒，请刷新页面重新对时    |
+| `frame.save_failed`         | 500           | —                                                      | 截图保存失败（磁盘不可写？）                                       |
+| `task.not_found`            | 404           | —                                                      | 找不到这个任务                                                     |
+| `tasks.disabled`            | 503           | —                                                      | 后台任务功能没有开启                                               |
+| `artifact.not_found`        | 404           | —                                                      | 找不到这个产物文件                                                 |
+| `report.session_live`       | 409           | —                                                      | 会议正在进行，结束或断开之后才能生成报告                           |
+| `report.no_model`           | 503           | —                                                      | 没有可用的模型，生成不了报告                                       |
+| `report.busy`               | 409           | —                                                      | 这场会议已经有一份报告正在生成                                     |
+| `report.not_found`          | 404           | —                                                      | 这场会议还没有报告                                                 |
+| `report.not_ready`          | 404           | —                                                      | 这场会议还没有生成好的报告                                         |
 
 ### 5.10 任务和报告的失败原因
 
@@ -1276,6 +1278,20 @@ ACL 登录 `POST /api/auth/login` 接受 `{user_id, password, site_password?}`�
 保留共享后台暂停/锁、最多五个待处理问题、每主体最多一个在途、六十秒总预算含等待。只读路径不调用录音管线的 `activity.request_sent`，以免暂停自己等待的后台入口。host 活动优先；`Preempted` 使本次回答可见结束为 `text.interrupted`，用户可自行重试，不自动重试或重置期限；取消/超时不调用共享 resume，不能解除 host 的暂停。输入预算通过后才记录提问；成功答案一次持久化为 assistant utterance 并通过既有 utterance 事件发布，不新增累计答案协议。撤权取消排队/在途工作，迟到答案不可存储/发布；已记录提问保留为历史。故障明确可见且不中断识别。
 
 界面区分精确录音 login 的有工具输入和其他所有 login 的只读问答，同时保留其他 host 的 HTTP 管理控件；watcher 隐藏 host 控件。注销或失权清除会议内容/连接；身份状态失败显示重试，不假定公开。真实 HTTP/WebRTC/SSE E2E 覆盖双主体双会议、直链 ID 替换、混合发言 ID、路径遍历、CSRF、成员/连接撤销、在途问答、工具诱导、主体持久化和合成旧库迁移。新增同会 A/B host 及同主体 A1/A2 login：A/A1 录音，B/A2 问题排队或模型执行时注销/撤权，迟到 text/tool_calls 不存储、不发布、不执行，A/A1 继续；撤销 A1 时即使 A2 有效，A1 排队工具/迟到回调/再生成也必须阻断。非回环 fake realtime 收到请求，agent/caption fake 零调用；纪要关闭/落后、一分钟密集发言及长截图摘要都满足双输入上限，不含 task 哨兵且不截问题；system+问题不适配时413、零推理/零提问写入，host/ASR继续。snapshot/replay 已在唯一有序事件 API（§5.1）复用同一准入/撤销边界，组合细节见[会议授权与有序事件恢复](access-events.md)。
+
+### 5.12 会议分享
+
+关闭主持人分享面板、切换会议或卸载会丢弃本次链接并使在途界面结果失效；重开只刷新非秘密来源元数据，不能恢复已丢弃的链接。这不会回滚服务端已提交的操作，需明确重新创建才显示新的单次链接。
+
+会议权限模式下，主持人可创建一个会议口令（12–128字符）或最多八个不可预测链接。只授本会议旁听，默认不可提问。默认24小时、最长7天；expires_in为1–604800整数秒。口令用独立盐scrypt，链接用32随机字节和SHA-256校验值；原凭据只在创建/输入时出现，不落库或日志。
+
+GET /api/sessions/{id}/shares只列有效元数据；PUT .../shares/password创建/轮换口令；POST .../shares/links创建链接；POST .../shares/{share_id}/rotate轮换链接；DELETE .../shares/{share_id}幂等撤销。请求字段为expires_in、allow_questions及口令创建时的password；管理需host和CSRF。POST /api/shares/exchange带session_id、kind，链接另带share_id/token，口令另带password，配置站点口令时额外带site_password。同源Origin与JSON必需，已登录还需其CSRF。错误/错会/到期/撤销/删除统一404 share.invalid；格式400、超大413、限速429及Retry-After；旧模式不提供这些接口。
+
+现有主体、cookie和原到期不变，来源租约只绑定精确login，不写永久ACL。匿名兑换创建独立可撤销guest登录，最长24小时且不超过配置登录期限。guest转个人登录不迁移租约；过期cookie先401，明确重试后才成为guest。每次兑换额外校验配置的站点口令。有效权限是独立ACL与有效分享来源并集，撤分享不撤独立ACL或其他login。访客不可录音/执行工具/获得永久ACL。
+
+meeting_shares存非秘密来源ID、会议FK、类型、校验值/盐、UTC创建/到期及提问开关；share_access存login/来源FK和受限到期；guest_logins标识内部创建主体。删除login/来源/会议级联撤租约；pending删除立即拒绝分享访问。启动、修改及每60秒清过期行；guest登录过期后仅删除无引用的本功能主体。旧ACL/会议不会自动成为分享。降级前需停服并备份整个数据目录，旧二进制不理解guest授权。
+
+入口、每次发块和QA迟到提交均复核原身份；在途响应/QA每0.5秒检查；失权SSE与下载的最终结束块发送最多0.25秒，为总共1秒预算留取消与调度余量，前提是事件循环正常；正常SSE发送期限仍为15秒。已发字节无法撤回。只读QA完整问题与材料预算及无工具约束不变。链接用fragment，在应用API前清地址；no-referrer及private,no-store防泄漏。历史/剪贴板/他人转发的bearer无法远程擦除。S06可接非秘密来源ID与share.create/rotate/revoke/exchange结果，本变更不实现审计历史。
 
 ## 6. 数据通道消息
 

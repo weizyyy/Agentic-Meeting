@@ -293,3 +293,7 @@ ice_servers = [
 | `extra_args`                | 原样追加的命令行参数，例如 `["--device", "CUDA0"]`              |
 
 各服务完整的命令行见 [interfaces.md §9](interfaces.md)，多显卡的分配方式见 [runtimes.md §5](runtimes.md)。
+
+## 会议分享
+
+会议分享仅在meeting_access模式提供，无新增配置或依赖。主持人用会议口令或opaque链接授予临时旁听，站点口令仍是额外门槛。主体身份、永久ACL与精确login分享租约分离。到期/撤销、存储、响应取消及降级边界见[接口§5.12](interfaces.md#512-会议分享)。默认分享24小时、最长7天；guest登录最长24小时且不超过已配置登录期限。已收到字节、剪贴板或历史副本无法远程撤回。

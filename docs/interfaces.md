@@ -1321,6 +1321,8 @@ translated. `request.failed` covers errors raised outside this application's han
 | `request.too_large`         | 413           | —                                                                    | 请求体太大                                                         |
 | `request.failed`            | any           | `status`: number                                                     | 请求失败（{status}）                                               |
 | `route.not_found`           | 404           | —                                                                    | 没有这个接口或页面                                                 |
+| `share.invalid`             | —             | Invalid, expired or revoked share / 分享无效或到期撤销               |
+| `share.limit`               | —             | Eight active links maximum / 最多8个有效链接                         |
 | `auth.required`             | 401           | —                                                                    | 请先登录                                                           |
 | `auth.csrf`                 | 403           | —                                                                    | 请求缺少有效的安全令牌，请刷新页面后重试                           |
 | `auth.wrong_password`       | 401           | —                                                                    | 口令不对                                                           |
@@ -1548,6 +1550,20 @@ agent/caption calls; summaries disabled/lagging, dense one-minute transcripts an
 must satisfy both input limits, exclude task-row sentinels and keep the full question. An
 unfit system/question produces 413 with no inference or question write while host/ASR continues.
 Snapshot and replay use this same admission and revocation boundary in the sole ordered event API (§5.1); see [the integration contract](access-events.md).
+
+### 5.12 Meeting shares
+
+Closing the host sharing panel, switching meetings or unmounting discards its one-time link and invalidates in-flight UI results. Reopening refreshes non-secret source metadata; it cannot recover the discarded link. This does not undo a server operation already committed. Creating another link explicitly produces a new one-time result.
+
+In meeting-access mode hosts may create one meeting password (12–128 characters) or up to eight opaque links. Shares grant only this meeting's watcher role; questions default off. Default expiry is 24 hours, maximum seven days; expires_in accepts integer seconds 1–604800. Passwords use salted scrypt, links use 32 random bytes and a SHA-256 verifier. Raw credentials appear only at creation/input and never in storage or logs.
+
+GET /api/sessions/{id}/shares lists active metadata. PUT .../shares/password creates or rotates a password. POST .../shares/links creates a link; POST .../shares/{share_id}/rotate replaces a link. Bodies accept expires_in and allow_questions, plus password for password creation. DELETE .../shares/{share_id} revokes idempotently. Management requires host and CSRF. POST /api/shares/exchange accepts session_id, kind, share_id/token for links or password for passwords, and site_password when configured. It requires same-origin Origin and JSON; authenticated requests additionally require their CSRF token. Invalid, wrong-meeting, expired, revoked or deleted credentials all return 404 share.invalid; malformed input is 400, oversized input 413, rate limiting 429 with Retry-After. Legacy mode exposes none of these endpoints.
+
+Existing identities and cookie expiry remain unchanged: leases bind the exact login, never permanent ACL. Anonymous exchange creates an independently revocable guest login, at most 24 hours and never beyond configured login duration. Guest-to-personal login does not migrate leases. An expired cookie returns 401 before an explicit guest retry. Optional site password is an additional gate for every exchange. Effective permissions combine independent ACL and active share sources; revoking a share never revokes an independent ACL or another login. Guests cannot record, run tools or receive permanent ACL.
+
+The meeting_shares table stores source ID, meeting FK, kind, verifier/salt, UTC creation/expiry and question flag. share_access stores login/source FKs and capped expiry; guest_logins marks internally created guest principals. FK cascades revoke leases on login/source/meeting deletion. Pending deletion denies share access immediately. Expired rows are pruned at startup, mutation and every 60 seconds; unused guest principals are removed only after their own login expires. No existing ACL or meeting is migrated into a share. Downgrading requires stopping and backing up the entire data directory; an older binary does not understand guest access.
+
+Authorization is checked at entry, before each response block and late QA commit. Live response/QA leases recheck every 0.5 seconds. Revoked SSE and download responses budget at most 0.25 seconds for their final end-of-body send, leaving cancellation/scheduling room within the one-second total on a responsive event loop; the normal SSE send deadline remains 15 seconds. Already transmitted bytes cannot be recalled. Read-only QA retains its original complete-question/context limits and never executes tools. Links use a fragment, cleared before application API calls; no-referrer and private,no-store apply. Browser history/clipboard copies and forwarded bearer links are not remotely erasable. S06 can use non-secret source IDs and share.create/rotate/revoke/exchange results; this change does not implement audit history.
 
 ## 6. Data-channel messages
 

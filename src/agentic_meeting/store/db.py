@@ -580,6 +580,7 @@ class Store:
         *,
         now: float | None = None,
         principal: str | None = None,
+        login_digest: str | None = None,
     ) -> list[SessionSummary]:
         """按最近活动倒序；``before`` 是上一页最后一条的 ``last_active_at``。
 
@@ -588,8 +589,13 @@ class Store:
         sql = "SELECT * FROM sessions WHERE 1=1"
         params: list[Any] = []
         if principal is not None:
-            sql += " AND id IN (SELECT session_id FROM meeting_members WHERE principal_id = ?)"
-            params.append(principal)
+            sql += (
+                " AND (id IN (SELECT session_id FROM meeting_members WHERE principal_id = ?)"
+                " OR (deletion_pending = 0 AND id IN (SELECT s.session_id FROM meeting_shares s "
+                "JOIN share_access a ON a.share_id = s.id WHERE a.login_digest = ? "
+                "AND a.expires_at > ? AND s.expires_at > ?)))"
+            )
+            params.extend((principal, login_digest, time.time(), time.time()))
         if before is not None:
             sql += " AND last_active_at < ?"
             params.append(before)
@@ -640,9 +646,11 @@ class Store:
 
     async def save_login(self, digest: str, principal: str, expires_at: float) -> None:
         async with self._transaction():
+            guests = await self._all("SELECT principal_id FROM guest_logins")
             await self._db.execute(
                 "DELETE FROM login_sessions WHERE expires_at <= ?", (time.time(),)
             )
+            await self._remove_unused_guests(guests)
             await self._db.execute(
                 "INSERT INTO login_sessions VALUES (?, ?, ?)", (digest, principal, expires_at)
             )
@@ -657,8 +665,10 @@ class Store:
 
     async def revoke_login(self, digest: str, *, principal: str | None = None) -> None:
         async with self._transaction():
+            guests = await self._all("SELECT principal_id FROM guest_logins")
             column, value = ("principal_id", principal) if principal else ("digest", digest)
             await self._db.execute(f"DELETE FROM login_sessions WHERE {column} = ?", (value,))
+            await self._remove_unused_guests(guests)
             await self._db.commit()
 
     async def membership(self, session_id: str, principal: str) -> dict | None:
@@ -1771,3 +1781,143 @@ class Store:
             )
             for r in rows
         ]
+
+    async def _remove_unused_guests(self, guests: Sequence[aiosqlite.Row]) -> None:
+        for row in guests:
+            await self._db.execute(
+                "DELETE FROM principals WHERE id = ? AND NOT EXISTS "
+                "(SELECT 1 FROM login_sessions WHERE principal_id = principals.id) "
+                "AND NOT EXISTS (SELECT 1 FROM meeting_members WHERE principal_id = principals.id)",
+                (row["principal_id"],),
+            )
+
+    async def is_guest_login(self, digest: str, principal: str) -> bool:
+        return (
+            await self._one(
+                "SELECT 1 FROM guest_logins WHERE login_digest = ? AND principal_id = ?",
+                (digest, principal),
+            )
+            is not None
+        )
+
+    async def share_sources(self, session_id: str, digest: str) -> list[dict]:
+        now = time.time()
+        return [
+            dict(r)
+            for r in await self._all(
+                "SELECT s.id, s.kind, s.allow_questions, MIN(s.expires_at, a.expires_at) AS expires_at "
+                "FROM meeting_shares s JOIN share_access a ON a.share_id = s.id "
+                "JOIN sessions m ON m.id = s.session_id WHERE s.session_id = ? AND a.login_digest = ? "
+                "AND s.expires_at > ? AND a.expires_at > ? AND m.deletion_pending = 0",
+                (session_id, digest, now, now),
+            )
+        ]
+
+    async def shares(self, session_id: str) -> list[dict]:
+        return [
+            dict(r)
+            for r in await self._all(
+                "SELECT id, kind, expires_at, allow_questions FROM meeting_shares "
+                "WHERE session_id = ? AND expires_at > ? ORDER BY created_at",
+                (session_id, time.time()),
+            )
+        ]
+
+    async def get_share(self, session_id: str, kind: str, share_id: str | None) -> dict | None:
+        row = await self._one(
+            "SELECT s.* FROM meeting_shares s JOIN sessions m ON m.id = s.session_id "
+            "WHERE s.session_id = ? AND s.kind = ? AND (? IS NULL OR s.id = ?) "
+            "AND s.expires_at > ? AND m.deletion_pending = 0",
+            (session_id, kind, share_id, share_id, time.time()),
+        )
+        return dict(row) if row else None
+
+    async def put_share(self, row: dict, *, replace_id: str | None = None) -> bool:
+        async with self._transaction():
+            await self._require_writable(row["session_id"])
+            await self._db.execute(
+                "DELETE FROM meeting_shares WHERE expires_at <= ?", (time.time(),)
+            )
+            if replace_id is not None:
+                old = await self.get_share(row["session_id"], "link", replace_id)
+                if old is None:
+                    await self._db.rollback()
+                    return False
+                await self._db.execute("DELETE FROM meeting_shares WHERE id = ?", (replace_id,))
+            elif row["kind"] == "password":
+                await self._db.execute(
+                    "DELETE FROM meeting_shares WHERE session_id = ? AND kind = 'password'",
+                    (row["session_id"],),
+                )
+            if row["kind"] == "link":
+                count = await self._one(
+                    "SELECT COUNT(*) FROM meeting_shares WHERE session_id = ? AND kind = 'link'",
+                    (row["session_id"],),
+                )
+                if count[0] >= 8:
+                    raise ValueError("share.limit")
+            await self._db.execute(
+                "INSERT INTO meeting_shares VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                tuple(
+                    row[k]
+                    for k in (
+                        "id",
+                        "session_id",
+                        "kind",
+                        "credential_hash",
+                        "salt",
+                        "created_at",
+                        "expires_at",
+                        "allow_questions",
+                    )
+                ),
+            )
+            await self._db.commit()
+            return True
+
+    async def revoke_share(self, session_id: str, share_id: str) -> None:
+        async with self._transaction():
+            await self._require_writable(session_id)
+            await self._db.execute(
+                "DELETE FROM meeting_shares WHERE id = ? AND session_id = ?", (share_id, session_id)
+            )
+            await self._db.commit()
+
+    async def exchange_share(
+        self, share: dict, digest: str, *, guest: tuple[str, float] | None = None
+    ) -> float | None:
+        # 一个事务创建匿名主体/登录/租约；不可嵌套调用其他公开写方法。
+        async with self._transaction():
+            current = await self.get_share(share["session_id"], share["kind"], share["id"])
+            if current is None or current["credential_hash"] != share["credential_hash"]:
+                return None
+            if guest is not None:
+                principal, expires = guest
+                await self._db.execute("INSERT INTO principals VALUES (?, 'Guest')", (principal,))
+                await self._db.execute(
+                    "INSERT INTO login_sessions VALUES (?, ?, ?)", (digest, principal, expires)
+                )
+                await self._db.execute(
+                    "INSERT INTO guest_logins VALUES (?, ?)", (digest, principal)
+                )
+            login = await self.get_login(digest)
+            if login is None:
+                await self._db.rollback()
+                return None
+            expires = min(current["expires_at"], login["expires_at"])
+            await self._db.execute(
+                "INSERT INTO share_access VALUES (?, ?, ?) ON CONFLICT(login_digest, share_id) DO UPDATE SET expires_at = excluded.expires_at",
+                (digest, current["id"], expires),
+            )
+            await self._db.commit()
+            return expires
+
+    async def prune_shares(self) -> None:
+        async with self._transaction():
+            guests = await self._all("SELECT principal_id FROM guest_logins")
+            now = time.time()
+            await self._db.execute("DELETE FROM meeting_shares WHERE expires_at <= ?", (now,))
+            await self._db.execute("DELETE FROM share_access WHERE expires_at <= ?", (now,))
+            await self._db.execute("DELETE FROM login_sessions WHERE expires_at <= ?", (now,))
+            await self._remove_unused_guests(guests)
+            await self._db.commit()

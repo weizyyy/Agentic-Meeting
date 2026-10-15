@@ -245,7 +245,7 @@ export interface MeetingClient {
   cancelTask: (id: string) => Promise<void>;
 }
 
-export function useMeetingClient(): MeetingClient {
+export function useMeetingClient(initialSessionId: string | null = null): MeetingClient {
   const [state, dispatch] = useReducer(reduce, initialState);
   const [keepPending, setKeepPending] = useState<ReadonlySet<string>>(new Set());
   const keepInFlight = useRef(new Set<string>());
@@ -414,8 +414,8 @@ export function useMeetingClient(): MeetingClient {
   // 页面一打开（包括刷新、换设备）：不需要点「开始」，先看到会议列表和最近的对话。
   useEffect(() => {
     void refreshSessions();
-    void loadView(null);
-  }, [refreshSessions, loadView]);
+    void loadView(initialSessionId);
+  }, [refreshSessions, loadView, initialSessionId]);
 
   // 连接断开之后：列表里的状态和字幕区的内容以服务端为准重新取一遍。
   const wasConnected = useRef(false);

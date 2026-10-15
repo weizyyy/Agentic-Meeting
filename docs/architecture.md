@@ -526,3 +526,7 @@ must never stop recognition and captions.
 | Remote agent model or MCP unavailable                   | Task fails                     | The task is marked failed with the reason and the assistant says so                                                   |
 | Docker missing                                          | No code execution              | The agent still searches and reads images, and reports that it could not run code                                     |
 | Browser disconnects                                     | Capture stops                  | The client reconnects; the session is kept and the timeline continues                                                 |
+
+## Meeting shares
+
+Sharing is available only in meeting-access mode, without additional configuration or dependencies. Hosts grant temporary watcher access through meeting passwords or opaque links. The optional site password remains an additional gate. Login identity and permanent ACL remain independent of exact-login share leases. See [interfaces §5.12](interfaces.md#512-meeting-shares) for expiry, revocation, storage, response cancellation and safe downgrade boundaries. Default shares last 24 hours, at most seven days; guest login lasts at most 24 hours and the configured login duration. Revocation cannot recall previously received bytes or clipboard/history copies.

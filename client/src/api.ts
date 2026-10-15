@@ -12,7 +12,12 @@ import type { TaskDetail, TaskItem } from "./tasks.ts";
 export type SessionState = "live" | "interrupted" | "ended";
 
 export interface SessionSummary {
-  access?: { role: "host" | "watcher"; allow_questions: boolean; tool_enabled?: boolean } | null;
+  access?: {
+    role: "host" | "watcher";
+    allow_questions: boolean;
+    tool_enabled?: boolean;
+    share_expires_at?: number | null;
+  } | null;
   id: string;
   title: string;
   keep: boolean;

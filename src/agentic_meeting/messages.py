@@ -56,6 +56,8 @@ NOTICES: dict[str, Callable[[Params], str]] = {
 
 # HTTP 接口的错误：代码 → 中文（interfaces.md §5.9）。
 ERRORS: dict[str, Callable[[Params], str]] = {
+    "share.invalid": lambda p: "分享无效或已到期／撤销",
+    "share.limit": lambda p: "本会议最多8个有效链接",
     "access.denied": lambda p: "无权执行此操作",
     "access.invalid_member": lambda p: "成员不存在或不能主持会议",
     "access.last_host": lambda p: "会议必须保留一位主持人",

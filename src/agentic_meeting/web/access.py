@@ -7,6 +7,7 @@ import functools
 import hashlib
 import hmac
 import json
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -37,6 +38,7 @@ class Identity:
     digest: str
     principal: str
     cookie: str
+    guest: bool = False
 
 
 @dataclass(eq=False)
@@ -66,7 +68,15 @@ class MeetingAccess:
                 password, user_salt, session_secs=cfg.server.auth_session_days * 86400
             )
         self.limiter = LoginLimiter()
-        self.checks = asyncio.Semaphore(4)
+        # 串行检查共享预算，避免同地址并发校验超出失败次数上限。
+        self.checks = asyncio.Semaphore(1)
+        guest_salt = hmac.new(
+            salt, b"guest" + (secret(cfg.server.password_env) or "").encode(), hashlib.sha256
+        ).digest()
+        self.guest_guard = AuthGuard(
+            salt.hex(), guest_salt, session_secs=min(cfg.server.auth_session_days * 86400, 86400)
+        )
+        self.pruned_at = time.monotonic()
         self.store: Store
         self.leases: set[Lease] = set()
         self.monitor: asyncio.Task | None = None
@@ -80,6 +90,7 @@ class MeetingAccess:
         await store.register_principals(
             [(key, user.display_name) for key, user in self.users.items()]
         )
+        await store.prune_shares()
         self.monitor = asyncio.create_task(self._monitor(), name="meeting-access")
 
     async def stop(self) -> None:
@@ -98,26 +109,42 @@ class MeetingAccess:
         if row is None:
             return None
         principal = row["principal_id"]
-        guard = self.guards.get(principal)
+        guest = await self.store.is_guest_login(digest, principal)
+        guard = self.guest_guard if guest else self.guards.get(principal)
         if guard is None or guard.verify(cookie) is None:
             return None
-        return Identity(digest, principal, cookie)
+        return Identity(digest, principal, cookie, guest)
 
     async def require(self, identity: Identity, session_id: str, action: str = "read") -> dict:
         if await self.authenticate(identity.cookie) is None:
             raise ApiError(401, "auth.required")
         membership = await self.store.membership(session_id, identity.principal)
-        if membership is None:
+        shares = await self.store.share_sources(session_id, identity.digest)
+        if membership is None and not shares:
             raise ApiError(404, "session.not_found")
-        if action == "host" and membership["role"] != "host":
+        host = membership is not None and membership["role"] == "host"
+        questions = (
+            host
+            or bool(membership and membership["allow_questions"])
+            or any(s["allow_questions"] for s in shares)
+        )
+        if (action == "host" and not host) or (action == "question" and not questions):
             raise ApiError(403, "access.denied")
-        if (
-            action == "question"
-            and membership["role"] != "host"
-            and not membership["allow_questions"]
-        ):
-            raise ApiError(403, "access.denied")
-        return {"role": membership["role"], "allow_questions": bool(membership["allow_questions"])}
+        return {
+            "role": "host" if host else "watcher",
+            "allow_questions": questions,
+            "share_expires_at": max(s["expires_at"] for s in shares)
+            if membership is None
+            else None,
+            "sources": ([{"kind": "acl"}] if membership else [])
+            + [{"kind": "share_" + s["kind"], "id": s["id"]} for s in shares],
+        }
+
+    def guard(self, identity: Identity) -> AuthGuard:
+        return self.guest_guard if identity.guest else self.guards[identity.principal]
+
+    def can_host(self, identity: Identity) -> bool:
+        return not identity.guest and self.users[identity.principal].can_host
 
     def track(
         self,
@@ -149,6 +176,9 @@ class MeetingAccess:
         while True:
             await asyncio.sleep(0.5)
             await self.sweep()
+            if time.monotonic() - self.pruned_at >= 60:
+                await self.store.prune_shares()
+                self.pruned_at = time.monotonic()
 
     def status(self, identity: Identity | None) -> dict:
         result: dict[str, Any] = {
@@ -159,12 +189,13 @@ class MeetingAccess:
             "csrf_token": None,
         }
         if identity is not None:
-            user = self.users[identity.principal]
-            guard = self.guards[identity.principal]
+            user = None if identity.guest else self.users[identity.principal]
+            guard = self.guard(identity)
             result["principal"] = {
                 "id": identity.principal,
-                "display_name": user.display_name,
-                "can_host": user.can_host,
+                "guest": identity.guest,
+                "display_name": "Guest" if user is None else user.display_name,
+                "can_host": self.can_host(identity),
             }
             result["csrf_token"] = guard.csrf_token(identity.cookie.split(".")[1])
         return result
@@ -219,9 +250,17 @@ async def current_session(request: Request):
         return await res.sessions.current_session()
     identity = request.state.identity
     live = res.sessions.live
-    if live is not None and await res.store.membership(live.session.id, identity.principal):
-        return await res.store.get_session(live.session.id)
-    rows = await res.store.list_sessions(1, principal=identity.principal)
+    if live is not None:
+        try:
+            await res.access.require(identity, live.session.id)
+        except ApiError as exc:
+            if exc.status_code != 404:
+                raise
+        else:
+            return await res.store.get_session(live.session.id)
+    rows = await res.store.list_sessions(
+        1, principal=identity.principal, login_digest=identity.digest
+    )
     return rows[0].session if rows else None
 
 
@@ -252,6 +291,11 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
         principal = f"local:{body['user_id']}"
         guard = access.guards.get(principal)
         async with access.checks:
+            wait = access.limiter.retry_after(address)
+            if wait > 0:
+                return error_response(
+                    429, "auth.too_many", headers={"Retry-After": str(int(wait) + 1)}
+                )
             # 未知账号也执行相同代价的比对，不让结果或耗时暴露账号列表。
             checked = guard or next(iter(access.guards.values()))
             valid = await checked.check_password_async(body["password"])
@@ -261,10 +305,10 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
                     site_password, str
                 ) and await access.site.check_password_async(site_password)
                 valid = valid and site_valid
-        if guard is None or not valid:
-            access.limiter.failed(address)
-            raise ApiError(401, "auth.wrong_password")
-        access.limiter.succeeded(address)
+            if guard is None or not valid:
+                access.limiter.failed(address)
+                raise ApiError(401, "auth.wrong_password")
+            access.limiter.succeeded(address)
         cookie, _ = guard.issue()
         digest = hashlib.sha256(cookie.encode()).hexdigest()
         await access.store.save_login(digest, principal, float(cookie.split(".")[0]))
@@ -327,6 +371,9 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
         await access.sweep()
         return {"items": await access.store.members(session_id)}
 
+    from agentic_meeting.web.shares import register as register_shares
+
+    register_shares(app, access)
     app.add_middleware(AccessRequired, access=access)
 
 
@@ -338,16 +385,34 @@ class AccessRequired:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
+        original_send = send
+
+        async def headers_send(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", ()))
+                headers = [(k, v) for k, v in headers if k.lower() != b"referrer-policy"]
+                headers.append((b"referrer-policy", b"no-referrer"))
+                if scope["path"].startswith("/api/shares") or "/shares" in scope["path"]:
+                    headers = [(k, v) for k, v in headers if k.lower() != b"cache-control"]
+                    headers.append((b"cache-control", b"private, no-store"))
+                message = {**message, "headers": headers}
+            await original_send(message)
+
+        send = headers_send
         request = Request(scope)
         path, method = request.url.path, request.method
-        if not (path == "/api" or path.startswith("/api/")) or (method, path) in PUBLIC_PATHS:
+        if (
+            not (path == "/api" or path.startswith("/api/"))
+            or (method, path) in PUBLIC_PATHS
+            or (method, path) == ("POST", "/api/shares/exchange")
+        ):
             await self.app(scope, receive, send)
             return
         identity = await self.access.authenticate(request.cookies.get(COOKIE_NAME))
         if identity is None:
             await error_response(401, "auth.required")(scope, receive, send)
             return
-        guard = self.access.guards[identity.principal]
+        guard = self.access.guard(identity)
         if method not in SAFE_METHODS and not guard.csrf_ok(
             identity.cookie.split(".")[1], request.headers.get(CSRF_HEADER)
         ):
@@ -356,12 +421,24 @@ class AccessRequired:
         request.state.identity = identity
         started = False
         terminated = False
+        revoked = False
+        leases: dict[str, Lease] = {}
+        task = asyncio.current_task()
+
+        async def close() -> None:
+            nonlocal revoked
+            revoked = True
+            task.cancel()
 
         async def guarded_send(message):
             nonlocal started, terminated
             if terminated:
                 return
             session_ids = getattr(request.state, "authorized_sessions", ())
+            if not path.endswith("/events"):
+                for sid in session_ids:
+                    if sid not in leases:
+                        leases[sid] = self.access.track(identity, sid, "read", close)
             if session_ids and message["type"] in (
                 "http.response.start",
                 "http.response.body",
@@ -382,4 +459,16 @@ class AccessRequired:
                 started = True
             await send(message)
 
-        await self.app(scope, receive, guarded_send)
+        try:
+            await self.app(scope, receive, guarded_send)
+        except asyncio.CancelledError:
+            if not revoked:
+                raise
+            async with asyncio.timeout(0.25):
+                if started:
+                    await send({"type": "http.response.body", "body": b"", "more_body": False})
+                else:
+                    await error_response(404, "session.not_found")(scope, receive, send)
+        finally:
+            for lease in leases.values():
+                self.access.leases.discard(lease)

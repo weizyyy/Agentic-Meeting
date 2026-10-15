@@ -6,6 +6,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Add meeting passwords and expiring watcher links with exact-login leases, guest access, and prompt revocation of streams and downloads.
+
 ### Fixed
 
 - A new slide that the browser uploads only as its periodic screenshot gets its own summary again.
@@ -16,6 +18,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   event stream is open, instead of "Not connected"; it still says this device is not transcribing.
 - A rejected typed question's notice (too long, queue full) goes only to the device that asked;
   devices following the meeting still see notices about the speech and language services.
+- Closing meeting shares discards late UI results, so reopening cannot restore a one-time link.
+
+- Ordered meeting streams enforce login and meeting access during snapshot, replay and blocked
+  sends. Revoked views discard old materials and pending responses while other meetings continue.
+
+- Typed-input validation and queue notices stay with the requester; following pages continue to
+  receive meeting-wide service failure and recovery notices.
+
 - Following devices keep their read-only event stream during an interruption and automatically
   receive new captions when the host resumes. Typed questions stay disabled until the host returns;
   a deleted meeting is cleared when the event stream's detail refresh reports it missing ([#21]).

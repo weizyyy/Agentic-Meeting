@@ -306,3 +306,7 @@ Each locally launched service has a `launch` table.
 
 The exact command lines are documented in [interfaces.md §9](interfaces.md), and multi-GPU layouts
 in [runtimes.md §5](runtimes.md).
+
+## Meeting shares
+
+Sharing is available only in meeting-access mode, without additional configuration or dependencies. Hosts grant temporary watcher access through meeting passwords or opaque links. The optional site password remains an additional gate. Login identity and permanent ACL remain independent of exact-login share leases. See [interfaces §5.12](interfaces.md#512-meeting-shares) for expiry, revocation, storage, response cancellation and safe downgrade boundaries. Default shares last 24 hours, at most seven days; guest login lasts at most 24 hours and the configured login duration. Revocation cannot recall previously received bytes or clipboard/history copies.

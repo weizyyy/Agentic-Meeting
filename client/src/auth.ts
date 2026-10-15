@@ -11,7 +11,7 @@ export interface AuthStatus {
   enabled: boolean;
   meeting_access?: boolean;
   site_password_required?: boolean;
-  principal?: { id: string; display_name: string; can_host: boolean };
+  principal?: { id: string; display_name: string; can_host: boolean; guest?: boolean };
   /** 当前是否可以访问（没启用口令时总是 true） */
   authenticated: boolean;
   csrf_token: string | null;

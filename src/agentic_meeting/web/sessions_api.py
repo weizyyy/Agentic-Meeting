@@ -120,7 +120,13 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
     ) -> dict[str, Any]:
         store, manager = parts(request)
         principal = request.state.identity.principal if resources(request).access else None
-        rows = await store.list_sessions(limit, before, now=time.time(), principal=principal)
+        rows = await store.list_sessions(
+            limit,
+            before,
+            now=time.time(),
+            principal=principal,
+            login_digest=request.state.identity.digest if principal else None,
+        )
         items = []
         for row in rows:
             item = summary_json(row, live=manager.is_live(row.session.id))
@@ -326,7 +332,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
                     if not revoked:
                         raise
                     # 正常撤权结束响应；TCP 背压仍不许拖住请求，错误保留可见。
-                    async with asyncio.timeout(0.5):
+                    async with asyncio.timeout(0.25):
                         await send({"type": "http.response.body", "body": b"", "more_body": False})
 
         return EventResponse(
@@ -367,6 +373,9 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
             raise
         except Exception as exc:
             raise ApiError(500, "session.delete_incomplete") from exc
+        if resources(request).access is not None:
+            # 删除确认仅含请求ID；会议已不存在，不再把确认当作会议内容重新授权。
+            request.state.authorized_sessions.discard(session.id)
         return {"id": session.id}
 
     # ---- 发言 ----

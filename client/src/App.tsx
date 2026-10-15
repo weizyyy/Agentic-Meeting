@@ -36,13 +36,14 @@ function shownOn(section: Section, current: Section): string {
 
 interface Props {
   auth?: AuthStatus;
+  initialSessionId?: string | null;
   /** 启用了访问口令时才有：顶部栏显示「退出登录」 */
   onLogout?: () => void;
 }
 
-export function App({ onLogout, auth }: Props = {}) {
+export function App({ onLogout, auth, initialSessionId }: Props = {}) {
   const { t, language } = useI18n();
-  const meeting = useMeetingClient();
+  const meeting = useMeetingClient(initialSessionId);
   const { client, state } = meeting;
   const [listOpen, setListOpen] = useState(false);
   const [tab, setTab] = useState<"captions" | "report">("captions");

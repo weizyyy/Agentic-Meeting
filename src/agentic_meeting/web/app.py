@@ -381,6 +381,18 @@ def create_app(
 
     if access is None:
         auth.register(app, auth.AuthGuard.from_config(cfg))
+
+        @app.api_route("/api/shares/{path:path}", methods=["GET", "HEAD", "POST", "PUT", "DELETE"])
+        @app.api_route(
+            "/api/sessions/{session_id}/shares", methods=["GET", "HEAD", "POST", "PUT", "DELETE"]
+        )
+        @app.api_route(
+            "/api/sessions/{session_id}/shares/{path:path}",
+            methods=["GET", "HEAD", "POST", "PUT", "DELETE"],
+        )
+        async def sharing_unavailable(request: Request) -> None:
+            # 静态站点的POST兜底会返回405；禁用的分享接口固定为404。
+            raise ApiError(404, "session.not_found")
     else:
         meeting_access.register(app, access)
 
@@ -505,7 +517,7 @@ def create_app(
                     raise ApiError(404, "session.not_found")
             elif wanted:
                 await access.require(identity, wanted.strip(), "host")
-            elif not access.users[identity.principal].can_host:
+            elif not access.can_host(identity):
                 raise ApiError(403, "access.denied")
             live = http_request.app.state.resources.sessions.live
             if live is not None:
