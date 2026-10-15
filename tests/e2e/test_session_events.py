@@ -660,35 +660,54 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(inference, t
             await writer.drain()
             assert (await reader.readuntil(b"\r\n\r\n")).startswith(b"HTTP/1.1 200")
             await until_sync(lambda: len(network["sends"]) >= 2, "快照提交发送")
-            for index in range(400):
-                response = await http.put(
-                    "/api/speakers/0",
-                    json={"session_id": sid, "display_name": f"合成{index}:" + "s" * 40},
-                )
-                assert response.status_code == 200, response.text
-            await until_sync(
-                lambda: (
+
+            async def produce_changes():
+                network["producer_started"] = clock()
+                for index in range(400):
+                    response = await http.put(
+                        "/api/speakers/0",
+                        json={"session_id": sid, "display_name": f"合成{index}:" + "s" * 40},
+                    )
+                    assert response.status_code == 200, response.text
+                    network["http_changes"] = index + 1
+                network["producer_finished"] = clock()
+
+            captured = asyncio.Event()
+
+            async def observe_backpressure():
+                while not (
                     network.get("sending_since") is not None
                     and clock() - network["sending_since"] > 1
-                ),
-                "真实 TCP 发送背压",
-                timeout_secs=10,
-            )
-            inference.asr.say("发送阻塞期间录音继续")
-            await recorder.speak()
-            await recorder.next_message("utterance", text="发送阻塞期间录音继续")
-            source = sessions.watchers.for_session(sid)
-            assert source.subscribers
-            await until_sync(
-                lambda: network.get("finished") is not None and not source.subscribers,
-                "发送期限释放 ASGI 请求及订阅",
-                timeout_secs=18,
-            )
+                ):
+                    assert network.get("finished") is None, network
+                    await asyncio.sleep(0.1)
+                network["backpressure_observed"] = clock()
+                assert network.get("finished") is None, network
+                captured.set()
+                inference.asr.say("发送阻塞期间录音继续")
+                await recorder.speak()
+                await recorder.next_message("utterance", text="发送阻塞期间录音继续")
+                source = sessions.watchers.for_session(sid)
+                assert source.subscribers
+                await until_sync(
+                    lambda: network.get("finished") is not None and not source.subscribers,
+                    "发送期限释放 ASGI 请求及订阅",
+                    timeout_secs=18,
+                )
+                request_seconds = network["finished"] - network["started"]
+                assert 14 <= request_seconds < 17
+                assert max(network["sends"]) > 1
+                assert sessions.live is live
+                assert not reader.at_eof()
+
+            # 实时验证不等生产结束；原10秒尾部预算仍从400次写全部完成后起算。
+            async with asyncio.TaskGroup() as tasks:
+                producer = tasks.create_task(produce_changes())
+                tasks.create_task(observe_backpressure())
+                await producer
+                await until_sync(captured.is_set, "真实 TCP 发送背压", timeout_secs=10)
+
             request_seconds = network["finished"] - network["started"]
-            assert 14 <= request_seconds < 17
-            assert max(network["sends"]) > 1
-            assert sessions.live is live
-            assert not reader.at_eof()
             stopped = clock()
             server.should_exit = True
             await asyncio.wait_for(asyncio.shield(running), 10)
@@ -706,6 +725,12 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(inference, t
                 json.dumps(
                     {
                         "request_seconds": request_seconds,
+                        "backpressure_observed_seconds": network["backpressure_observed"]
+                        - network["started"],
+                        "producer_seconds": network["producer_finished"] - network["started"],
+                        "producer_started_seconds": network["producer_started"]
+                        - network["started"],
+                        "http_changes": network["http_changes"],
                         "subscribers": 0,
                         "server_stop_seconds": stop_seconds,
                         "tcp_eof_after_resume": True,
@@ -715,6 +740,7 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(inference, t
                 )
             )
     finally:
+        print(json.dumps({"tcp_network": network}))
         if writer is not None:
             writer.close()
             await writer.wait_closed()
