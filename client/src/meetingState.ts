@@ -21,6 +21,7 @@ import type {
   SessionMessage,
   UtteranceMessage,
   UtteranceUpdateMessage,
+  Watcher,
 } from "./protocol.ts";
 import {
   DEFAULT_SCREEN_CONFIG,
@@ -86,6 +87,8 @@ export interface MeetingState {
   reconnectAttempt: number;
   /** 正在显示的那场会议最近的一份会后报告；没有是 null */
   report: ReportInfo | null;
+  /** 连接期间：正在别的设备上旁观这场会议的设备 */
+  watchers: Watcher[];
 }
 
 export type ReplyMode = "text" | "voice";
@@ -117,6 +120,7 @@ export const initialState: MeetingState = {
   closedReason: null,
   reconnectAttempt: 0,
   report: null,
+  watchers: [],
 };
 
 export type Action =
@@ -135,6 +139,7 @@ export type Action =
   | { type: "sessionStarted"; message: SessionMessage }
   | { type: "sessionClosed"; message: SessionClosedMessage }
   | { type: "assistantState"; state: AssistantStateName }
+  | { type: "watchers"; items: Watcher[] }
   | { type: "textSent" }
   | { type: "llmStarted" }
   | { type: "llmText"; text: string }
@@ -268,6 +273,7 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
         liveSessionId: reset ? null : state.liveSessionId,
         reconnectAttempt: connection === "connected" ? 0 : state.reconnectAttempt,
         sharing: reset ? false : state.sharing,
+        watchers: reset ? [] : state.watchers,
       };
     }
     case "caption":
@@ -317,6 +323,7 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
         tasks: switching ? [] : state.tasks,
         connections: switching ? [] : state.connections,
         report: switching ? null : state.report,
+        watchers: [],
       };
     }
     case "sessionClosed":
@@ -325,7 +332,10 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
         closedReason: action.message.reason,
         liveSessionId: null,
         sharing: false,
+        watchers: [],
       };
+    case "watchers":
+      return state.liveSessionId === null ? state : { ...state, watchers: action.items };
     case "assistantState":
       // 被叫到名字（在听）或开始朗读，说明这一轮是语音应答
       return {

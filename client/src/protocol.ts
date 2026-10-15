@@ -1,7 +1,8 @@
 // 服务端 → 浏览器的自定义消息（docs/interfaces.md §6.1）。
 // 目前处理：caption、utterance、utterance_update、speaker、speakers_merged、session、session_closed、
-// assistant_state、notice、
+// assistant_state、notice、watchers、
 // frame、frame_caption、task、task_event；不认识的类型收到时忽略。
+// 旁观的事件流（§5.1）用同一套消息，另加 state。
 
 import { messages } from "./i18n/index.ts";
 import type { NoticeParams } from "./i18n/serverNotices.ts";
@@ -96,6 +97,28 @@ export interface SessionClosedMessage {
   reason: SessionClosedReason;
 }
 
+/** 正在旁观这场会议的一台设备：`device` 是服务端从 User-Agent 得出的「平台 · 浏览器」，认不出来是空字符串。 */
+export interface Watcher {
+  id: number;
+  device: string;
+  /** 开始旁观的时刻，Unix 秒（服务端时间） */
+  since: number;
+}
+
+/** 正在旁观的设备名单，只发给会议页面。 */
+export interface WatchersMessage {
+  type: "watchers";
+  items: Watcher[];
+}
+
+export const MEETING_STATES = ["live", "interrupted", "ended"] as const;
+
+/** 旁观的事件流里：会议此刻的状态，开流时一条，之后每次变化一条。 */
+export interface StateMessage {
+  type: "state";
+  state: (typeof MEETING_STATES)[number];
+}
+
 /** 新截图进了时间线。 */
 export interface FrameMessage {
   type: "frame";
@@ -150,7 +173,9 @@ export type ServerMessage =
   | SessionMessage
   | SessionClosedMessage
   | AssistantStateMessage
-  | NoticeMessage;
+  | NoticeMessage
+  | WatchersMessage
+  | StateMessage;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -349,6 +374,24 @@ export function parseServerMessage(data: unknown): ServerMessage | null {
         return { type: "frame_caption", id, caption };
       }
       return null;
+    }
+    case "watchers": {
+      if (!Array.isArray(data.items)) return null;
+      const items = data.items.filter(
+        (w): w is Watcher =>
+          isRecord(w) &&
+          typeof w.id === "number" &&
+          typeof w.device === "string" &&
+          typeof w.since === "number",
+      );
+      return {
+        type: "watchers",
+        items: items.map(({ id, device, since }) => ({ id, device, since })),
+      };
+    }
+    case "state": {
+      const state = MEETING_STATES.find((s) => s === data.state);
+      return state ? { type: "state", state } : null;
     }
     default:
       return null;

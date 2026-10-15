@@ -2,19 +2,25 @@
 
 由 ``web/app.py`` 的 ``create_app`` 调用 ``register``。接口都只走 HTTP，不需要音频连接：
 页面一打开（包括刷新、换设备、没连接时）就能看到会议列表和最近的对话。
+旁观一场会议的设备另开一条服务端推送的事件流（``/api/sessions/{id}/events``，``pipeline/watchers.py``）。
 错误统一是 ``{"error", "code", "params"}``（interfaces.md §5.9，app.py 里的异常处理器负责转换）。
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 import time
 from typing import Any
 
 from fastapi import FastAPI, Query, Request
+from fastapi.responses import StreamingResponse
+from starlette.types import Receive, Scope, Send
 
 from agentic_meeting.config import AppConfig
 from agentic_meeting.pipeline.bot import AppResources
 from agentic_meeting.pipeline.session import SessionManager
+from agentic_meeting.pipeline.watchers import PING_SECS, Watcher, WatcherHub, device_label
 from agentic_meeting.store.db import SessionBusy, Store
 from agentic_meeting.types import NamedUtterance, Session, SessionSummary
 from agentic_meeting.web.errors import ApiError, invalid
@@ -23,6 +29,38 @@ MAX_TITLE_CHARS = 200
 MAX_SPEAKER_NAME_CHARS = 50
 MAX_PAGE = 500
 MAX_REASSIGN = 500  # 一次最多改这么多条发言的说话人
+
+
+class WatcherStream(StreamingResponse):
+    """旁观的事件流：响应怎么结束（设备断开、被踢掉、应用退出），都把这个旁观者从名单里去掉。"""
+
+    def __init__(self, hub: WatcherHub, watcher: Watcher) -> None:
+        super().__init__(
+            _events(watcher),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+        self._hub = hub
+        self._watcher = watcher
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._hub.unsubscribe(self._watcher)
+
+
+async def _events(watcher: Watcher):
+    """一条消息一个 ``data:`` 事件；没有消息时每 ``PING_SECS`` 秒发一行注释，免得被中间的代理当成空闲断开。"""
+    while True:
+        try:
+            data = await asyncio.wait_for(watcher.next(), PING_SECS)
+        except TimeoutError:
+            yield ": ping\n\n"
+            continue
+        if data is None:
+            return
+        yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 def summary_json(summary: SessionSummary, *, live: bool) -> dict[str, Any]:
@@ -173,6 +211,16 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
             "accepted": level != "warn",
             "notice": msg.notice(level) if msg is not None else None,
         }
+
+    @app.get("/api/sessions/{session_id}/events")
+    async def watch_session(request: Request, session_id: str) -> StreamingResponse:
+        """旁观这场会议：服务端推送的事件流（interfaces.md §5.1「Following a meeting live」）。"""
+        _, manager = parts(request)
+        session = await resolve(request, session_id)
+        state = (await summary_of(request, session))["state"]
+        device = device_label(request.headers.get("user-agent", ""))
+        watcher = manager.watchers.subscribe(session.id, device, state)
+        return WatcherStream(manager.watchers, watcher)
 
     async def end(request: Request, session: Session) -> dict[str, Any]:
         _, manager = parts(request)

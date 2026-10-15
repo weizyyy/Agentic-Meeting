@@ -69,9 +69,12 @@ After a server restart, diarization has to learn the voices again, so a returnin
 new label. Use **合并到…** (Merge into…) on the speaker chip to merge the two.
 
 **Following along.** Open the same address on another device to watch a live meeting without
-taking it over; the view refreshes every three seconds and records nothing. Typed questions from
-that device still reach the assistant, and the answer appears in the captions. **在这台设备上继续**
-(Continue on this device) moves the connection there.
+taking it over. Captions, speaker changes, screenshots and tasks appear there as they happen, and
+that device records nothing. Typed questions from it still reach the assistant; the answer appears
+in the captions on every device and is never spoken aloud. **在这台设备上继续** (Continue on this
+device) moves the connection there. While other devices are watching, the meeting page shows
+**N 台设备在旁观** (N devices watching) next to the meeting's state; click it to see each device
+(for example _iPhone · Safari_) and since when it has been watching.
 
 **Microphone.** During a meeting, **麦克风** (Microphone) in the top bar mutes the microphone; it then
 reads **已静音** (Muted) until you click it again. The arrow next to it picks the microphone and the

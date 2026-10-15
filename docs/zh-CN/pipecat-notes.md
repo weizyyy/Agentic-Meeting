@@ -492,6 +492,11 @@ await self.push_frame(RTVIServerMessageFrame(data={"type": "caption", ...}))
 - 浏览器端在 `PipecatClient` 的 `onServerMessage` 回调里收到 `data`。
 - 浏览器发来的自定义消息：`RTVIProcessor` 的 `on_client_message` 事件
   （`processors/frameworks/rtvi/processor.py`）。
+- 要拿到发给浏览器的每条消息、不管它是在管线哪里推出的，用观察者而不是处理器：
+  `BaseObserver(observe_every_push=False)` 只在每一帧第一次被推出时调用 `on_push_frame(data: FramePushed)`
+  （`observers/base_observer.py`）。Pipecat 自己的 `RTVIObserver` 也是这样把 `RTVIServerMessageFrame` 变成
+  RTVI 的 `server-message`。`WatcherObserver`（`pipeline/watchers.py`）用它把这些消息抄给旁观会议的设备；
+  观察者通过 `PipelineWorker(observers=[...])` 传入。
 
 ## 10. 自定义处理器
 

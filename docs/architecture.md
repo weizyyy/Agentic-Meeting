@@ -156,8 +156,15 @@ negotiation; an unknown id yields 404):
 
 The page is useful without a connection: the meeting list, recent captions, exports, reports,
 renaming and deletion all use plain HTTP (interfaces.md §5.1, §5.4). Another device can follow a
-live meeting by polling the captions endpoint, and send typed questions over HTTP
-(`POST /api/sessions/{id}/text`) into the live connection's typed-input queue without taking it over.
+meeting without taking it over: it opens a server-sent event stream
+(`GET /api/sessions/{id}/events`) and sends typed questions over HTTP
+(`POST /api/sessions/{id}/text`) into the live connection's typed-input queue. A pipeline observer
+(`WatcherObserver` in `pipeline/watchers.py`) copies each message the pipeline sends to the live
+page, the first time it is pushed, to the watcher hub owned by the session manager. The hub passes
+captions, speakers, screenshots and tasks on to every stream of that meeting, and the session manager
+adds the meeting's state changes and sends the live page the list of watching devices. Answers to
+watchers' questions are text only, so a watcher cannot make the assistant speak in the room. Any
+number of devices can watch; there is still only one live connection.
 
 ## 4. Pipeline
 

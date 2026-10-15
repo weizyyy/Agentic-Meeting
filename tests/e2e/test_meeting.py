@@ -1,4 +1,4 @@
-"""一场会议从头到尾：发言变成字幕、叫名字提问、打字提问、断线继续、结束、导出、换设备接管、旁观的设备打字提问。"""
+"""一场会议从头到尾：发言变成字幕、叫名字提问、打字提问、断线继续、结束、导出、换设备接管、别的设备旁观和打字提问。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,13 @@ import json
 import zipfile
 
 from .inference import Reply
+from .meeting_client import WatchingDevice
 from .waiting import until, until_sync
+
+IPHONE_SAFARI = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+)
 
 
 async def test_speech_is_transcribed_stored_and_exported(app, http, meeting, inference):
@@ -141,35 +147,74 @@ async def test_a_second_device_takes_over_the_meeting(app, http, meeting, infere
     assert (await second.next_message("utterance"))["text"] == "换到第二台设备上说话"
 
 
-async def test_a_device_following_the_meeting_can_ask_by_typing(app, http, meeting, inference):
-    """手机只读旁观时打字提问：不接管会议，回答只出文字，记进字幕。"""
-    client = meeting()
-    session = await client.connect()
-    inference.llm.when("报告什么时候交", Reply(text="下周五之前交。"))
+async def test_another_device_follows_the_meeting_live_and_asks_by_typing(
+    app, http, meeting, inference
+):
+    """手机旁观：发言、改说话人、提问和回答都推过来，不接管会议，回答只出文字；
+    会议页面看得到哪台设备在旁观；断开、继续、结束都会告诉旁观的设备。"""
+    host = meeting()
+    session = await host.connect()
+    async with app.http() as phone_http:
+        phone = WatchingDevice(phone_http, session["id"], user_agent=IPHONE_SAFARI)
+        assert await phone.open() == 200
+        assert (await phone.next_message("state"))["state"] == "live"
 
-    sent = await http.post(f"/api/sessions/{session['id']}/text", json={"text": "报告什么时候交"})
-    assert sent.status_code == 200, sent.text
-    assert sent.json() == {"accepted": True, "notice": None}
-    # 会议页面照常看到这条提问和文字回答，连接没有被接管
-    typed = await client.next_message("utterance", source="text")
-    assert typed["text"] == "报告什么时候交"
-    await until_sync(lambda: "下周五" in client.bot_text(), "收到回答文字")
-    assert inference.tts.count() == 0
+        def listed():
+            lists = host.of_type("watchers")
+            return lists[-1]["items"] if lists and lists[-1]["items"] else None
 
-    async def answer_stored():
-        items = (
-            await http.get("/api/utterances", params={"session_id": session["id"], "tail": 10})
-        ).json()["items"]
-        return [u for u in items if u["text"] == "下周五之前交。"] or None
+        watchers = await host.wait_for(listed, "会议页面看到旁观的设备")
+        assert [w["device"] for w in watchers] == ["iPhone · Safari"]
 
-    await until(answer_stored, "回答记进字幕，旁观的设备轮询读到")
+        inference.asr.say("我们先看一下上周的实验结果")
+        await host.speak()
+        said = await phone.next_message("utterance", text="我们先看一下上周的实验结果")
+        reassigned = await http.post(
+            "/api/utterances/speaker", json={"ids": [said["id"]], "new_speaker": "王老师"}
+        )
+        assert reassigned.status_code == 200, reassigned.text
+        update = await phone.next_message("utterance_update", id=said["id"])
+        assert update["speaker_name"] == "王老师"
 
-    # 不合格的提问由响应告诉提问的设备
-    empty = await http.post(f"/api/sessions/{session['id']}/text", json={"text": "  "})
-    assert empty.json()["accepted"] is False
-    assert empty.json()["notice"]["code"] == "text.empty"
+        inference.llm.when("报告什么时候交", Reply(text="下周五之前交。"))
+        sent = await http.post(
+            f"/api/sessions/{session['id']}/text", json={"text": "报告什么时候交"}
+        )
+        assert sent.status_code == 200, sent.text
+        assert sent.json() == {"accepted": True, "notice": None}
+        typed = await phone.next_message("utterance", source="text")
+        assert typed["text"] == "报告什么时候交"
+        answer = await phone.next_message("utterance", speaker_idx=-1)
+        assert answer["text"] == "下周五之前交。"
+        # 会议页面照常看到这条提问和文字回答，连接没有被接管，助理没有开口
+        await host.next_message("utterance", source="text", text="报告什么时候交")
+        await until_sync(lambda: "下周五" in host.bot_text(), "会议页面收到回答文字")
+        assert inference.tts.count() == 0
+        # 提示只给会议页面
+        assert not phone.of_type("notice")
 
-    await http.post(f"/api/sessions/{session['id']}/end")
-    ended = await http.post(f"/api/sessions/{session['id']}/text", json={"text": "还在吗"})
-    assert ended.status_code == 409
-    assert ended.json()["code"] == "session.not_live"
+        # 不合格的提问由响应告诉提问的设备
+        empty = await http.post(f"/api/sessions/{session['id']}/text", json={"text": "  "})
+        assert empty.json()["accepted"] is False
+        assert empty.json()["notice"]["code"] == "text.empty"
+
+        # 会议页面断开、在别的设备上继续、结束：旁观的设备都知道
+        await host.close()
+        await phone.next_message("state", state="interrupted")
+        resumed = meeting()
+        await resumed.connect(session_id=session["id"])
+        await phone.wait_for(
+            lambda: [m["state"] for m in phone.of_type("state")] == ["live", "interrupted", "live"],
+            "继续之后又是进行中",
+        )
+        ended = await http.post(f"/api/sessions/{session['id']}/end")
+        assert ended.status_code == 200
+        await phone.next_message("state", state="ended")
+        late = await http.post(f"/api/sessions/{session['id']}/text", json={"text": "还在吗"})
+        assert late.status_code == 409
+        assert late.json()["code"] == "session.not_live"
+
+        await phone.close()
+
+    unknown = await http.get("/api/sessions/nope/events")
+    assert unknown.status_code == 404 and unknown.json()["code"] == "session.not_found"

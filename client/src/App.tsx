@@ -111,6 +111,11 @@ export function App({ onLogout }: Props = {}) {
             connection={state.connection}
             reconnectAttempt={state.reconnectAttempt}
             watching={meeting.watching}
+            watchers={
+              state.liveSessionId !== null && state.liveSessionId === state.viewing?.id
+                ? state.watchers
+                : []
+            }
             keepPending={meeting.keepPending.has(state.viewing?.id ?? "")}
             onKeep={(id, keep) => void meeting.keepSession(id, keep)}
             onRename={(id, title) => void meeting.renameSession(id, title)}

@@ -23,7 +23,7 @@ import { MeetingTransport } from "./meetingTransport.ts";
 import { sendLocalAudio } from "./localAudio.ts";
 import { describeTrackSettings } from "./micLevel.ts";
 import { PAGE_SIZE, initialState, reduce, type Action, type MeetingState } from "./meetingState.ts";
-import { fatalErrorText, parseServerMessage } from "./protocol.ts";
+import { fatalErrorText, parseServerMessage, type ServerMessage } from "./protocol.ts";
 import { REPORT_POLL_MS } from "./report.ts";
 import { reconnectDelayMs, shouldReconnect } from "./resume.ts";
 import type { TaskDetail } from "./tasks.ts";
@@ -37,8 +37,8 @@ const OFFER_ENDPOINT = "/api/offer";
 /** 连接期间多久核对一次「字幕区显示的是不是进行中的这场会议」。 */
 const SESSION_CHECK_MS = 5000;
 
-/** 只读地看一场正在别的设备上进行的会议时，多久取一次新发言。 */
-const WATCH_POLL_MS = 3000;
+/** 旁观时有新发言，最多隔这么久取一次会议信息（时长、发言数在里面）。 */
+const WATCH_DETAIL_MS = 5000;
 
 /** 正在只读旁观的会议：自己没连着，看的这场正在别的设备上进行 */
 function watchingSessionId(state: MeetingState): string | null {
@@ -69,6 +69,74 @@ function errorText(error: unknown): string {
   return messages().common.unknownError;
 }
 
+/** 服务端消息 → 界面状态。会议连接的数据通道和旁观的事件流（interfaces.md §5.1）共用。 */
+export function dispatchServerMessage(dispatch: Dispatch<Action>, message: ServerMessage): void {
+  switch (message.type) {
+    case "caption":
+      dispatch({ type: "caption", message });
+      break;
+    case "utterance":
+      dispatch({ type: "utterance", message });
+      break;
+    case "utterance_update":
+      dispatch({ type: "utteranceUpdate", message });
+      break;
+    case "speaker":
+      dispatch({
+        type: "speakerRenamed",
+        idx: message.idx,
+        displayName: message.display_name,
+      });
+      break;
+    case "speakers_merged":
+      dispatch({
+        type: "speakersMerged",
+        from: message.from,
+        into: message.into,
+        displayName: message.display_name,
+      });
+      break;
+    case "session":
+      dispatch({ type: "sessionStarted", message });
+      break;
+    case "session_closed":
+      dispatch({ type: "sessionClosed", message });
+      break;
+    case "assistant_state":
+      dispatch({ type: "assistantState", state: message.state });
+      break;
+    case "notice":
+      dispatch({
+        type: "notice",
+        level: message.level,
+        text: message.text,
+        server: { code: message.code, params: message.params },
+      });
+      break;
+    case "frame": {
+      const { id, t, width, height } = message;
+      dispatch({ type: "frame", frame: { id, t, width, height } });
+      break;
+    }
+    case "frame_caption":
+      dispatch({ type: "frameCaption", id: message.id, caption: message.caption });
+      break;
+    case "task": {
+      const { type: _type, ...task } = message;
+      dispatch({ type: "task", task });
+      break;
+    }
+    case "task_event":
+      dispatch({ type: "taskEvent", taskId: message.task_id, summary: message.summary });
+      break;
+    case "watchers":
+      dispatch({ type: "watchers", items: message.items });
+      break;
+    case "state":
+      break; // 只在旁观的事件流里有，由那边处理
+  }
+}
+
 /** 创建 Pipecat 客户端，并把它的回调接到界面状态的 dispatch 上。 */
 export function createMeetingClient(dispatch: Dispatch<Action>): PipecatClient {
   // 不用默认的 DailyMediaManager：它要从 c.daily.co 下载脚本，浏览器上不了外网就连不上（pipecat-notes.md §12）。
@@ -81,66 +149,7 @@ export function createMeetingClient(dispatch: Dispatch<Action>): PipecatClient {
       onTransportStateChanged: (transport) => dispatch({ type: "transport", transport }),
       onServerMessage: (data) => {
         const message = parseServerMessage(data);
-        if (!message) return; // 不认识的消息类型先忽略
-        switch (message.type) {
-          case "caption":
-            dispatch({ type: "caption", message });
-            break;
-          case "utterance":
-            dispatch({ type: "utterance", message });
-            break;
-          case "utterance_update":
-            dispatch({ type: "utteranceUpdate", message });
-            break;
-          case "speaker":
-            dispatch({
-              type: "speakerRenamed",
-              idx: message.idx,
-              displayName: message.display_name,
-            });
-            break;
-          case "speakers_merged":
-            dispatch({
-              type: "speakersMerged",
-              from: message.from,
-              into: message.into,
-              displayName: message.display_name,
-            });
-            break;
-          case "session":
-            dispatch({ type: "sessionStarted", message });
-            break;
-          case "session_closed":
-            dispatch({ type: "sessionClosed", message });
-            break;
-          case "assistant_state":
-            dispatch({ type: "assistantState", state: message.state });
-            break;
-          case "notice":
-            dispatch({
-              type: "notice",
-              level: message.level,
-              text: message.text,
-              server: { code: message.code, params: message.params },
-            });
-            break;
-          case "frame": {
-            const { id, t, width, height } = message;
-            dispatch({ type: "frame", frame: { id, t, width, height } });
-            break;
-          }
-          case "frame_caption":
-            dispatch({ type: "frameCaption", id: message.id, caption: message.caption });
-            break;
-          case "task": {
-            const { type: _type, ...task } = message;
-            dispatch({ type: "task", task });
-            break;
-          }
-          case "task_event":
-            dispatch({ type: "taskEvent", taskId: message.task_id, summary: message.summary });
-            break;
-        }
+        if (message) dispatchServerMessage(dispatch, message); // 不认识的消息类型先忽略
       },
       onBotLlmStarted: () => dispatch({ type: "llmStarted" }),
       onBotLlmText: ({ text }) => dispatch({ type: "llmText", text }),
@@ -524,7 +533,8 @@ export function useMeetingClient(): MeetingClient {
     }, delay);
   }, [state.connection, connectTo]);
 
-  // 只读地看一场正在别的设备上进行的会议：每 3 秒取一次新发言、任务和会议状态。
+  // 只读地看一场正在别的设备上进行的会议：服务端推送的事件流（interfaces.md §5.1）。
+  // 每次流打开（包括 EventSource 自己重连）和会议状态变化时，用 HTTP 补齐会议信息、新发言和任务。
   const watchingId = watchingSessionId(state);
   const refreshWatched = useCallback(
     (id: string) => {
@@ -550,9 +560,40 @@ export function useMeetingClient(): MeetingClient {
   );
   useEffect(() => {
     if (watchingId === null) return;
-    const timer = window.setInterval(() => refreshWatched(watchingId), WATCH_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [watchingId, refreshWatched]);
+    const events = new EventSource(api.eventsUrl(watchingId));
+    let shownState: string | null = null;
+    let detailAt = 0;
+    events.onopen = () => refreshWatched(watchingId);
+    events.onmessage = (event: MessageEvent<string>) => {
+      let data: unknown;
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      const message = parseServerMessage(data);
+      if (!message) return;
+      if (message.type === "state") {
+        // 开流后的第一条是此刻的状态，onopen 已经刷新过；之后状态变了再刷新
+        if (shownState !== null && shownState !== message.state) refreshWatched(watchingId);
+        shownState = message.state;
+        return;
+      }
+      dispatchServerMessage(dispatch, message);
+      if (message.type === "utterance" && Date.now() - detailAt > WATCH_DETAIL_MS) {
+        detailAt = Date.now();
+        void api
+          .getSession(watchingId)
+          .then((detail) => dispatch({ type: "detailRefreshed", detail }))
+          .catch(() => undefined); // 只是时长和发言数，取不到等下一条发言
+      }
+    };
+    // 服务端拒绝了（会议被删、口令过期）就不会再自动重连：刷新一次会议信息，页面据此不再旁观
+    events.onerror = () => {
+      if (events.readyState === EventSource.CLOSED) refreshWatched(watchingId);
+    };
+    return () => events.close();
+  }, [watchingId, refreshWatched, api]);
 
   const stop = useCallback(async () => {
     inMeeting.current = false;
@@ -745,7 +786,7 @@ export function useMeetingClient(): MeetingClient {
       }
       const watched = watchingSessionId(latest.current);
       if (latest.current.connection !== "connected" && watched !== null) {
-        // 旁观时经 HTTP 提问，不接管会议；回答记进字幕，下一次刷新就能看到
+        // 旁观时经 HTTP 提问，不接管会议；提问和回答作为发言从事件流推过来
         void api
           .sendText(watched, checked.text)
           .then((result) => {
@@ -757,7 +798,6 @@ export function useMeetingClient(): MeetingClient {
                 text: notice.text,
                 server: { code: notice.code, params: notice.params },
               });
-            refreshWatched(watched); // 提问马上出现在字幕里
           })
           .catch((error: unknown) => fail("send", error));
         return true;
@@ -775,7 +815,7 @@ export function useMeetingClient(): MeetingClient {
       dispatch({ type: "textSent" });
       return true;
     },
-    [client, fail, api, refreshWatched],
+    [client, fail, api],
   );
 
   const sendScreenState = useCallback(

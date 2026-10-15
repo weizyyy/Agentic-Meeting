@@ -9,6 +9,7 @@ import time
 
 import pytest
 
+from .meeting_client import WatchingDevice
 from .waiting import until
 
 
@@ -113,14 +114,19 @@ async def test_meetings_survive_a_restart(start_app, inference, meeting_factory)
     reason="Windows 上停应用发的是 Ctrl+Break，不是 Ctrl+C",
 )
 async def test_ctrl_c_during_a_meeting_stops_the_server(start_app, meeting_factory):
-    """没有一并拉起模型服务时，按一次 Ctrl+C 应当直接停下；页面按原有逻辑发现连接断了，不需要额外通知。"""
+    """没有一并拉起模型服务时，按一次 Ctrl+C 应当直接停下；页面按原有逻辑发现连接断了，不需要额外通知。
+    有设备开着旁观的事件流也一样：这条流不会自己结束，应用退出时要先把它关掉。"""
     app = await start_app()
     async with app.http() as http:
         client = meeting_factory(http)()
-        await client.connect()
+        session = await client.connect()
+        phone = WatchingDevice(http, session["id"], user_agent="e2e-test")
+        assert await phone.open() == 200
+        await phone.next_message("state", state="live")
         started = time.monotonic()
         await app.shutdown(timeout_secs=20)  # 超时会被强行结束
         assert time.monotonic() - started < 10, "按一次 Ctrl+C 没有停下"
+        await phone.wait_for(lambda: phone.ended, "事件流随应用退出结束")
 
 
 @pytest.mark.parametrize("service", ["asr", "llm"])

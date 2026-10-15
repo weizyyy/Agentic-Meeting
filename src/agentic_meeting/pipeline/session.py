@@ -6,6 +6,8 @@
   只有 ``end()``（用户点「结束会议」或在列表里结束）才写 ``ended_at``。
 * **继续**（``attach``）：同一场会议再挂上一路连接。时间轴接着走（``base_secs`` 在连接建立那一刻
   对一次表），已结束的先重新打开。新建不再顺手结束别的会议——已中断的会议留着，随时可以继续。
+* **旁观**（``watchers``）：别的设备只看不连时开事件流（``pipeline/watchers.py``）。会议状态变了（连接就绪、断开、
+  结束）在这里告诉它们；同一场会议换了设备接管，只发一次「进行中」，中间不发「已中断」。
 * **说话人区分的流比连接活得长**（``diarizer_for``）：同一进程内继续时复用同一条流，说话人编号不变；
   换到别的会议、结束会议、应用退出时才释放。服务重启后只能新开一条，编号加上已有的最大编号作偏移。
 
@@ -36,6 +38,7 @@ from agentic_meeting.config import RetentionConfig
 from agentic_meeting.diar.base import Diarizer, NullDiarizer
 from agentic_meeting.diar.stream import SessionDiarizer
 from agentic_meeting.messages import Message, Notice, message
+from agentic_meeting.pipeline.watchers import WatcherHub
 from agentic_meeting.store.db import CleanupPlan, SessionBusy, Store
 from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import Session
@@ -67,6 +70,7 @@ class LiveConnection:
     finished: asyncio.Event = field(default_factory=asyncio.Event)
     owner: asyncio.Task | None = None
     finishing: bool = False
+    quiet: bool = False  # 由会话管理器停掉的：收尾时不再告诉旁观的设备「已中断」，停它的地方自己说
 
 
 class SessionManager:
@@ -88,6 +92,8 @@ class SessionManager:
         self._unfinished: set[LiveConnection] = set()
         # 连接结束（断开或会议结束）之后调用，参数是会话编号。滚动纪要用它做收尾。出错只记日志。
         self.on_finished: list[Callable[[str], Awaitable[None] | None]] = []
+        self.watchers = WatcherHub(now=now)
+        self.watchers.on_change = self._watchers_changed
 
     # ------------------------------------------------------------------ #
     # 查询
@@ -132,6 +138,13 @@ class SessionManager:
             logger.exception("向浏览器推送消息失败")
             return False
         return True
+
+    async def _watchers_changed(self, session_id: str) -> None:
+        """旁观名单变了：告诉正在进行的这场会议的页面（interfaces.md §6.1 ``watchers``）。"""
+        await self.push_to(session_id, self.watchers_message(session_id))
+
+    def watchers_message(self, session_id: str) -> dict:
+        return {"type": "watchers", "items": self.watchers.items(session_id)}
 
     async def push_to(self, session_id: str, data: dict) -> bool:
         """只在 ``session_id`` 这场会议正在进行时推消息（后台任务完成时，会议可能已经换了）。"""
@@ -211,8 +224,10 @@ class SessionManager:
         别的没结束的会议（已中断的）原样留着，之后还能继续。
         """
         async with self._lock:
-            if self._live is not None:
-                await self._stop(self._live, "taken_over")
+            old = self._live
+            if old is not None:
+                await self._stop(old, "taken_over")
+                self.watchers.state(old.session.id, "interrupted")
             await self._drop_stream()
             now = self._now()
             session = await self._store.create_session(now=now)
@@ -236,8 +251,11 @@ class SessionManager:
             if session is None:
                 raise SessionNotFound(session_id)
             await self._store.require_available(session_id)
-            if self._live is not None:
-                await self._stop(self._live, "taken_over")
+            old = self._live
+            if old is not None:
+                await self._stop(old, "taken_over")
+                if old.session.id != session_id:
+                    self.watchers.state(old.session.id, "interrupted")
             if self._stream is not None and self._stream.session_id != session_id:
                 await self._drop_stream()
             if session.ended_at is not None:
@@ -308,12 +326,14 @@ class SessionManager:
         return result
 
     async def forget(self, session_id: str) -> None:
-        """这场会议被删掉了：手里要是还留着它的说话人区分流，释放掉。"""
+        """这场会议被删掉了：结束旁观它的事件流；手里要是还留着它的说话人区分流，释放掉。"""
+        self.watchers.close_session(session_id)
         if self._stream is not None and self._stream.session_id == session_id:
             await self._drop_stream()
 
     async def shutdown(self, wait_secs: float = SHUTDOWN_TIMEOUT_SECS) -> None:
         """应用退出：告诉页面「服务正在停止」并停掉活动连接（最多等 ``wait_secs`` 秒），释放说话人区分流。"""
+        self.watchers.close_all()
         async with self._lock:
             if self._live is not None:
                 await self._stop(self._live, "server_stopping", wait_secs=wait_secs)
@@ -332,6 +352,8 @@ class SessionManager:
         live.text_input = text_input
         if live.stop_requested:
             await worker.cancel()
+        else:
+            self.watchers.state(live.session.id, "live")
 
     async def finish(self, live: LiveConnection) -> None:
         """连接结束（无论怎么结束）：关闭连接记录，释放位置。不写 ``ended_at``。"""
@@ -357,6 +379,8 @@ class SessionManager:
             if self._live is live:
                 self._live = None
             live.done.set()
+        if not live.quiet:
+            self.watchers.state(live.session.id, "interrupted")
         for hook in list(self.on_finished):
             try:
                 result = hook(live.session.id)
@@ -373,7 +397,10 @@ class SessionManager:
                 await self._stop(live, "ended")
             if self._stream is not None and self._stream.session_id == session_id:
                 await self._drop_stream()
-            return await self._store.end_session(session_id, now=self._now())
+            ended = await self._store.end_session(session_id, now=self._now())
+            if ended is not None:
+                self.watchers.state(session_id, "ended")
+            return ended
 
     # ------------------------------------------------------------------ #
     # 内部
@@ -393,6 +420,7 @@ class SessionManager:
         """告诉页面原因、取消管线、等它收尾（超时就不等了）。"""
         timeout = self._timeout if wait_secs is None else wait_secs
         live.stop_requested = True
+        live.quiet = True
         if live.worker is not None:
             try:
                 await live.worker.queue_frame(

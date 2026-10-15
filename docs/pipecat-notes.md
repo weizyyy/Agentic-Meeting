@@ -532,6 +532,12 @@ await self.push_frame(RTVIServerMessageFrame(data={"type": "caption", ...}))
 - The browser receives `data` in the `onServerMessage` callback of `PipecatClient`.
 - Custom messages from the browser arrive in the `on_client_message` event of `RTVIProcessor`
   (`processors/frameworks/rtvi/processor.py`).
+- To see every message sent to the browser, wherever in the pipeline it was pushed, use an observer
+  rather than a processor: `BaseObserver(observe_every_push=False)` calls
+  `on_push_frame(data: FramePushed)` only for the first push of each frame
+  (`observers/base_observer.py`). Pipecat's own `RTVIObserver` turns `RTVIServerMessageFrame` into
+  the RTVI `server-message` the same way. `WatcherObserver` (`pipeline/watchers.py`) copies these
+  messages to devices following the meeting; observers are passed as `PipelineWorker(observers=[...])`.
 
 ## 10. Custom processors
 

@@ -3,6 +3,7 @@ import {
   BookmarkIcon,
   ChevronDownIcon,
   DownloadIcon,
+  EyeIcon,
   PencilIcon,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -11,13 +12,16 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import type { SessionState, SessionSummary } from "../api.ts";
 import type { ConnectionState } from "../meetingState.ts";
-import { formatDateTime, formatNumber } from "../i18n/format.ts";
+import type { Watcher } from "../protocol.ts";
+import { formatDateTime, formatNumber, formatTimeOfDay } from "../i18n/format.ts";
 import { formatDuration, formatSpan, useI18n } from "../i18n/index.ts";
 import { interruptedSecs } from "../resume.ts";
 import { canResume, exportUrl, sessionTitle } from "../sessionView.ts";
@@ -29,6 +33,8 @@ interface Props {
   reconnectAttempt: number;
   /** 正在只读地看一场在别的设备上进行的会议 */
   watching: boolean;
+  /** 这台设备开着这场会议时：别的设备里谁在旁观 */
+  watchers: Watcher[];
   keepPending: boolean;
   onKeep: (id: string, keep: boolean) => void;
   onRename: (id: string, title: string) => void;
@@ -68,6 +74,7 @@ export function SessionBanner({
   connection,
   reconnectAttempt,
   watching,
+  watchers,
   onRename,
   onKeep,
   keepPending,
@@ -148,6 +155,37 @@ export function SessionBanner({
           <span className="tabular-nums">{formatDuration(t, session.duration_secs)}</span>
           <span aria-hidden>·</span>
           <span>{t.session.utterances(formatNumber(language, session.utterance_count))}</span>
+          {watchers.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="-my-1 text-xs font-normal text-muted-foreground"
+                  />
+                }
+              >
+                <EyeIcon data-icon="inline-start" />
+                {t.session.watchers.count(formatNumber(language, watchers.length))}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>{t.session.watchers.title}</DropdownMenuLabel>
+                  {watchers.map((w) => (
+                    <DropdownMenuItem key={w.id} className="justify-between">
+                      <span className="truncate">
+                        {w.device || t.session.watchers.unknownDevice}
+                      </span>
+                      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        {t.session.watchers.since(formatTimeOfDay(language, w.since))}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">

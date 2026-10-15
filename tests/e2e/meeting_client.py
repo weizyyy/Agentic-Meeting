@@ -221,3 +221,89 @@ class MeetingClient:
             if np.abs(pcm).max() > 1000:
                 self.bot_audio_frames += 1
                 self._changed.set()
+
+
+class WatchingDevice:
+    """只旁观、不连接的设备：读 ``GET /api/sessions/{id}/events`` 的事件流（interfaces.md §5.1）。
+
+    ``messages`` 是收到的全部事件；``ended`` 表示服务端结束了这条流。
+    """
+
+    def __init__(self, http: httpx.AsyncClient, session_id: str, user_agent: str) -> None:
+        self._http = http
+        self._url = f"/api/sessions/{session_id}/events"
+        self._user_agent = user_agent
+        self.messages: list[dict[str, Any]] = []
+        self.status_code: int | None = None
+        self.ended = False
+        self._changed = asyncio.Event()
+        self._task: asyncio.Task | None = None
+
+    async def open(self) -> int:
+        """开始读，返回响应的状态码。"""
+        self._task = asyncio.create_task(self._read())
+        await self._wait(lambda: self.status_code is not None, "事件流响应")
+        assert self.status_code is not None
+        return self.status_code
+
+    async def close(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+
+    async def next_message(
+        self, kind: str, timeout_secs: float = 30, **fields: Any
+    ) -> dict[str, Any]:
+        """等第一条类型为 ``kind``、并且字段都等于 ``fields`` 的事件（已收到的也算）。"""
+
+        def match() -> dict[str, Any] | None:
+            for message in self.messages:
+                if message.get("type") == kind and all(
+                    message.get(k) == v for k, v in fields.items()
+                ):
+                    return message
+            return None
+
+        return await self._wait(match, f"事件流收到 {kind} {fields or ''}", timeout_secs)
+
+    async def wait_for(self, predicate: Any, description: str, timeout_secs: float = 30) -> Any:
+        return await self._wait(predicate, description, timeout_secs)
+
+    def of_type(self, kind: str) -> list[dict[str, Any]]:
+        return [m for m in self.messages if m.get("type") == kind]
+
+    async def _read(self) -> None:
+        headers = {"User-Agent": self._user_agent, "Accept": "text/event-stream"}
+        timeout = httpx.Timeout(30, read=None)  # 没有消息时只有每 15 秒一行注释
+        try:
+            async with self._http.stream("GET", self._url, headers=headers, timeout=timeout) as r:
+                self.status_code = r.status_code
+                self._changed.set()
+                if r.status_code != 200:
+                    await r.aread()
+                    return
+                async for line in r.aiter_lines():
+                    if line.startswith("data: "):
+                        self.messages.append(json.loads(line[len("data: ") :]))
+                        self._changed.set()
+        except httpx.HTTPError:
+            pass  # 应用退出时连接直接断开，同样算流结束了
+        finally:
+            self.ended = True
+            self._changed.set()
+
+    async def _wait(self, predicate: Any, description: str, timeout_secs: float = 30) -> Any:
+        deadline = time.monotonic() + timeout_secs
+        while True:
+            value = predicate()
+            if value:
+                return value
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AssertionError(
+                    f"{description}：{timeout_secs} 秒内没有等到。已收到：{self.messages[-10:]}"
+                )
+            self._changed.clear()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._changed.wait(), min(remaining, 0.1))

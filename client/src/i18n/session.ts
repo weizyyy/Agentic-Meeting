@@ -23,8 +23,15 @@ export const session = defineMessages(
     exportFullHint: "转录、JSON、报告、全部截图和任务产物，打成一个压缩包",
     deletionIncomplete: "删除尚未完成，内容可能已部分移除。请在会议列表重试删除。",
     reconnecting: (attempt: number) => `连接断开了，正在自动重连（第 ${attempt} 次）…`,
-    watching: "正在另一台设备上进行，这里每 3 秒刷新一次；可以打字向助理提问，但不录音。",
+    watching: "正在另一台设备上进行，这里实时显示；可以打字向助理提问，但不录音。",
     takeOverHere: "在这台设备上继续",
+    /** 会议页面上：别的设备正在旁观 */
+    watchers: {
+      count: (n: string) => `${n} 台设备在旁观`,
+      title: "正在旁观的设备",
+      unknownDevice: "未知设备",
+      since: (time: string) => `${time} 起`,
+    },
     /** 手机上录音时的常驻提示 */
     phoneRecording: {
       held: "手机锁屏或切到后台可能中断录音，请让这个页面留在前台。录音期间屏幕会保持常亮。",
@@ -90,8 +97,14 @@ export const session = defineMessages(
       "Deletion did not finish and some content may already be gone. Retry the deletion from the meeting list.",
     reconnecting: (attempt: number) => `Connection lost; reconnecting (attempt ${attempt})…`,
     watching:
-      "This meeting is running on another device. This view refreshes every 3 seconds; you can type questions to the assistant, but nothing is recorded here.",
+      "This meeting is running on another device and shows here live; you can type questions to the assistant, but nothing is recorded here.",
     takeOverHere: "Continue on this device",
+    watchers: {
+      count: (n: string) => `${n} ${n === "1" ? "device" : "devices"} watching`,
+      title: "Devices watching",
+      unknownDevice: "Unknown device",
+      since: (time: string) => `since ${time}`,
+    },
     phoneRecording: {
       held: "Locking the phone or switching away can cut off the recording, so keep this page in front. The screen stays on while recording.",
       notHeld:

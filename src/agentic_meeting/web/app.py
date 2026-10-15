@@ -438,14 +438,34 @@ def create_app(
     return app
 
 
+class MeetingServer(uvicorn.Server):
+    """关闭时先结束旁观会议的事件流，再交给 uvicorn。
+
+    uvicorn 先等正在处理的请求全部结束，才进入应用的收尾（lifespan）；事件流是不会自己结束的请求，
+    在收尾里才结束它们就晚了，Ctrl+C 一次停不下来。
+    """
+
+    def __init__(self, config: uvicorn.Config, app: FastAPI) -> None:
+        super().__init__(config)
+        self._app = app
+
+    async def shutdown(self, sockets: Any = None) -> None:
+        resources = getattr(self._app.state, "resources", None)
+        sessions = getattr(resources, "sessions", None)
+        if sessions is not None:
+            sessions.watchers.close_all()
+        await super().shutdown(sockets)
+
+
 def make_server(cfg: AppConfig, app: FastAPI | None = None) -> uvicorn.Server:
     """按配置创建 uvicorn 服务器；配置了证书时启用 HTTPS（局域网内的浏览器访问必须 HTTPS）。"""
+    app = app or create_app(cfg)
     config = uvicorn.Config(
-        app or create_app(cfg),
+        app,
         host=cfg.server.host,
         port=cfg.server.port,
         ssl_certfile=str(cfg.resolve(cfg.server.tls_cert)) if cfg.server.tls_cert else None,
         ssl_keyfile=str(cfg.resolve(cfg.server.tls_key)) if cfg.server.tls_key else None,
         log_level="info",
     )
-    return uvicorn.Server(config)
+    return MeetingServer(config, app)

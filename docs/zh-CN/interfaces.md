@@ -528,6 +528,7 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 | `POST /api/sessions/{id}/end`                        | —                     | `{"id", "ended_at"}`。会话正在进行时同时断开它的连接，并在后台生成最后一份滚动纪要（响应不等它）                             |
 | `POST /api/session/end`                              | —                     | 同上，作用于当前会话                                                                                                         |
 | `POST /api/sessions/{id}/text`                       | `{"text": "…"}`       | `{"accepted": <boolean>, "notice": <notice 或 null>}`。旁观这场会议的设备打字提问（见下）                                    |
+| `GET /api/sessions/{id}/events`                      | —                     | 旁观这场会议的设备用的服务端推送事件流（见下）                                                                               |
 | `DELETE /api/sessions/{id}`                          | —                     | 数据库、向量、文件完整移除后才返回 `{"id"}`；忙时 409，删除失败 500（§8.4）                                                  |
 
 **会话摘要**：`{"id", "title", "keep": <boolean>, "deletion_pending": <boolean>, "started_at", "ended_at", "last_active_at", "state": "live" | "interrupted" | "ended",
@@ -540,8 +541,31 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 文字进入和会议页面 `text_input` 同一个队列，处理方式相同（§6.3）：写成一条发言、只用文字回答、助理忙时排队。
 处理结果放在响应里返回，而不是作为提示发给会议页面：`notice` 是会议页面本来会收到的 §6.1 `notice` 消息
 （`text.empty`、`text.too_long`、`text.queue_full` 时 `accepted: false`；`text.queued` 时 `accepted: true`），
-直接交给模型时为 `null`。回答写成助理的发言，旁观页面照常轮询读到。会议不存在返回 404 `session.not_found`；
-会议没有活动连接、或管线还没就绪时返回 409 `session.not_live`。
+直接交给模型时为 `null`。回答写成助理的发言，作为 `utterance` 从旁观页面的事件流推过去（见下）。
+会议不存在返回 404 `session.not_found`；会议没有活动连接、或管线还没就绪时返回 409 `session.not_live`。
+
+旁观者提的问题只用文字回答，不管语音合成怎么配置，都不会在会议室里念出来：会议室的扬声器属于持有连接的那台设备，
+旁观者却可能在任何地方。旁观者和会议页面共用文字输入队列，所以合起来最多有五条在排队（§6.3）。
+
+**实时旁观一场会议。** 显示一场会议、但不持有它的连接的页面，打开 `GET /api/sessions/{id}/events`，
+这是一个 `text/event-stream` 响应。每个事件是一行 `data:`，内容是一个带 `type` 的 JSON 对象，后面跟一个空行；
+没有别的可发时，每 15 秒发一行注释 `: ping`。流里有：
+
+- `{"type": "state", "state": "live" | "interrupted" | "ended"}`：开流时先发一条，之后会议状态每变一次发一条，
+  即活动连接就绪、连接断开、会议结束时。同一场会议被另一台设备接管时，直接再发 `live`，中间不发 `interrupted`。
+- §6.1 中这些消息，和会议页面收到的完全一样：`caption`、`utterance`、`utterance_update`、`speaker`、
+  `speakers_merged`、`frame`、`frame_caption`、`task`、`task_event`。提示、`assistant_state`、`session`、
+  `session_closed` 和 `watchers` 只发给会议页面。助理的回答（不论语音还是文字）以落库后的 `utterance`
+  （`speaker_idx = -1`）推过去；生成过程中流式输出的文字不推。
+
+流开着时，这台设备算作这场会议的旁观者。设备用 `device` 描述，由服务端根据请求的 `User-Agent` 头得出：
+平台和浏览器，例如 `iPhone · Safari`、`Windows · Edge`；只认出一部分时只写那一部分，都认不出时是空字符串。
+设备的其他信息一概不留，名单只存在内存里。会议页面通过 `watchers`（§6.1）收到这份名单。
+
+每条流最多攒 500 条没发出去的消息；跟不上的设备会被断开，重连后自己补齐。浏览器的 `EventSource` 会自动重连。
+每次流打开，页面都重新读取会议信息、最后一条字幕之后的发言（§5.4）和任务（§5.5），断开期间发出的内容不会丢。
+会议被删除或应用退出时，服务端关闭这条流。会议不存在返回 404 `session.not_found`；等待删除时返回 409
+`session.busy`。这个接口在 `/api` 下，所以启用访问口令时设备需要先登录（§5.7）；`EventSource` 会带上会话 cookie。
 
 PATCH 必须是 JSON 对象，至少含 `title`、`keep` 中一个，不能含未知字段。`keep` 只接受 JSON
 `true`/`false`，不接受 null、数字或字符串。只改 keep 保留原标题，只改 title 保留 keep；同时改两者
@@ -1208,6 +1232,7 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 | `notice`           | `level`：`info` / `warn` / `error`，`code`，`params`，`text`                            | 需要让用户知道的提示（如某服务不可用）。`code` 和 `params` 标明是哪一条提示，页面据此用自己的界面语言显示（§6.1.1）；`text` 是同一条提示的中文，给日志和旧页面用。实时模型、语音合成的请求出错时，服务端把管线里的错误换成提示发出来（`pipeline/errors.py`）；Pipecat 自带的 RTVI `error` 消息页面只显示致命的 |
 | `session`          | `id, title, keep, started_at, resumed, base_secs, state`                                | 连接建立后发一次：所属会话与当前保留标记；`resumed` 表示继续；`base_secs` 是本次连接的时间轴起点                                                                                                                                                                                                               |
 | `session_closed`   | `reason`：`taken_over` / `ended` / `server_stopping`                                    | 连接即将被服务端关闭的原因（尽力而为地发出），页面据此提示而不是静默变成未连接                                                                                                                                                                                                                                 |
+| `watchers`         | `items`：`[{id, device, since}]`                                                        | 通过 `GET /api/sessions/{id}/events` 旁观这场会议的设备（§5.1）：`id` 是应用运行期间唯一的编号，`device` 的含义见那一节，`since` 是开流的时刻（Unix 秒）。在 `session` 之后发一次，名单每变一次再发                                                                                                            |
 
 发送连接就绪消息时，从当前持久状态读取 `session.keep`。`session.recording_notice=true` 时，
 每次连接就绪后在 session 消息之后发送一次现有 `notice`：`level="info"`，

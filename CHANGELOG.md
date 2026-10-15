@@ -6,6 +6,21 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- A device following a meeting gets captions, speaker corrections, screenshots, tasks and the
+  assistant's answers pushed to it as they happen, instead of reloading the captions every three
+  seconds ([#21]). The new `GET /api/sessions/{id}/events` route is a server-sent event stream;
+  answers to questions typed there stay text only and are never spoken in the room.
+
+### Added
+
+- The meeting page shows **N 台设备在旁观** (N devices watching) while other devices follow the
+  meeting; clicking it lists each device by platform and browser, such as _iPhone · Safari_, and
+  since when it has been watching ([#21]).
+
+[#21]: https://github.com/weizyyy/Agentic-Meeting/issues/21
+
 ## [0.4.0] - 2026-10-14
 
 This release completes the v0.4 milestone: the web client is redesigned on a design system with

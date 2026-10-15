@@ -70,6 +70,7 @@ from agentic_meeting.pipeline.session import LiveConnection, SessionManager, Ses
 from agentic_meeting.pipeline.text_input import TextInputHandler, extract_text
 from agentic_meeting.pipeline.tools import realtime_tools
 from agentic_meeting.pipeline.wake import WakeWordUserTurnStartStrategy
+from agentic_meeting.pipeline.watchers import WatcherObserver
 from agentic_meeting.screen.ingest import FrameIngestor
 from agentic_meeting.store.db import SessionBusy, Store
 from agentic_meeting.store.embeddings import EmbeddingClient
@@ -449,6 +450,15 @@ def wire_screen_state(rtvi: Any) -> None:
         logger.info("屏幕共享已开始" if sharing else "屏幕共享已停止")
 
 
+def watcher_observers(
+    manager: SessionManager | None, live: LiveConnection | None
+) -> list[WatcherObserver]:
+    """把推给会议页面的消息抄给旁观这场会议的设备（interfaces.md §5.1）。"""
+    if manager is None or live is None:
+        return []
+    return [WatcherObserver(manager.watchers, live.session.id)]
+
+
 def _latency_observer() -> UserBotLatencyObserver:
     """每次应答结束后把「用户说完 → 助理开口」的耗时拆分写进日志（调优时看首字、首音延迟）。"""
     observer = UserBotLatencyObserver()
@@ -562,7 +572,11 @@ async def run_bot(
                 audio_out_sample_rate=cfg.tts.sample_rate,
                 enable_metrics=True,
             ),
-            observers=[MetricsLogObserver(), _latency_observer()],
+            observers=[
+                MetricsLogObserver(),
+                _latency_observer(),
+                *watcher_observers(manager, live),
+            ],
             app_resources=resources,
             idle_timeout_secs=None,  # 会议里长时间没人对助理说话是常态，必须关掉空闲超时
         )
@@ -667,6 +681,8 @@ async def send_session_ready(
     await send(session_message(current, live.resumed, live.base_secs))
     if resources.cfg.session.recording_notice:
         await send(message("recording.active").notice("info"))
+    if resources.sessions is not None:
+        await send(resources.sessions.watchers_message(live.session.id))
 
 
 def session_message(session: Session, resumed: bool = False, base_secs: float = 0.0) -> dict:

@@ -606,6 +606,7 @@ routes in §5.8 are outside `/api` and remain anonymous.
 | `POST /api/sessions/{id}/end`                        | —                     | `{"id", "ended_at"}`. A live session is disconnected first; the final running summary is produced in the background     |
 | `POST /api/session/end`                              | —                     | Same, for the current session                                                                                           |
 | `POST /api/sessions/{id}/text`                       | `{"text": "..."}`     | `{"accepted": <boolean>, "notice": <notice or null>}`. A typed question from a device following the meeting (below)     |
+| `GET /api/sessions/{id}/events`                      | —                     | A stream of server-sent events for a device following the meeting (below)                                               |
 | `DELETE /api/sessions/{id}`                          | —                     | `{"id"}` only after complete database/vector/file removal; 409 while busy, 500 on deletion failure (§8.4)               |
 
 **Session summary:** `{"id", "title", "keep": <boolean>, "deletion_pending": <boolean>, "started_at", "ended_at", "last_active_at",
@@ -639,9 +640,43 @@ caption, answered in text only, queued while the assistant is busy. The outcome 
 response instead of as a notice on the live page: `notice` is the `notice` message of §6.1 that the
 live page would have received (`text.empty`, `text.too_long`, `text.queue_full` with `accepted:
 false`; `text.queued` with `accepted: true`), or `null` when the question went to the model at once.
-The answer is stored as an assistant caption, which the following page reads with its usual
-polling. 404 `session.not_found` for an unknown session; 409 `session.not_live` when the session
-has no live connection, or its pipeline is not ready yet.
+The answer is stored as an assistant caption and reaches the following page as an `utterance` on its
+event stream (below). 404 `session.not_found` for an unknown session; 409 `session.not_live` when
+the session has no live connection, or its pipeline is not ready yet.
+
+Answers to watchers' questions are text only and are never spoken in the room, whatever the speech
+synthesis settings: the room's loudspeaker belongs to the device holding the connection, and a
+watcher can be anywhere. Watchers share the typed-input queue with the live page, so together they
+can have at most five questions waiting (§6.3).
+
+**Following a meeting live.** A page that shows a meeting without holding its connection opens
+`GET /api/sessions/{id}/events`, a `text/event-stream` response. Each event is one `data:` line
+holding a JSON object with a `type`, followed by a blank line; while nothing else is sent, a comment
+line `: ping` follows every 15 s. The stream carries:
+
+- `{"type": "state", "state": "live" | "interrupted" | "ended"}` first, and again whenever the
+  meeting's state changes: when a live connection is ready, when it drops, and when the meeting is
+  ended. When another device takes over the same meeting, `live` follows without an `interrupted`
+  in between.
+- These messages of §6.1, exactly as the live page receives them: `caption`, `utterance`,
+  `utterance_update`, `speaker`, `speakers_merged`, `frame`, `frame_caption`, `task` and
+  `task_event`. Notices, `assistant_state`, `session`, `session_closed` and `watchers` are for the
+  live page only. The assistant's answers, spoken or typed, arrive as their stored `utterance`
+  (`speaker_idx = -1`); the text streamed while an answer is generated does not.
+
+While a stream is open, its device is listed as a watcher of the meeting. The device is described
+by `device`, made on the server from the request's `User-Agent` header: platform and browser, such
+as `iPhone · Safari` or `Windows · Edge`, either part alone when only one is recognized, or an empty
+string. Nothing else about the device is kept, and the list exists in memory only. The live page
+receives the list as `watchers` (§6.1).
+
+A stream holds at most 500 undelivered messages; a device that falls further behind is disconnected
+and catches up when it reconnects. The browser's `EventSource` reconnects on its own. Every time the
+stream opens, the page reloads the meeting detail, the captions after its last caption id (§5.4)
+and the tasks (§5.5), so nothing sent while it was away is lost. The server closes the stream when
+the meeting is deleted or the application stops. 404 `session.not_found` for an unknown meeting;
+409 `session.busy` while it waits for deletion. The route is under `/api`, so with an access
+password the device has to be logged in (§5.7); `EventSource` sends the session cookie.
 
 Clock synchronization: the browser records its local time before and after the request, `t0` and
 `t1`; the offset "server time − local time" is approximately `server_time − (t0 + t1) / 2`. Three
@@ -1354,6 +1389,7 @@ The server pushes `RTVIServerMessageFrame(data=<object>)`; the browser receives 
 | `notice`           | `level`: `info` / `warn` / `error`, `code`, `params`, `text`                            | Something the user should know, such as a degraded service. `code` and `params` identify the message so the page can show it in its own language (§6.1.1); `text` is the same message in Chinese for logs and older pages. Errors of the realtime LLM and TTS are translated into notices by `pipeline/errors.py`; of Pipecat's own RTVI `error` messages the page shows only fatal ones |
 | `session`          | `id, title, keep, started_at, resumed, base_secs, state`                                | Sent once after connecting: which session the connection belongs to, its current keep flag, whether it is a resume, and the timeline origin of this connection                                                                                                                                                                                                                           |
 | `session_closed`   | `reason`: `taken_over` / `ended` / `server_stopping`                                    | Why the server is about to close the connection (best effort)                                                                                                                                                                                                                                                                                                                            |
+| `watchers`         | `items`: `[{id, device, since}]`                                                        | The devices following this meeting through `GET /api/sessions/{id}/events` (§5.1): `id` is a number unique while the application runs, `device` is described there, `since` is when the stream opened, in Unix seconds. Sent after `session` and whenever the list changes                                                                                                               |
 
 The `session.keep` flag is read from current persisted state when the ready message is sent.
 With `session.recording_notice=true`, send one existing `notice` with `level="info"` and
