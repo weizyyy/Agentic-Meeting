@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
-import signal
 import socket
 import subprocess
 import sys
@@ -45,7 +43,7 @@ async def test_diag_stop(inference, tmp_path, services, meeting):
     env = {k: v for k, v in os.environ.items() if not k.upper().endswith("_PROXY")}
     env.update(PYTHONUTF8="1", FAKE_PY=sys.executable, PYTHONASYNCIODEBUG="0")
     with log.open("wb") as out:
-        proc = subprocess.Popen(
+        proc = subprocess.Popen(  # noqa: ASYNC220
             [
                 sys.executable,
                 "-X",
