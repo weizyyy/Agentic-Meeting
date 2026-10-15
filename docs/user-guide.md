@@ -178,7 +178,7 @@ Click **共享屏幕** (Share screen) in the screen panel under the captions and
 display. A screenshot is taken whenever the picture changes, and once a minute otherwise. Thumbnails
 appear on the timeline; scroll the strip with the mouse wheel, click a thumbnail to enlarge it, and
 step through with `←` `→` or **上一张** (Previous) and **下一张** (Next). A short summary is
-generated for each new picture.
+generated for each new picture; the latest one is shown next to the panel's title.
 
 Screenshots are uploaded only while a meeting is live. From another device this requires HTTPS.
 Phone browsers cannot share the screen, so the button is missing there; screens shared from a

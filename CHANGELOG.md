@@ -12,6 +12,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   assistant's answers pushed to it as they happen, instead of reloading the captions every three
   seconds ([#21]). The new `GET /api/sessions/{id}/events` route is a server-sent event stream;
   answers to questions typed there stay text only and are never spoken in the room.
+- The screen panel under the captions takes about a third less height: the latest screenshot's
+  summary sits next to the panel's title, and each thumbnail's time is shown on the thumbnail.
+  On a small laptop screen this leaves more room for the captions.
+
+### Fixed
+
+- `←` and `→` step through an enlarged screenshot again; the dialog had stopped them from reaching
+  the page since the client moved to the new components in 0.4.0.
 
 ### Added
 

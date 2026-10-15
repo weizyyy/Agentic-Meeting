@@ -74,39 +74,39 @@ export function FrameTimeline({
     return () => el.removeEventListener("wheel", onWheel);
   }, [hasFrames]);
 
-  const step = (delta: -1 | 1) => {
-    if (openId === null) return;
+  /** 换到上一张 / 下一张；到头了返回 false */
+  const step = (delta: -1 | 1): boolean => {
+    if (openId === null) return false;
     const next = frames[adjacentFrameIndex(frames, openId, delta)];
-    if (next) setOpenId(next.id);
+    if (!next) return false;
+    setOpenId(next.id);
+    return true;
   };
-
-  // 大图打开时左右方向键换上一张 / 下一张（到头就停）；Esc 由对话框自己关
-  useEffect(() => {
-    if (openId === null) return;
-    const onKey = (event: KeyboardEvent) => {
-      const delta = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
-      if (delta === 0) return;
-      const next = frames[adjacentFrameIndex(frames, openId, delta)];
-      if (next) {
-        event.preventDefault();
-        setOpenId(next.id);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [openId, frames]);
 
   const latest = frames.length > 0 ? frames[frames.length - 1] : null;
 
   return (
     <section className="flex flex-col rounded-xl border bg-card" aria-label={t.screen.title}>
-      <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+      {/* 标题、最新一张的摘要和共享按钮挤在一行，把高度留给字幕；手机上摘要另起一行 */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 py-2">
         <h2 className="text-sm font-medium">{t.screen.title}</h2>
         {sharing && (
           <span className="inline-flex items-center gap-1.5 text-xs font-medium text-success-foreground">
             <span aria-hidden className="size-1.5 rounded-full bg-current" />
             {t.screen.sharing}
           </span>
+        )}
+        {latest?.caption && (
+          <p
+            className="order-last basis-full text-sm text-muted-foreground max-md:line-clamp-2 md:order-none md:min-w-0 md:flex-1 md:basis-0 md:truncate"
+            title={latest.caption}
+          >
+            <time className="mr-1.5 font-mono text-xs tabular-nums">{wall(latest.t)}</time>
+            <time className="mr-1.5 font-mono text-xs text-subtle-foreground tabular-nums">
+              +{formatClock(latest.t)}
+            </time>
+            {latest.caption}
+          </p>
         )}
         {sharing ? (
           <Button
@@ -134,7 +134,7 @@ export function FrameTimeline({
         )}
       </div>
       {frames.length === 0 ? (
-        <p className="px-4 pb-4 text-sm text-subtle-foreground">
+        <p className="px-4 pb-3 text-sm text-subtle-foreground">
           {!shareSupported
             ? t.screen.emptyNoShare
             : canShare || sharing
@@ -142,45 +142,35 @@ export function FrameTimeline({
               : t.screen.emptyIdle}
         </p>
       ) : (
-        <>
-          <ul className="flex gap-3 overflow-x-auto px-4 pt-1 pb-3" ref={strip}>
-            {frames.map((frame) => (
-              <li key={frame.id} className="shrink-0">
-                <button
-                  type="button"
-                  className="group flex flex-col gap-1 rounded-lg text-left outline-none"
-                  title={[t.screen.meetingTime(formatFrameTime(frame.t)), frame.caption]
-                    .filter(Boolean)
-                    .join(" ")}
-                  onClick={() => setOpenId(frame.id)}
-                >
-                  <img
-                    className={`block aspect-video w-32 rounded-lg border bg-muted object-cover transition-colors group-hover:border-ring group-focus-visible:ring-3 group-focus-visible:ring-ring/50 ${
-                      frame === latest ? "border-client-foreground" : ""
-                    }`}
-                    src={frameImageUrl(frame.id)}
-                    alt={frame.caption ?? t.screen.frameAlt(formatFrameTime(frame.t))}
-                    loading="lazy"
-                    width={frame.width}
-                    height={frame.height}
-                  />
-                  <time className="font-mono text-xs text-muted-foreground tabular-nums">
-                    {wall(frame.t)}
-                  </time>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {latest?.caption && (
-            <p className="line-clamp-2 px-4 pb-3 text-sm text-muted-foreground">
-              <time className="mr-1.5 font-mono text-xs tabular-nums">{wall(latest.t)}</time>
-              <time className="mr-1.5 font-mono text-xs text-subtle-foreground tabular-nums">
-                +{formatClock(latest.t)}
-              </time>
-              {latest.caption}
-            </p>
-          )}
-        </>
+        <ul className="flex gap-2 overflow-x-auto px-4 pb-3" ref={strip}>
+          {frames.map((frame) => (
+            <li key={frame.id} className="shrink-0">
+              <button
+                type="button"
+                className="group relative block rounded-lg text-left outline-none"
+                title={[t.screen.meetingTime(formatFrameTime(frame.t)), frame.caption]
+                  .filter(Boolean)
+                  .join(" ")}
+                onClick={() => setOpenId(frame.id)}
+              >
+                <img
+                  className={`block aspect-video w-28 rounded-lg max-md:w-32 border bg-muted object-cover transition-colors group-hover:border-ring group-focus-visible:ring-3 group-focus-visible:ring-ring/50 ${
+                    frame === latest ? "border-client-foreground" : ""
+                  }`}
+                  src={frameImageUrl(frame.id)}
+                  alt={frame.caption ?? t.screen.frameAlt(formatFrameTime(frame.t))}
+                  loading="lazy"
+                  width={frame.width}
+                  height={frame.height}
+                />
+                {/* 钟点压在缩略图左下角，不再单占一行 */}
+                <time className="absolute bottom-1 left-1 rounded bg-black/65 px-1 font-mono text-[0.7rem] leading-4 text-white tabular-nums">
+                  {wall(frame.t)}
+                </time>
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
       <Dialog
         open={open !== null}
@@ -189,7 +179,15 @@ export function FrameTimeline({
         }}
       >
         {open && (
-          <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-5xl">
+          <DialogContent
+            className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-5xl"
+            onKeyDown={(event) => {
+              // 左右方向键换上一张 / 下一张（到头就停）；Esc 由对话框自己关。
+              // 对话框会拦下方向键、不让它冒泡到 window，所以只能在对话框本身上接。
+              const delta = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
+              if (delta !== 0 && step(delta)) event.preventDefault();
+            }}
+          >
             <DialogHeader>
               <DialogTitle className="flex items-baseline gap-2 pr-8">
                 {t.screen.screenshot}
