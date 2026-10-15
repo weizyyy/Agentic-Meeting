@@ -18,6 +18,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   event stream is open, instead of "Not connected"; it still says this device is not transcribing.
 - A rejected typed question's notice (too long, queue full) goes only to the device that asked;
   devices following the meeting still see notices about the speech and language services.
+- Sharing regression fixtures start expiry after payload preparation and explicitly close injected-failure connections before recovery.
+
 - Closing meeting shares discards late UI results, so reopening cannot restore a one-time link.
 
 - Ordered meeting streams enforce login and meeting access during snapshot, replay and blocked

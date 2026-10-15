@@ -453,7 +453,7 @@ async def test_real_send_backpressure_respects_share_lifecycle(
     )
     clock = asyncio.get_running_loop().time
     wall_offset = time.time() - clock()
-    network = {"sends": []}
+    network = {"sends": [], "mode": mode, "channel": channel, "wall_offset": wall_offset}
 
     async def observed(scope, receive, send):
         if scope["type"] != "http" or (b"user-agent", b"slow-share") not in scope["headers"]:
@@ -461,6 +461,7 @@ async def test_real_send_backpressure_respects_share_lifecycle(
 
         async def measured(message):
             network["sending"] = clock()
+            network["sending_bytes"] = len(message.get("body", b""))
             try:
                 await send(message)
             finally:
@@ -486,18 +487,11 @@ async def test_real_send_backpressure_respects_share_lifecycle(
         async with (
             httpx.AsyncClient(base_url=origin, trust_env=False) as host,
             httpx.AsyncClient(base_url=origin, trust_env=False) as guest,
-            httpx.AsyncClient(base_url=origin, trust_env=False) as asker,
         ):
             await sign_in(host)
-            await sign_in(asker)
             recorder = MeetingClient(host)
             sid = (await recorder.connect())["id"]
-            link = await make_link(host, sid, expires_in=10 if mode == "expiry" else 86400)
-            response = await guest.post(
-                "/api/shares/exchange", json=link, headers={"Origin": origin}
-            )
-            assert response.status_code == 200
-            expires = response.json()["access"]["expires_at"]
+            network["payload_started_wall"] = time.time()
             for index in range(64):
                 await store.add_utterance(
                     Utterance(sid, 0, index, index + 0.1, "SYNTHETIC" * 16384)
@@ -508,6 +502,15 @@ async def test_real_send_backpressure_respects_share_lifecycle(
             frame_path = tmp_path / "data" / frame.path
             frame_path.parent.mkdir(parents=True, exist_ok=True)
             Image.new("RGB", (2048, 2048)).save(frame_path, compress_level=0)
+            network["payload_finished_wall"] = time.time()
+            # 先准备真实负载，再开始原10秒到期窗口；不让磁盘/编码耗时占据背压阶段。
+            link = await make_link(host, sid, expires_in=10 if mode == "expiry" else 86400)
+            response = await guest.post(
+                "/api/shares/exchange", json=link, headers={"Origin": origin}
+            )
+            assert response.status_code == 200
+            expires = response.json()["access"]["expires_at"]
+            network.update(expires_wall=expires, source_ready_wall=time.time())
             path = (
                 f"/api/sessions/{sid}/events"
                 if channel == "events"
@@ -515,6 +518,10 @@ async def test_real_send_backpressure_respects_share_lifecycle(
             )
             raw = socket.socket()
             raw.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+            network["receive_buffer"] = raw.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+            network["listener_send_buffer"] = listener.getsockopt(
+                socket.SOL_SOCKET, socket.SO_SNDBUF
+            )
             raw.setblocking(False)
             await asyncio.get_running_loop().sock_connect(raw, ("127.0.0.1", port))
             reader, writer = await asyncio.open_connection(sock=raw, limit=1024)
@@ -523,33 +530,36 @@ async def test_real_send_backpressure_respects_share_lifecycle(
                 f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUser-Agent: slow-share\r\nCookie: {cookie}\r\n\r\n".encode()
             )
             await writer.drain()
-            assert (await reader.readuntil(b"\r\n\r\n")).startswith(b"HTTP/1.1 200")
+            headers = await reader.readuntil(b"\r\n\r\n")
+            network.update(headers_wall=time.time(), status_line=headers.split(b"\r\n")[0].decode())
+            assert headers.startswith(b"HTTP/1.1 200")
             captured = asyncio.Event()
 
             async def produce_changes():
+                network["producer_started_wall"] = time.time()
                 if channel == "events":
-                    inference.llm.when(
-                        "BACKPRESSURE_READONLY_",
-                        Reply(text="synthetic-pressure-answer"),
-                        sticky=True,
-                    )
-                    for index in range(100):
-                        # 通过真实无tools问答发布合法长问题，较少HTTP往返即可形成TCP背压。
-                        result = await asker.post(
-                            f"/api/sessions/{sid}/text",
-                            json={"text": f"BACKPRESSURE_READONLY_{index}:" + "s" * 1800},
+                    for index in range(400):
+                        # 复用R02的有限真实HTTP变更，不让推理往返消耗到期前的压力预算。
+                        result = await host.put(
+                            "/api/speakers/0",
+                            json={"session_id": sid, "display_name": f"合成{index}:" + "s" * 40},
                         )
                         assert result.status_code == 200, result.text
-                        if captured.is_set():
-                            break
+                        network["http_changes"] = index + 1
+                network["producer_finished_wall"] = time.time()
 
             async def observe_backpressure():
                 while not (
-                    network.get("sending") is not None and clock() - network["sending"] > 0.2
+                    network.get("sending") is not None
+                    and network["sending_bytes"] > 0
+                    and clock() - network["sending"] > 0.2
                 ):
                     assert "finished" not in network, network
                     await asyncio.sleep(0.05)
                 network["backpressure_observed"] = clock()
+                assert "finished" not in network, network
+                if mode == "expiry":
+                    assert wall_offset + network["backpressure_observed"] < expires, network
                 captured.set()
                 began = clock()
                 if mode == "revoke":
@@ -602,6 +612,8 @@ async def test_real_send_backpressure_respects_share_lifecycle(
                 producer = tasks.create_task(produce_changes())
                 tasks.create_task(observe_backpressure())
                 await producer
+                if channel == "events":
+                    assert network["http_changes"] == 400
                 await until_sync(captured.is_set, "真实TCP背压实时观测", timeout_secs=3)
             # 故障注入可能让终止帧也阻塞；有界超时保留可见，不能吞错。
             assert "Task was destroyed" not in caplog.text
@@ -617,6 +629,8 @@ async def test_real_send_backpressure_respects_share_lifecycle(
         finally:
             log.removeHandler(caplog.handler)
             await store.close()
+            network["diagnostic_finished_wall"] = time.time()
+            (tmp_path / "network.json").write_text(json.dumps(network), encoding="utf-8")
 
 
 async def test_share_restart_migration_and_guest_cookie_recovery(start_app):
@@ -738,8 +752,14 @@ async def test_guest_exchange_storage_failure_rolls_back_and_does_not_log_creden
                 db.execute(
                     "CREATE TRIGGER s05_fail_guest BEFORE INSERT ON guest_logins BEGIN SELECT RAISE(ABORT, 'synthetic guest insert failure'); END"
                 )
-            failed = await redeem(guest, app, link)
+            # 未处理的SQLite故障在500发出后由Uvicorn关闭TCP；明确禁止复用这条连接。
+            failed = await guest.post(
+                "/api/shares/exchange",
+                json=link,
+                headers={"Origin": app.base_url, "Connection": "close"},
+            )
             assert failed.status_code == 500 and not guest.cookies
+            assert failed.headers["connection"] == "close"
             with sqlite3.connect(app.data_dir / "meetings.db") as db:
                 assert not db.execute("SELECT 1 FROM principals WHERE id LIKE 'guest:%'").fetchone()
                 assert not db.execute("SELECT 1 FROM guest_logins").fetchone()
