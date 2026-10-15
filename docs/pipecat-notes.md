@@ -699,3 +699,16 @@ await client.disconnect();
 - Screenshots do not use the SDK's `enableScreenShare`, which would create a WebRTC video track. The
   page calls `navigator.mediaDevices.getDisplayMedia()`, draws the picture onto a `<canvas>` and
   uploads still images.
+
+## Meeting authorization callbacks (1.12.0)
+
+- `FunctionCallParams` and `FunctionCallResultProperties` are dataclasses. A wrapper can use
+  `dataclasses.replace` to preserve every field while guarding `result_callback` and the later
+  `on_context_updated` callback. `app_resources` is passed by reference: freeze the originating
+  live connection and login in the per-worker resources; never recover authority from a global
+  current connection when a delayed callback runs.
+- `OpenAIBaseLLMService.run_inference` builds requests with `get_llm_adapter()` and
+  `get_llm_invocation_params`, including system-instruction and developer-role conversion. The
+  readonly question budget measures these same messages. A new `LLMContext(messages)` carries no
+  tools. This non-streaming method returns only `response.choices[0].message.content`; it does not
+  dispatch returned tool calls. The app treats an empty content result as a failed question.

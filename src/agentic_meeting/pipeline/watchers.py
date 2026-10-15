@@ -218,10 +218,14 @@ class WatcherHub:
     def close_all(self) -> None:
         for source in self.sources.values():
             for watcher in list(source.subscribers):
-                while not watcher.queue.empty():
-                    watcher.queue.get_nowait()
-                watcher.queue.put_nowait(None)
-                self.unsubscribe(watcher)
+                self.close_watcher(watcher)
+
+    def close_watcher(self, watcher: Watcher) -> None:
+        """只撤销这条订阅，未发送内容不再交付。"""
+        while not watcher.queue.empty():
+            watcher.queue.get_nowait()
+        watcher.queue.put_nowait(None)
+        self.unsubscribe(watcher)
 
     def _changed(self, session_id: str) -> None:
         callback = self.on_change

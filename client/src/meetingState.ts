@@ -457,7 +457,9 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
         viewing: action.detail,
         captions: replaceWithHistory(action.items),
         speakers: action.speakers,
-        members: action.detail?.members ?? state.members,
+        members: action.detail?.members ?? [],
+        assistantText: action.detail?.id === state.viewing?.id ? state.assistantText : "",
+        assistantState: action.detail?.id === state.viewing?.id ? state.assistantState : "idle",
         hasOlder: action.items.length >= PAGE_SIZE,
         // 换了一场会议：时间线先清空，随后由 framesLoaded 填上
         frames:

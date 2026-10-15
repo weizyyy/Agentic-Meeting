@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from loguru import logger
@@ -106,6 +106,10 @@ class AppResources:
     background_models: list[BackgroundModel] = field(default_factory=list)
     retention: RetentionWorker | None = None
     captions: Any = None  # 画面摘要：要用到 submit(IngestedFrame)
+    questions: Any = None  # 无工具会议问答
+    access: Any = None  # 可选会议授权，旧模式为 None
+    live: Any = None  # 每条管线冻结的会议连接，工具不读取全局 live
+    identity: Any = None  # 服务器认证的录音登录，不来自 requestData
 
 
 @dataclass
@@ -512,8 +516,8 @@ async def run_bot(
     """
     cfg = resources.cfg
     manager = resources.sessions
-    live: LiveConnection | None = None
-    if manager is not None:
+    live: LiveConnection | None = resources.live
+    if manager is not None and live is None:
         session_id = requested_session_id(request_data)
         try:
             live = await (manager.attach(session_id) if session_id else manager.begin())
@@ -524,6 +528,8 @@ async def run_bot(
             return
     if live is not None:
         live.owner = asyncio.current_task()
+        # 即使旧模式也固定工具所属连接，不能让迟到工具读到另一场会。
+        resources = replace(resources, live=live)
     diarizer: Diarizer | None = None
     text_input: TextInputHandler | None = None
     context_manager: ContextManager | None = None
@@ -603,12 +609,24 @@ async def run_bot(
             # 输入校验和排队提示只返回提交它的 RTC 页面，不写会议历史。
             await worker.queue_frame(RTVIServerMessageFrame(data=msg.notice(level)))
 
+        async def text_authority() -> None:
+            if resources.access is not None:
+                from agentic_meeting.web.errors import ApiError
+
+                if live.stop_requested or live.done.is_set():
+                    raise asyncio.CancelledError
+                try:
+                    await resources.access.require(resources.identity, live.session.id, "host")
+                except ApiError:
+                    raise asyncio.CancelledError from None
+
         text_input = TextInputHandler(
             recorder=parts.recorder,
             push=worker.queue_frame,
             notice=requester_notice,
             tts_enabled=parts.tts is not None,
             on_dispatch=activity.request_sent,
+            authorize=text_authority,
         )
         wire_text_input(
             worker.rtvi, parts.assistant_aggregator, parts.recorder, text_input, requester_notice

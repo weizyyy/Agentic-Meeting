@@ -45,6 +45,7 @@ class Reply:
     """模型的一次回答：一段文字，或一次工具调用。"""
 
     text: str = ""
+    delay_secs: float = 0
     tool: str = ""
     arguments: dict[str, Any] = field(default_factory=dict)
 
@@ -65,6 +66,7 @@ class FakeService:
         self.name = name
         self.app = FastAPI()
         self.port = 0
+        self.host = "127.0.0.1"
         self.down = False
         self.requests: list[dict[str, Any]] = []
         self._lock = threading.Lock()
@@ -81,7 +83,7 @@ class FakeService:
 
     @property
     def origin(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
+        return f"http://{self.host}:{self.port}"
 
     def record(self, body: dict[str, Any]) -> None:
         with self._lock:
@@ -158,6 +160,8 @@ class FakeModel(FakeService):
             body = await request.json()
             self.record(body)
             reply = self._reply(body)
+            if reply.delay_secs:
+                await asyncio.sleep(reply.delay_secs)
             if body.get("stream"):
                 return StreamingResponse(_stream(reply), media_type="text/event-stream")
             return _completion(reply.text, reply)
@@ -228,7 +232,7 @@ class FakeEmbedding(FakeService):
 class Inference:
     """全部假服务，跑在后台线程自己的事件循环里，不受测试的事件循环阻塞影响。"""
 
-    def __init__(self) -> None:
+    def __init__(self, host: str = "127.0.0.1") -> None:
         self.asr = FakeASR()
         self.llm = FakeModel("实时模型", "好的。")
         self.agent = FakeModel(
@@ -237,6 +241,8 @@ class Inference:
         )
         self.tts = FakeTTS()
         self.embedding = FakeEmbedding()
+        for service in self.services:
+            service.host = host
         self._servers: list[uvicorn.Server] = []
         self._serving: list[Future[None]] = []
         # 假服务只用 TCP；避开 Windows Proactor 在 reset 后可能漏 detach 的关闭路径。
@@ -251,7 +257,7 @@ class Inference:
         self._thread.start()
         for service in self.services:
             sock = socket.socket()
-            sock.bind(("127.0.0.1", 0))
+            sock.bind((service.host, 0))
             service.port = sock.getsockname()[1]
             server = uvicorn.Server(uvicorn.Config(service.app, log_level="warning"))
             self._servers.append(server)

@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, Response
 
 from agentic_meeting.pipeline.report import ReportBusy, ReportUnavailable
 from agentic_meeting.types import Report
+from agentic_meeting.web.access import authorize, host_write
 from agentic_meeting.web.errors import ApiError
 from agentic_meeting.web.export import download_headers, export_title
 
@@ -38,7 +39,9 @@ def register(app: FastAPI) -> None:
         return resources.store, resources.sessions, resources.reports
 
     @app.post("/api/sessions/{session_id}/report")
+    @host_write
     async def start_report(request: Request, session_id: str) -> JSONResponse:
+        await authorize(request, session_id, "host")
         store, manager, reports = parts(request)
         if await store.get_session(session_id) is None:
             raise ApiError(404, "session.not_found")
@@ -57,6 +60,7 @@ def register(app: FastAPI) -> None:
 
     @app.get("/api/sessions/{session_id}/report")
     async def latest_report(request: Request, session_id: str) -> dict[str, Any]:
+        await authorize(request, session_id)
         store, _, _ = parts(request)
         if await store.get_session(session_id) is None:
             raise ApiError(404, "session.not_found")
@@ -68,6 +72,7 @@ def register(app: FastAPI) -> None:
 
     @app.get("/api/sessions/{session_id}/report.md")
     async def download_report(request: Request, session_id: str) -> Response:
+        await authorize(request, session_id)
         store, _, _ = parts(request)
         summary = await store.get_summary(session_id)
         if summary is None:

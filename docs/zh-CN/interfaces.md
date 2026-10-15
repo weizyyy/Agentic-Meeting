@@ -24,7 +24,7 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
 | 配置段         | 内容                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `session`      | 助理名字（即唤醒词，必须是英文单词）、别名（`wake_aliases`：识别把名字写成的其他拼写，或听成的至少两个汉字；只用来唤醒，不作为识别热词）、识别热词、成员名单、数据目录                                                                                                                                                                                                                                                    |
-| `server`       | 监听地址与端口、HTTPS 证书、ICE 服务器、访问口令与登录有效期                                                                                                                                                                                                                                                                                                                                                              |
+| `server`       | 监听地址与端口、HTTPS 证书、ICE 服务器、访问口令、登录有效期、`meeting_access` 与 `local_users`（§5.11）                                                                                                                                                                                                                                                                                                                  |
 | `realtime_llm` | 接入方式 `mode`，以及两种方式各自的一整套设置：`[realtime_llm.llama_server]`（地址、模型名字段、是否识图、思考开关、采样参数、槽位分工、启动参数）和 `[realtime_llm.openai_api]`（地址、密钥变量名、模型名、是否识图、是否认识 developer 角色、是否预热、附加请求字段、采样参数）                                                                                                                                         |
 | `asr`          | 识别后端、提示词格式档案、步长与窗口、每步不定稿的 token 数、句首回补时长（`preroll_ms`，默认 1500 毫秒）、启动参数                                                                                                                                                                                                                                                                                                       |
 | `diarization`  | 后端、动态库路径、权重路径、显卡序号、分段阈值                                                                                                                                                                                                                                                                                                                                                                            |
@@ -1156,48 +1156,57 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 它的 `detail` 是给接口调用者看的中文说明，页面不翻译。`request.failed` 用于不经本应用处理器抛出的错误（如 405），
 `status` 是 HTTP 状态码。就绪检查的 503 响应（§5.8）是状态快照，不是错误。
 
-| `code`                      | 状态码        | `params`         | 中文 `error`                                                       |
-| --------------------------- | ------------- | ---------------- | ------------------------------------------------------------------ |
-| `request.invalid`           | 400, 404, 422 | `detail`：string | 请求格式有误：{detail}                                             |
-| `request.too_large`         | 413           | —                | 请求体太大                                                         |
-| `request.failed`            | 任意          | `status`：number | 请求失败（{status}）                                               |
-| `route.not_found`           | 404           | —                | 没有这个接口或页面                                                 |
-| `auth.required`             | 401           | —                | 请先登录                                                           |
-| `auth.csrf`                 | 403           | —                | 请求缺少有效的安全令牌，请刷新页面后重试                           |
-| `auth.wrong_password`       | 401           | —                | 口令不对                                                           |
-| `auth.too_many`             | 429           | —                | 尝试次数过多，请稍后再试                                           |
-| `auth.not_enabled`          | 404           | —                | 没有启用访问口令                                                   |
-| `storage.not_ready`         | 503           | —                | 存储尚未就绪                                                       |
-| `cleanup.not_ready`         | 503           | —                | 清理尚未就绪                                                       |
-| `session.not_found`         | 404           | —                | 找不到这场会议                                                     |
-| `session.none`              | 404           | —                | 现在没有会议                                                       |
-| `session.busy`              | 409           | —                | 会议正在处理或等待删除，请稍后重试                                 |
-| `session.not_live`          | 409           | —                | 这场会议现在没有在进行，消息没有发送                               |
-| `session.delete_incomplete` | 500           | —                | 删除未完成，会议待删除，请稍后重试                                 |
-| `session.title_too_long`    | 400           | `max`：number    | 标题太长（最多 {max} 字）                                          |
-| `speaker.not_found`         | 404           | —                | 这场会议里没有这个说话人                                           |
-| `speaker.name_too_long`     | 400           | `max`：number    | 名字太长（最多 {max} 字）                                          |
-| `speaker.not_mergeable`     | 400           | —                | 只能合并说话人区分给出的说话人（助理、文字输入、「未知」不能合并） |
-| `speaker.merge_self`        | 400           | —                | 不能把说话人合并到自己                                             |
-| `utterances.too_many`       | 400           | `max`：number    | 一次最多改 {max} 条发言                                            |
-| `frames.disabled`           | 403           | —                | 截图功能已在配置里关闭                                             |
-| `frames.no_live_session`    | 404           | —                | 现在没有进行中的会议，截图没有保存                                 |
-| `frame.not_found`           | 404           | —                | 找不到这张截图                                                     |
-| `frame.bad_format`          | 400           | —                | 只接受 WebP 或 JPEG 格式的截图                                     |
-| `frame.too_wide`            | 400           | `max`：number    | 截图的长边不能超过 {max} 像素                                      |
-| `frame.invalid`             | 400           | —                | 上传的文件不是有效的图片                                           |
-| `frame.too_large`           | 413           | `max_mb`：number | 截图太大（最多 {max_mb} MB）                                       |
-| `frame.empty`               | 400           | —                | 上传的文件是空的                                                   |
-| `frame.clock_skew`          | 400           | `max`：number    | 截图的采集时间与服务端时间相差超过 {max} 秒，请刷新页面重新对时    |
-| `frame.save_failed`         | 500           | —                | 截图保存失败（磁盘不可写？）                                       |
-| `task.not_found`            | 404           | —                | 找不到这个任务                                                     |
-| `tasks.disabled`            | 503           | —                | 后台任务功能没有开启                                               |
-| `artifact.not_found`        | 404           | —                | 找不到这个产物文件                                                 |
-| `report.session_live`       | 409           | —                | 会议正在进行，结束或断开之后才能生成报告                           |
-| `report.no_model`           | 503           | —                | 没有可用的模型，生成不了报告                                       |
-| `report.busy`               | 409           | —                | 这场会议已经有一份报告正在生成                                     |
-| `report.not_found`          | 404           | —                | 这场会议还没有报告                                                 |
-| `report.not_ready`          | 404           | —                | 这场会议还没有生成好的报告                                         |
+| `code`                      | 状态码        | `params`                               | 中文 `error`                                                       |
+| --------------------------- | ------------- | -------------------------------------- | ------------------------------------------------------------------ |
+| `request.invalid`           | 400, 404, 422 | `detail`：string                       | 请求格式有误：{detail}                                             |
+| `request.too_large`         | 413           | —                                      | 请求体太大                                                         |
+| `request.failed`            | 任意          | `status`：number                       | 请求失败（{status}）                                               |
+| `route.not_found`           | 404           | —                                      | 没有这个接口或页面                                                 |
+| `auth.required`             | 401           | —                                      | 请先登录                                                           |
+| `auth.csrf`                 | 403           | —                                      | 请求缺少有效的安全令牌，请刷新页面后重试                           |
+| `auth.wrong_password`       | 401           | —                                      | 口令不对                                                           |
+| `auth.too_many`             | 429           | —                                      | 尝试次数过多，请稍后再试                                           |
+| `auth.not_enabled`          | 404           | —                                      | 没有启用访问口令                                                   |
+| `access.denied`             | —             | 无权执行此操作                         |
+| `access.invalid_member`     | —             | 成员不存在或不能主持会议               |
+| `access.last_host`          | —             | 会议必须保留一位主持人                 |
+| `access.busy`               | —             | 录音服务正忙                           |
+| `text.context_too_large`    | —             | 问题和提示超出上下文预算               |
+| `text.interrupted`          | —             | 只读问答被实时应答打断，请稍后重新提问 |
+| `text.busy`                 | —             | 只读问答队列已满或已有问题处理中       |
+| `text.timeout`              | —             | 只读问答等待超时                       |
+| `text.failed`               | —             | 只读问答没有完成                       |
+| `storage.not_ready`         | 503           | —                                      | 存储尚未就绪                                                       |
+| `cleanup.not_ready`         | 503           | —                                      | 清理尚未就绪                                                       |
+| `session.not_found`         | 404           | —                                      | 找不到这场会议                                                     |
+| `session.none`              | 404           | —                                      | 现在没有会议                                                       |
+| `session.busy`              | 409           | —                                      | 会议正在处理或等待删除，请稍后重试                                 |
+| `session.not_live`          | 409           | —                                      | 这场会议现在没有在进行，消息没有发送                               |
+| `session.delete_incomplete` | 500           | —                                      | 删除未完成，会议待删除，请稍后重试                                 |
+| `session.title_too_long`    | 400           | `max`：number                          | 标题太长（最多 {max} 字）                                          |
+| `speaker.not_found`         | 404           | —                                      | 这场会议里没有这个说话人                                           |
+| `speaker.name_too_long`     | 400           | `max`：number                          | 名字太长（最多 {max} 字）                                          |
+| `speaker.not_mergeable`     | 400           | —                                      | 只能合并说话人区分给出的说话人（助理、文字输入、「未知」不能合并） |
+| `speaker.merge_self`        | 400           | —                                      | 不能把说话人合并到自己                                             |
+| `utterances.too_many`       | 400           | `max`：number                          | 一次最多改 {max} 条发言                                            |
+| `frames.disabled`           | 403           | —                                      | 截图功能已在配置里关闭                                             |
+| `frames.no_live_session`    | 404           | —                                      | 现在没有进行中的会议，截图没有保存                                 |
+| `frame.not_found`           | 404           | —                                      | 找不到这张截图                                                     |
+| `frame.bad_format`          | 400           | —                                      | 只接受 WebP 或 JPEG 格式的截图                                     |
+| `frame.too_wide`            | 400           | `max`：number                          | 截图的长边不能超过 {max} 像素                                      |
+| `frame.invalid`             | 400           | —                                      | 上传的文件不是有效的图片                                           |
+| `frame.too_large`           | 413           | `max_mb`：number                       | 截图太大（最多 {max_mb} MB）                                       |
+| `frame.empty`               | 400           | —                                      | 上传的文件是空的                                                   |
+| `frame.clock_skew`          | 400           | `max`：number                          | 截图的采集时间与服务端时间相差超过 {max} 秒，请刷新页面重新对时    |
+| `frame.save_failed`         | 500           | —                                      | 截图保存失败（磁盘不可写？）                                       |
+| `task.not_found`            | 404           | —                                      | 找不到这个任务                                                     |
+| `tasks.disabled`            | 503           | —                                      | 后台任务功能没有开启                                               |
+| `artifact.not_found`        | 404           | —                                      | 找不到这个产物文件                                                 |
+| `report.session_live`       | 409           | —                                      | 会议正在进行，结束或断开之后才能生成报告                           |
+| `report.no_model`           | 503           | —                                      | 没有可用的模型，生成不了报告                                       |
+| `report.busy`               | 409           | —                                      | 这场会议已经有一份报告正在生成                                     |
+| `report.not_found`          | 404           | —                                      | 这场会议还没有报告                                                 |
+| `report.not_ready`          | 404           | —                                      | 这场会议还没有生成好的报告                                         |
 
 ### 5.10 任务和报告的失败原因
 
@@ -1231,6 +1240,42 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 
 `type` 是异常的类名，`env` 是配置里密钥变量的名字，`detail` 是报告失败时的异常原文（最多 200 字，超出加省略号），
 这些都不翻译。
+
+### 5.11 会议访问
+
+本节覆盖本地主体和会议授权。会议口令、到期链接和访问审计分别后续实现；不增加依赖或身份提供方。数据目录的进程锁会拒绝服务运行时的离线认领命令。
+
+**运行模式与本地主体。** `server.meeting_access` 默认 `false`，保留 §5.7 及可信单人工作流。开启后，`[[server.local_users]]` 配置唯一且稳定的 `id`、仅供展示的 `display_name`、`password_env` 和 `can_host`（默认 `false`），至少有一个可主持账号。凭据缺失或主体配置无效时启动失败，不静默关闭权限。秘密只从环境变量读取；账号由运维预配，无公开注册或邮件找回。服务器登记稳定主体 `local:<id>`，显示名和 Cookie 随机数都不代表真人身份。不得把同一 ID 转让给别人；运维保留 ID 并轮换秘密来恢复原账号和会议授权，旧登录失效。
+
+ACL 登录 `POST /api/auth/login` 接受 `{user_id, password, site_password?}`；配置了 `server.password_env` 时额外核对 `site_password`，共享口令本身不授予主体或会议权限。未配站点口令也仍须个人认证。旧模式继续 `{password}`。`GET /api/auth` 增加 `meeting_access`，仅已登录者可见自己的 `principal: {id, display_name, can_host}`。保留限速、请求体上限、scrypt 和 CSRF；`login_sessions` 仅保存 Cookie 秘密的摘要、主体及到期时间，不存原始 Cookie/密码。注销撤销当前登录；`POST /api/auth/logout-all` 撤销本人全部登录。
+
+**会议授权。** `meeting_members(session_id, principal_id, role, allow_questions)` 以两个 ID 为复合主键。新会议及创建者 `host` 授权同事务提交；创建者必须有 `can_host`。`watcher` 只能读获授权会议，且仅 `allow_questions=true` 时能提问（默认 `false`）。host 可录音/继续、改名、保留、结束、删除、修改说话人、生成报告、取消任务和管理成员，必须保留至少一个 host。授 host 的目标须配置 `can_host`。请求数据自报角色不能赋权；全局可主持资格不授予别人的会议访问权。
+
+| 方法与路径                                         | 权限 | 结果                                               |
+| -------------------------------------------------- | ---- | -------------------------------------------------- |
+| `GET /api/sessions/{id}/members`                   | host | 当前成员、角色及提问权限                           |
+| `PUT /api/sessions/{id}/members/{principal_id}`    | host | 为精确指定的已有主体设置 `{role, allow_questions}` |
+| `DELETE /api/sessions/{id}/members/{principal_id}` | host | 撤销成员；不能移除最后一个 host                    |
+
+页面显示本人的公共账号 ID；host 输入精确 ID 授权，不公开用户目录。会议响应增加本人 `access: {role, allow_questions}`，用于界面显示，不替代服务器授权。
+
+**旧会议与运维。** 无 owner 的旧会议不会分配给首个访客，在 ACL 模式不可见。可信本机运维先停止实例，使用对应配置执行 `access list-unclaimed`，再对明确的一场会议执行 `access claim <session-id> --owner <user-id>`，owner 须为已配置可主持账号。同一认领幂等，冲突认领失败。admin 是本机配置/CLI 权限，不是隐式读取全部会议的网页角色。关闭 ACL 是运维显式恢复旧共享范围的决定；保留已有授权供重新开启使用。
+
+**所有入口。** 未认证 API 返回 401；无读取授权与未知资源统一 404；有读取权但动作权限不足返回 403。列表先按 membership 过滤再分页。省略 session/current 形式只能解析调用者有权会议，不回落至别人的全局 live。path/query/body 的会议 ID，以及由 frame ID、task ID、导出文件名、报告反查的父会议，均执行授权。范围含字幕、说话人、截图、任务详情/产物、导出、报告、事件订阅、成员及旁听名单。保留已有文件路径边界、产物白名单、缓存策略、CSRF 和清理租约。ACL 模式截图上传必须显式传 `session_id`，且调用者是正在录音该会的 host。读取允许 watcher；除允许提问外变更均须 host。`/api/time`、`/api/ice` 需要登录；健康/metrics 保留独立运维访问契约，不包含会议内容。
+
+**连接与撤销。** 每条事件订阅和 WebRTC 连接绑定已校验的 login、principal、meeting。offer 新建/继续/复用及 ICE PATCH 都核对归属，客户端角色或 `pc_id` 不能授权接管。仍单场录音时，新建不能中断调用者无 host 权限的会议；返回不泄漏当前会议的通用忙状态。已连接媒体、datachannel 及文字输入仍受授权约束。成员变更清空相关订阅队列、停止新发送并关闭受影响录音连接；注销仅作用当前 login，全部注销作用该主体全部 login。即使无事件，到期检查不超过一秒。重连重新核对当前授权；流式导出每生成下一块前复核。已经交给网络或浏览器的字节无法收回。
+
+**非录音登录的问答。** ACL 模式原有工具管线只接受当前录音连接所属的精确 login：HTTP 文字须匹配登录摘要，datachannel 须属于该连接。仅同 principal 或同 host 角色不足以使用工具管线。其他 host 登录（含录音主体的另一登录）和获准提问的 watcher 均走以下无工具路径；其他 host 保留直接 HTTP 会议管理权。legacy 模式不变。录音工具捕获原 login、principal、meeting、LiveConnection，不再读取新的全局 live。注销、到期、撤权或连接结束取消该 login 的排队输入及未完成工具执行/迟到回调；副作用提交、结果发布及后续生成前复核原权限。另一有效 host/login 不能延续已撤销登录的授权；已完成副作用不声称能够回滚。
+
+只读问答复用**已配置 realtime endpoint** 的 background 入口，通过 `cfg.realtime_llm.active` 及现有请求属性接入，不提供 tools/MCP。该 endpoint 可位于本机、局域网或云端；沿用既有数据外发告知，不承诺本地处理。不切换到 agent/caption provider、不新增目的地、不按访问 mode 分支。允许非回环配置，测试仅用本机承载的非回环 fake endpoint，不访问外部真实服务。请求捕获 login、principal、meeting；派发及提交/发布前复核 read 和 host 或 watcher 提问权限。非 live 返回 `session.not_live`；模型返回 tool_calls 也不执行。
+
+**只读输入预算。** 只提供本会纪要、最近文本及已有截图文字摘要，明确排除 task brief/error、产物、原图和其他会议；不直接使用会附加任务行且无硬上限的 `build_context_messages`。沿用 `B = realtime.context_budget_tokens`，预留输出 `R = min(512, realtime_llm.active.sampling.max_tokens or 512)`，并以 R 作为 max_tokens。发送前完整 provider messages（含 system、完整问题、标签、分隔符、省略提示及 adapter 加入的消息）必须同时满足 `estimate_messages(messages) + R <= B` 和紧凑 JSON 的 UTF-8 字节数 `<= min(32768, 4 * (B - R))`。沿用已有估算器，不加 tokenizer；估算不是实际 provider token 数保证，字节上限则精确强制。
+
+先保留固定只读 system 和完整问题，仍遵守现有2000字符问题上限；两者本身超任一预算时返回413 `text.context_too_large`，不写提问、不调模型，绝不截断用户问题。最多读取最新一份纪要前4096字符、最新100条发言每条前2048字符、最新10条截图摘要每条前1024字符，限制数据库返回字段而非先加载无限文本。纪要最多占剩余材料字节预算四分之一；发言/截图按新到旧选取，超长行带省略标记节选，最终按时间顺序呈现。完整组装后再次检查双上限并丢弃最旧材料；无空间时不带会议材料且说明上下文缺失。“最近一分钟”不构成超限豁免，省略提示也计入预算。测试在fake inference实际接收到的messages上断言。
+
+保留共享后台暂停/锁、最多五个待处理问题、每主体最多一个在途、六十秒总预算含等待。只读路径不调用录音管线的 `activity.request_sent`，以免暂停自己等待的后台入口。host 活动优先；`Preempted` 使本次回答可见结束为 `text.interrupted`，用户可自行重试，不自动重试或重置期限；取消/超时不调用共享 resume，不能解除 host 的暂停。输入预算通过后才记录提问；成功答案一次持久化为 assistant utterance 并通过既有 utterance 事件发布，不新增累计答案协议。撤权取消排队/在途工作，迟到答案不可存储/发布；已记录提问保留为历史。故障明确可见且不中断识别。
+
+界面区分精确录音 login 的有工具输入和其他所有 login 的只读问答，同时保留其他 host 的 HTTP 管理控件；watcher 隐藏 host 控件。注销或失权清除会议内容/连接；身份状态失败显示重试，不假定公开。真实 HTTP/WebRTC/SSE E2E 覆盖双主体双会议、直链 ID 替换、混合发言 ID、路径遍历、CSRF、成员/连接撤销、在途问答、工具诱导、主体持久化和合成旧库迁移。新增同会 A/B host 及同主体 A1/A2 login：A/A1 录音，B/A2 问题排队或模型执行时注销/撤权，迟到 text/tool_calls 不存储、不发布、不执行，A/A1 继续；撤销 A1 时即使 A2 有效，A1 排队工具/迟到回调/再生成也必须阻断。非回环 fake realtime 收到请求，agent/caption fake 零调用；纪要关闭/落后、一分钟密集发言及长截图摘要都满足双输入上限，不含 task 哨兵且不截问题；system+问题不适配时413、零推理/零提问写入，host/ASR继续。snapshot/replay 已在唯一有序事件 API（§5.1）复用同一准入/撤销边界，组合细节见[会议授权与有序事件恢复](access-events.md)。
 
 ## 6. 数据通道消息
 
@@ -1688,3 +1733,5 @@ tts-server --model <model_path> --codec <codec_path> --alias <tts.model>
   （`check_tts_voice`，`services up` 调用，报错即停掉全部服务）。地址取 `<tts.base_url>/audio/voices`
   （`base_url` 已含 `/v1`）。服务没有这个接口（404）、返回的不是预期格式、或请求失败时只记警告：
   其他 OpenAI 兼容的语音合成服务可能不提供该接口，这并不代表配置有误。
+
+本事件协议与会议授权的组合边界见[会议授权与有序事件恢复](access-events.md)。

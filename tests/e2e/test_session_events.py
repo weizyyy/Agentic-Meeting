@@ -618,7 +618,10 @@ async def test_retracted_asr_captions_are_removed_from_new_snapshots(
             await recorder.close()
 
 
-async def test_real_tcp_backpressure_bounds_request_and_server_exit(inference, tmp_path, caplog):
+@pytest.mark.parametrize("revocation", [False, True])
+async def test_real_tcp_backpressure_bounds_request_and_server_exit(
+    inference, tmp_path, caplog, monkeypatch, revocation
+):
     """公开 socket 缓冲 + 连续真实 HTTP 事件，不能用暂停生成器代替发送背压。"""
     inference.reset()
     store = await Store.open(tmp_path / "meetings.db", 64, assistant_name="Jarvis")
@@ -626,13 +629,19 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(inference, t
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
     listener.bind(("127.0.0.1", 0))
     port = listener.getsockname()[1]
-    cfg = AppConfig.model_validate(app_config(inference, tmp_path / "data", port))
+    config = app_config(inference, tmp_path / "data", port)
+    if revocation:
+        from .test_meeting_access import PASSWORD, USERS, login
+
+        monkeypatch.setenv("E2E_LOCAL_PASSWORD", PASSWORD)
+        config["server"].update(meeting_access=True, local_users=USERS)
+    cfg = AppConfig.model_validate(config)
     application = create_app(cfg, store=store)
     clock = asyncio.get_running_loop().time
     network = {"sends": []}
 
     async def observed(scope, receive, send):
-        if scope["type"] != "http" or not scope["path"].endswith("/events"):
+        if scope["type"] != "http" or (b"user-agent", b"slow-socket") not in scope["headers"]:
             return await application(scope, receive, send)
         network["started"] = clock()
 
@@ -655,14 +664,51 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(inference, t
     logger = logging.getLogger("uvicorn.error")
     logger.addHandler(caplog.handler)
     running = asyncio.create_task(server.serve(sockets=[listener]))
-    writer = recorder = None
+    writer = recorder = other_recorder = other_watcher = None
     try:
         await until_sync(lambda: server.started, "网络测试应用启动")
-        async with httpx.AsyncClient(
-            base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=30
-        ) as http:
+        async with (
+            httpx.AsyncClient(
+                base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=30
+            ) as http,
+            httpx.AsyncClient(
+                base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=30
+            ) as other,
+            httpx.AsyncClient(
+                base_url=f"http://127.0.0.1:{port}", trust_env=False, timeout=30
+            ) as viewer,
+        ):
+            if revocation:
+                await login(http, "alpha")
+                await login(other, "beta")
+                await login(viewer, "viewer")
+                other_recorder = MeetingClient(other)
+                other_sid = (await other_recorder.connect())["id"]
+                await other_recorder.close()
+
+                async def interrupted():
+                    return (await other.get(f"/api/sessions/{other_sid}")).json()[
+                        "state"
+                    ] == "interrupted"
+
+                await until(interrupted, "另一会录音已断开")
+                other_watcher = Watcher(other, other_sid)
+                await other_watcher.__aenter__()
+                await other_watcher.find("snapshot")
             recorder = MeetingClient(http)
             sid = (await recorder.connect())["id"]
+            cookie = ""
+            if revocation:
+                assert (
+                    await http.put(
+                        f"/api/sessions/{sid}/members/local:viewer", json={"role": "watcher"}
+                    )
+                ).status_code == 200
+                cookie = (
+                    "Cookie: "
+                    + "; ".join(f"{key}={value}" for key, value in viewer.cookies.items())
+                    + "\r\n"
+                )
             sessions = application.state.resources.sessions
             live = sessions.live
             # 合成持久历史经正常快照读取；没有向生产事件源直接灌数据。
@@ -674,7 +720,7 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(inference, t
             await asyncio.get_running_loop().sock_connect(raw, ("127.0.0.1", port))
             reader, writer = await asyncio.open_connection(sock=raw, limit=1024)
             writer.write(
-                f"GET /api/sessions/{sid}/events HTTP/1.1\r\nHost: localhost\r\n\r\n".encode()
+                f"GET /api/sessions/{sid}/events HTTP/1.1\r\nHost: localhost\r\nUser-Agent: slow-socket\r\n{cookie}\r\n".encode()
             )
             await writer.drain()
             assert (await reader.readuntil(b"\r\n\r\n")).startswith(b"HTTP/1.1 200")
@@ -692,8 +738,10 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(inference, t
                 network["producer_finished"] = clock()
 
             captured = asyncio.Event()
+            revoked_at = 0.0
 
             async def observe_backpressure():
+                nonlocal revoked_at, other_watcher
                 while not (
                     network.get("sending_since") is not None
                     and clock() - network["sending_since"] > 1
@@ -708,13 +756,34 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(inference, t
                 await recorder.next_message("utterance", text="发送阻塞期间录音继续")
                 source = sessions.watchers.for_session(sid)
                 assert source.subscribers
+                revoked_at = clock()
+                if revocation:
+                    assert (
+                        await http.delete(f"/api/sessions/{sid}/members/local:viewer")
+                    ).status_code == 200
                 await until_sync(
                     lambda: network.get("finished") is not None and not source.subscribers,
                     "发送期限释放 ASGI 请求及订阅",
-                    timeout_secs=18,
+                    timeout_secs=1 if revocation else 18,
                 )
                 request_seconds = network["finished"] - network["started"]
-                assert 14 <= request_seconds < 17
+                if revocation:
+                    assert network["finished"] - revoked_at < 1
+                    assert (await viewer.get(f"/api/export/{sid}.json")).status_code == 404
+                    assert (
+                        await other.patch(
+                            f"/api/sessions/{other_sid}", json={"title": "另一会仍可读"}
+                        )
+                    ).status_code == 200
+                    await other_watcher.find(type="session_updated", title="另一会仍可读")
+                    assert not other_watcher.task.done()
+                    await other_watcher.__aexit__()
+                    other_watcher = None
+                    inference.asr.say("撤权后主持录音继续")
+                    await recorder.speak()
+                    await recorder.next_message("utterance", text="撤权后主持录音继续")
+                else:
+                    assert 14 <= request_seconds < 17
                 assert max(network["sends"]) > 1
                 assert sessions.live is live
                 assert not reader.at_eof()
@@ -755,16 +824,24 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(inference, t
                         "tcp_eof_after_resume": True,
                         "received_bytes": received,
                         "recording_continued": True,
+                        "revocation": revocation,
+                        "revocation_seconds": network["finished"] - revoked_at
+                        if revocation
+                        else None,
                     }
                 )
             )
     finally:
         print(json.dumps({"tcp_network": network}))
+        if other_watcher is not None:
+            await other_watcher.__aexit__()
         if writer is not None:
             writer.close()
             await writer.wait_closed()
         if recorder is not None:
             await recorder.close()
+        if other_recorder is not None:
+            await other_recorder.close()
         server.should_exit = True
         await asyncio.wait_for(asyncio.shield(running), 25)
         listener.close()

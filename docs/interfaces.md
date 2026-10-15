@@ -26,7 +26,7 @@ The source of truth is the pydantic model in
 | Section        | Contents                                                                                                                          |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `session`      | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory                                                |
-| `server`       | Bind address and port, TLS certificate, ICE servers, access password and login duration                                           |
+| `server`       | Bind address and port, TLS certificate, ICE servers, access password, login duration, `meeting_access` and `local_users` (§5.11)  |
 | `realtime_llm` | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`            |
 | `asr`          | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings                              |
 | `diarization`  | Backend, library path, model path, GPU index, segmentation thresholds                                                             |
@@ -1315,48 +1315,57 @@ export name, a failed validation. Its `detail` is a Chinese description for API 
 translated. `request.failed` covers errors raised outside this application's handlers, such as 405;
 `status` is the HTTP status. Readiness 503 bodies (§5.8) are status snapshots, not errors.
 
-| `code`                      | Status        | `params`         | Chinese `error`                                                    |
-| --------------------------- | ------------- | ---------------- | ------------------------------------------------------------------ |
-| `request.invalid`           | 400, 404, 422 | `detail`: string | 请求格式有误：{detail}                                             |
-| `request.too_large`         | 413           | —                | 请求体太大                                                         |
-| `request.failed`            | any           | `status`: number | 请求失败（{status}）                                               |
-| `route.not_found`           | 404           | —                | 没有这个接口或页面                                                 |
-| `auth.required`             | 401           | —                | 请先登录                                                           |
-| `auth.csrf`                 | 403           | —                | 请求缺少有效的安全令牌，请刷新页面后重试                           |
-| `auth.wrong_password`       | 401           | —                | 口令不对                                                           |
-| `auth.too_many`             | 429           | —                | 尝试次数过多，请稍后再试                                           |
-| `auth.not_enabled`          | 404           | —                | 没有启用访问口令                                                   |
-| `storage.not_ready`         | 503           | —                | 存储尚未就绪                                                       |
-| `cleanup.not_ready`         | 503           | —                | 清理尚未就绪                                                       |
-| `session.not_found`         | 404           | —                | 找不到这场会议                                                     |
-| `session.none`              | 404           | —                | 现在没有会议                                                       |
-| `session.busy`              | 409           | —                | 会议正在处理或等待删除，请稍后重试                                 |
-| `session.not_live`          | 409           | —                | 这场会议现在没有在进行，消息没有发送                               |
-| `session.delete_incomplete` | 500           | —                | 删除未完成，会议待删除，请稍后重试                                 |
-| `session.title_too_long`    | 400           | `max`: number    | 标题太长（最多 {max} 字）                                          |
-| `speaker.not_found`         | 404           | —                | 这场会议里没有这个说话人                                           |
-| `speaker.name_too_long`     | 400           | `max`: number    | 名字太长（最多 {max} 字）                                          |
-| `speaker.not_mergeable`     | 400           | —                | 只能合并说话人区分给出的说话人（助理、文字输入、「未知」不能合并） |
-| `speaker.merge_self`        | 400           | —                | 不能把说话人合并到自己                                             |
-| `utterances.too_many`       | 400           | `max`: number    | 一次最多改 {max} 条发言                                            |
-| `frames.disabled`           | 403           | —                | 截图功能已在配置里关闭                                             |
-| `frames.no_live_session`    | 404           | —                | 现在没有进行中的会议，截图没有保存                                 |
-| `frame.not_found`           | 404           | —                | 找不到这张截图                                                     |
-| `frame.bad_format`          | 400           | —                | 只接受 WebP 或 JPEG 格式的截图                                     |
-| `frame.too_wide`            | 400           | `max`: number    | 截图的长边不能超过 {max} 像素                                      |
-| `frame.invalid`             | 400           | —                | 上传的文件不是有效的图片                                           |
-| `frame.too_large`           | 413           | `max_mb`: number | 截图太大（最多 {max_mb} MB）                                       |
-| `frame.empty`               | 400           | —                | 上传的文件是空的                                                   |
-| `frame.clock_skew`          | 400           | `max`: number    | 截图的采集时间与服务端时间相差超过 {max} 秒，请刷新页面重新对时    |
-| `frame.save_failed`         | 500           | —                | 截图保存失败（磁盘不可写？）                                       |
-| `task.not_found`            | 404           | —                | 找不到这个任务                                                     |
-| `tasks.disabled`            | 503           | —                | 后台任务功能没有开启                                               |
-| `artifact.not_found`        | 404           | —                | 找不到这个产物文件                                                 |
-| `report.session_live`       | 409           | —                | 会议正在进行，结束或断开之后才能生成报告                           |
-| `report.no_model`           | 503           | —                | 没有可用的模型，生成不了报告                                       |
-| `report.busy`               | 409           | —                | 这场会议已经有一份报告正在生成                                     |
-| `report.not_found`          | 404           | —                | 这场会议还没有报告                                                 |
-| `report.not_ready`          | 404           | —                | 这场会议还没有生成好的报告                                         |
+| `code`                      | Status        | `params`                                                             | Chinese `error`                                                    |
+| --------------------------- | ------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `request.invalid`           | 400, 404, 422 | `detail`: string                                                     | 请求格式有误：{detail}                                             |
+| `request.too_large`         | 413           | —                                                                    | 请求体太大                                                         |
+| `request.failed`            | any           | `status`: number                                                     | 请求失败（{status}）                                               |
+| `route.not_found`           | 404           | —                                                                    | 没有这个接口或页面                                                 |
+| `auth.required`             | 401           | —                                                                    | 请先登录                                                           |
+| `auth.csrf`                 | 403           | —                                                                    | 请求缺少有效的安全令牌，请刷新页面后重试                           |
+| `auth.wrong_password`       | 401           | —                                                                    | 口令不对                                                           |
+| `auth.too_many`             | 429           | —                                                                    | 尝试次数过多，请稍后再试                                           |
+| `auth.not_enabled`          | 404           | —                                                                    | 没有启用访问口令                                                   |
+| `access.denied`             | —             | You cannot perform this action.                                      |
+| `access.invalid_member`     | —             | The member is unavailable or cannot host.                            |
+| `access.last_host`          | —             | A meeting must retain a host.                                        |
+| `access.busy`               | —             | The recording service is busy.                                       |
+| `text.context_too_large`    | —             | The question exceeds the context budget.                             |
+| `text.interrupted`          | —             | The question was interrupted by realtime activity. Please ask again. |
+| `text.busy`                 | —             | The question queue is full or your question is already pending.      |
+| `text.timeout`              | —             | The question timed out.                                              |
+| `text.failed`               | —             | The question could not be completed.                                 |
+| `storage.not_ready`         | 503           | —                                                                    | 存储尚未就绪                                                       |
+| `cleanup.not_ready`         | 503           | —                                                                    | 清理尚未就绪                                                       |
+| `session.not_found`         | 404           | —                                                                    | 找不到这场会议                                                     |
+| `session.none`              | 404           | —                                                                    | 现在没有会议                                                       |
+| `session.busy`              | 409           | —                                                                    | 会议正在处理或等待删除，请稍后重试                                 |
+| `session.not_live`          | 409           | —                                                                    | 这场会议现在没有在进行，消息没有发送                               |
+| `session.delete_incomplete` | 500           | —                                                                    | 删除未完成，会议待删除，请稍后重试                                 |
+| `session.title_too_long`    | 400           | `max`: number                                                        | 标题太长（最多 {max} 字）                                          |
+| `speaker.not_found`         | 404           | —                                                                    | 这场会议里没有这个说话人                                           |
+| `speaker.name_too_long`     | 400           | `max`: number                                                        | 名字太长（最多 {max} 字）                                          |
+| `speaker.not_mergeable`     | 400           | —                                                                    | 只能合并说话人区分给出的说话人（助理、文字输入、「未知」不能合并） |
+| `speaker.merge_self`        | 400           | —                                                                    | 不能把说话人合并到自己                                             |
+| `utterances.too_many`       | 400           | `max`: number                                                        | 一次最多改 {max} 条发言                                            |
+| `frames.disabled`           | 403           | —                                                                    | 截图功能已在配置里关闭                                             |
+| `frames.no_live_session`    | 404           | —                                                                    | 现在没有进行中的会议，截图没有保存                                 |
+| `frame.not_found`           | 404           | —                                                                    | 找不到这张截图                                                     |
+| `frame.bad_format`          | 400           | —                                                                    | 只接受 WebP 或 JPEG 格式的截图                                     |
+| `frame.too_wide`            | 400           | `max`: number                                                        | 截图的长边不能超过 {max} 像素                                      |
+| `frame.invalid`             | 400           | —                                                                    | 上传的文件不是有效的图片                                           |
+| `frame.too_large`           | 413           | `max_mb`: number                                                     | 截图太大（最多 {max_mb} MB）                                       |
+| `frame.empty`               | 400           | —                                                                    | 上传的文件是空的                                                   |
+| `frame.clock_skew`          | 400           | `max`: number                                                        | 截图的采集时间与服务端时间相差超过 {max} 秒，请刷新页面重新对时    |
+| `frame.save_failed`         | 500           | —                                                                    | 截图保存失败（磁盘不可写？）                                       |
+| `task.not_found`            | 404           | —                                                                    | 找不到这个任务                                                     |
+| `tasks.disabled`            | 503           | —                                                                    | 后台任务功能没有开启                                               |
+| `artifact.not_found`        | 404           | —                                                                    | 找不到这个产物文件                                                 |
+| `report.session_live`       | 409           | —                                                                    | 会议正在进行，结束或断开之后才能生成报告                           |
+| `report.no_model`           | 503           | —                                                                    | 没有可用的模型，生成不了报告                                       |
+| `report.busy`               | 409           | —                                                                    | 这场会议已经有一份报告正在生成                                     |
+| `report.not_found`          | 404           | —                                                                    | 这场会议还没有报告                                                 |
+| `report.not_ready`          | 404           | —                                                                    | 这场会议还没有生成好的报告                                         |
 
 ### 5.10 Failure reasons of tasks and reports
 
@@ -1393,6 +1402,152 @@ and the repository test checks the three agree.
 `type` is the exception class name, `env` the name of the key variable from the configuration and
 `detail` the exception text of a failed report, at most 200 characters plus an ellipsis; these are
 not translated.
+
+### 5.11 Meeting access
+
+This section covers local identity and meeting authorization. Meeting passwords, expiring links and access auditing are separate
+changes. No new dependency or identity provider is required. A data-directory process lock prevents offline access commands from running while the server uses that directory.
+
+**Modes and local identities.** `server.meeting_access` defaults to `false`, preserving §5.7 and
+the trusted single-user workflow. When enabled, `[[server.local_users]]` entries contain a unique,
+stable `id`, a display-only `display_name`, a `password_env`, and `can_host` (default `false`).
+At least one configured identity must be allowed to host. Missing credentials or invalid identity
+configuration fail startup rather than disabling access checks. Credentials stay in environment
+variables. An operator provisions accounts; there is no public registration or email recovery.
+The server stores the principal `local:<id>`; neither a display name nor a cookie nonce identifies
+a person. An id must never be reassigned to someone else. Keeping the id while rotating its secret
+recovers the same account and meeting grants, with old logins invalidated.
+
+In access mode, `POST /api/auth/login` accepts `{user_id, password, site_password?}`. A configured
+`server.password_env` additionally requires `site_password`; a shared password alone grants no
+identity or meeting access. With no site password, individual authentication still applies.
+Legacy mode continues accepting `{password}`. `GET /api/auth` adds `meeting_access` and, only when
+authenticated, the caller's `principal: {id, display_name, can_host}`. Login limits, bounded body
+reads, scrypt and CSRF protections remain. Authenticated sessions persist as a cookie-secret digest,
+principal and expiry in `login_sessions`; raw cookies and passwords are never stored there.
+Logout revokes that login, and `POST /api/auth/logout-all` revokes all of the caller's logins.
+
+**Meeting grants.** `meeting_members(session_id, principal_id, role, allow_questions)` has a
+composite primary key. New meetings and their creator's `host` grant commit together; the creator
+must have `can_host`. A `watcher` reads only granted meetings and may ask only when
+`allow_questions=true` (default `false`). Hosts may record/resume, rename, retain, end, delete,
+edit speakers, generate reports, cancel tasks and manage members. At least one host remains.
+Granting host requires a target configured with `can_host`. The server never trusts a role sent in
+request data. A configured hosting permission does not grant access to anyone else's meetings.
+
+| Method and path                                    | Required access | Result                                                     |
+| -------------------------------------------------- | --------------- | ---------------------------------------------------------- |
+| `GET /api/sessions/{id}/members`                   | Host            | Current principals, roles and question permissions         |
+| `PUT /api/sessions/{id}/members/{principal_id}`    | Host            | Set `{role, allow_questions}` for an exact known principal |
+| `DELETE /api/sessions/{id}/members/{principal_id}` | Host            | Revoke membership; cannot remove the last host             |
+
+The page displays the caller's public account id. Hosts enter an exact id to grant access; there
+is no public user directory. Session responses include `access: {role, allow_questions}` for the
+caller, enabling the appropriate controls without substituting for server enforcement.
+
+**Old meetings and administration.** Existing ownerless meetings are not assigned to the first
+visitor and are invisible in access mode. A trusted operator stops the instance, uses its
+configuration with `access list-unclaimed`, then explicitly runs
+`access claim <session-id> --owner <user-id>` for a configured hosting account. Repeating the same
+claim is harmless; a conflicting claim fails. Administration is local configuration/CLI authority,
+not a web role that silently reads all meetings. Disabling access mode is an explicit operator
+decision to reopen the legacy shared scope; it retains grants for a later re-enable.
+
+**All entry points.** Unauthenticated API access returns 401. Resources without a readable grant
+return the same 404 as an unknown resource; a readable meeting with insufficient action permission
+returns 403. Lists filter by membership before pagination. The optional/current-session forms may
+resolve only a meeting available to the caller, never an unrelated global live meeting. Apply
+checks to path, query and body session ids, and to the parent meeting obtained from a frame id,
+task id, export filename or report. This includes captions, speakers, screenshots, task details,
+artifacts, export files, reports, event streams and membership/presence. Existing filesystem
+containment, artifact allowlists, cache policy, CSRF and cleanup leases remain in force.
+Screenshot upload supplies an explicit `session_id` in access mode and requires host access to
+that recording meeting. Read-only actions allow watchers; mutations require host except permitted
+questions. `/api/time` and `/api/ice` require authentication. Operational health/metrics routes
+retain their separate access contract and contain no meeting content.
+
+**Connections and revocation.** Each event subscription and WebRTC connection binds the verified
+login, principal and meeting. Offer creation/resume/reuse and ICE PATCH verify that binding;
+client-supplied role or `pc_id` cannot authorize takeover. While only one recording is supported,
+starting another meeting cannot interrupt a meeting the caller cannot host. A generic busy result
+does not expose the current meeting. Existing media and data-channel messages remain subject to
+authorization, including typed input. Membership changes discard affected subscription queues,
+stop new sends and close affected recording connections. Logout acts on its login; logout-all on
+the principal. Expiry is checked within one second even when there are no events. Reconnection
+checks the current grant. Streaming exports recheck before producing each next chunk. Bytes
+already delivered to the network or browser cannot be recalled.
+
+**Questions from a non-recording login.** In access mode the original tool-enabled pipeline
+accepts only the exact login owning the current recording connection: HTTP text must match its
+login digest, and data-channel input must belong to that connection. Having the same principal
+or a host role is insufficient. Other host logins, including another login of the recording
+principal, and permitted watchers use the no-tool path below. Other hosts retain their direct
+HTTP meeting-management rights. Legacy mode is unchanged. Recording tools capture the original
+login, principal, meeting and LiveConnection; they never obtain a new global live connection.
+Logout, expiry, revocation or connection termination cancels that login's queued inputs and
+unfinished tool execution/late callbacks. Recheck the original authority before a side-effect
+submission, result publication or subsequent generation. Another valid host/login cannot keep a
+revoked login's work authorized. Already completed side effects cannot be rolled back.
+
+Read-only questions use the background entrance of the **configured realtime endpoint**, via
+`cfg.realtime_llm.active` and the existing request properties, with no tools or MCP. That endpoint
+may be local, on the LAN or in the cloud: retain the existing outbound-data notice, without
+claiming local-only processing. Do not switch to an agent/caption provider, introduce another
+destination, or branch on the access mode. A non-loopback address is allowed; validation uses a
+locally hosted non-loopback fake endpoint, not an external service. The request captures its
+login, principal and meeting; recheck read access plus host or watcher question permission before
+dispatch and committing/publishing. Non-live meetings return `session.not_live`. A model's returned
+tool calls are never executed.
+
+**Read-only input budget.** Supply only the authorized meeting's summary, recent text and existing
+screenshot text captions. Explicitly exclude task briefs/errors, artifacts, images and other
+meetings. Do not directly use `build_context_messages`, which appends task rows and has no hard
+input bound. Let `B = realtime.context_budget_tokens` and reserve output
+`R = min(512, realtime_llm.active.sampling.max_tokens or 512)`, also passed as `max_tokens`.
+Before sending, the complete provider-bound messages, including system, full question, labels,
+separators, omission notices and adapter-added messages, must satisfy **both**
+`estimate_messages(messages) + R <= B` and compact JSON UTF-8 size
+`<= min(32768, 4 * (B - R))`. Use the existing estimator, not a new tokenizer dependency: the
+estimate is not a claim about actual provider token counts; the byte cap is exact.
+
+Reserve the fixed read-only system and full question first; retain the existing 2000-character
+question limit. If those alone exceed either budget, return 413 `text.context_too_large` without
+recording the question or calling inference; never truncate a user's question. Read at most the
+latest summary's first 4096 characters, the latest 100 utterances with 2048 characters each, and
+the latest 10 screenshot captions with 1024 characters each. Bound returned database fields,
+rather than first loading unbounded text. The summary uses at most one quarter of the remaining
+material byte budget. Select transcript/screenshot rows newest-first, abbreviate an oversized row
+with an omission marker, and present selected rows chronologically. Recheck both limits after
+full assembly and drop oldest material until they hold. With no room for meeting material, state
+that context is missing; a one-minute window never exempts a request from either limit. Omission
+notices count toward the budget. Tests measure the actual messages received by fake inference.
+
+Retain the shared background pause/lock, at most five pending questions, one in-flight question
+per principal and a 60-second total budget including waiting. The read-only path does not call
+the recording pipeline's `activity.request_sent`, which would pause its own background entrance.
+Host activity keeps priority: `Preempted` visibly ends this answer with `text.interrupted`, allowing
+the user to retry; no automatic retry or deadline reset. Cancellation/timeout must not call shared
+`resume` and undo a host's pause. Record the question only after the input budget passes. A
+successful answer is persisted once as an assistant utterance and published through the existing
+utterance event, without a second accumulated-answer protocol. Revocation cancels queued/in-flight
+work; late results cannot be stored or published. Already recorded questions remain meeting
+history. Failure is visible and never stops transcription.
+
+The UI distinguishes the exact recording login's tool-enabled input from every other login's
+read-only questions, while preserving other hosts' HTTP management controls. It hides host-only
+actions from watchers and clears meeting content/connections
+on logout or access loss. An unavailable auth-status request shows retry instead of assuming open
+access. Real HTTP/WebRTC/SSE end-to-end scenarios cover two identities/two meetings, direct-link
+substitution, mixed utterance ids, traversal, CSRF, membership/connection revocation, in-flight
+questions, tool-call attempts, persistent identities, and synthetic legacy database migration.
+Add same-meeting hosts A/B and same-principal logins A1/A2: keep A/A1 recording while B/A2 queues
+or awaits an answer, then log out/revoke B/A2; delayed text or tool calls must not publish, persist
+or execute, and A/A1 continues. Revoking A1 must block its queued tools/late callbacks/regeneration
+even when A2 remains valid. Also verify the non-loopback fake realtime destination and zero
+agent/caption calls; summaries disabled/lagging, dense one-minute transcripts and long captions
+must satisfy both input limits, exclude task-row sentinels and keep the full question. An
+unfit system/question produces 413 with no inference or question write while host/ASR continues.
+Snapshot and replay use this same admission and revocation boundary in the sole ordered event API (§5.1); see [the integration contract](access-events.md).
 
 ## 6. Data-channel messages
 
@@ -1907,3 +2062,5 @@ General rules:
   service becomes healthy, `check_tts_voice` verifies the configured voice and stops startup with the
   list of available voices if it is missing. If the endpoint does not exist or answers in another
   format — as other OpenAI-compatible TTS services may — only a warning is logged.
+
+The meeting-access integration boundary for this event protocol is specified in [Meeting access and ordered event recovery](access-events.md).

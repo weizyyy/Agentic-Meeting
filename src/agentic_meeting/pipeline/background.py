@@ -44,6 +44,14 @@ class BackgroundModel:
         self._inflight: asyncio.Task | None = None
         self._preempting = False
 
+    def request_messages(self, messages: list[dict], system: str) -> list[dict]:
+        """按实际服务适配器构建消息，用于只读问答发出前的预算检查。"""
+        return self._llm.get_llm_adapter().get_llm_invocation_params(
+            LLMContext(messages),
+            system_instruction=system,
+            convert_developer_to_user=not self._llm.supports_developer_role,
+        )["messages"]
+
     @property
     def paused(self) -> bool:
         return not self._resumed.is_set()

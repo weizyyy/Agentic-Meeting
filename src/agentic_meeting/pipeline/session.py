@@ -70,6 +70,8 @@ class LiveConnection:
     finished: asyncio.Event = field(default_factory=asyncio.Event)
     owner: asyncio.Task | None = None
     finishing: bool = False
+    identity: Any = None
+    tool_tasks: set[asyncio.Task] = field(default_factory=set)
     quiet: bool = False  # 由会话管理器停掉的：收尾时不再告诉旁观的设备「已中断」，停它的地方自己说
 
 
@@ -233,7 +235,7 @@ class SessionManager:
     # 连接的生命周期
     # ------------------------------------------------------------------ #
 
-    async def begin(self) -> LiveConnection:
+    async def begin(self, *, owner: str | None = None) -> LiveConnection:
         """新连接、新会议：顶替旧连接，建新会话和连接记录，登记为当前连接。
 
         别的没结束的会议（已中断的）原样留着，之后还能继续。
@@ -245,7 +247,7 @@ class SessionManager:
                 self.watchers.state(old.session.id, "interrupted")
             await self._drop_stream()
             now = self._now()
-            session = await self._store.create_session(now=now)
+            session = await self._store.create_session(now=now, owner=owner)
             connection_id = await self._store.open_connection(
                 session.id, connected_at=now, t_from=0.0
             )
@@ -372,6 +374,9 @@ class SessionManager:
 
     async def finish(self, live: LiveConnection) -> None:
         """连接结束（无论怎么结束）：关闭连接记录，释放位置。不写 ``ended_at``。"""
+        live.stop_requested = True
+        for pending in list(live.tool_tasks):
+            pending.cancel()
         live.finishing = True
         await drain_io(self._finish(live))
 
@@ -435,6 +440,8 @@ class SessionManager:
         """告诉页面原因、取消管线、等它收尾（超时就不等了）。"""
         timeout = self._timeout if wait_secs is None else wait_secs
         live.stop_requested = True
+        for pending in list(live.tool_tasks):
+            pending.cancel()
         live.quiet = True
         if live.worker is not None:
             try:

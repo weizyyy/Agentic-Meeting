@@ -477,7 +477,9 @@ class Store:
     # 会话
     # ------------------------------------------------------------------ #
 
-    async def create_session(self, title: str = "", *, now: float | None = None) -> Session:
+    async def create_session(
+        self, title: str = "", *, now: float | None = None, owner: str | None = None
+    ) -> Session:
         now = time.time() if now is None else now
         session = Session(id=uuid.uuid4().hex, title=title, started_at=now, last_active_at=now)
         async with self._transaction():
@@ -485,6 +487,10 @@ class Store:
                 "INSERT INTO sessions (id, title, started_at, last_active_at) VALUES (?, ?, ?, ?)",
                 (session.id, title, now, now),
             )
+            if owner is not None:
+                await self._db.execute(
+                    "INSERT INTO meeting_members VALUES (?, ?, 'host', 1)", (session.id, owner)
+                )
             await self._db.commit()
         return session
 
@@ -568,20 +574,163 @@ class Store:
     # ---- 会议列表 ----
 
     async def list_sessions(
-        self, limit: int = 20, before: float | None = None, *, now: float | None = None
+        self,
+        limit: int = 20,
+        before: float | None = None,
+        *,
+        now: float | None = None,
+        principal: str | None = None,
     ) -> list[SessionSummary]:
         """按最近活动倒序；``before`` 是上一页最后一条的 ``last_active_at``。
 
         ``now`` 给出时，没关闭的连接（正在进行的会议）的时长算到 ``now``；不给就算到会话最后一次活动。
         """
-        sql = "SELECT * FROM sessions"
+        sql = "SELECT * FROM sessions WHERE 1=1"
         params: list[Any] = []
+        if principal is not None:
+            sql += " AND id IN (SELECT session_id FROM meeting_members WHERE principal_id = ?)"
+            params.append(principal)
         if before is not None:
-            sql += " WHERE last_active_at < ?"
+            sql += " AND last_active_at < ?"
             params.append(before)
         sql += " ORDER BY last_active_at DESC, started_at DESC LIMIT ?"
         params.append(limit)
         return [await self._summary(self._session(r), now) for r in await self._all(sql, params)]
+
+    async def utterances_belong_to(self, session_id: str, ids: list[int]) -> bool:
+        placeholders = ",".join("?" for _ in ids)
+        row = await self._one(
+            f"SELECT COUNT(*) FROM utterances WHERE session_id=? AND id IN ({placeholders})",
+            (session_id, *ids),
+        )
+        return row[0] == len(set(ids))
+
+    async def question_material(self, session_id: str) -> tuple[str, list[tuple[float, str]]]:
+        """有界读取；不把任务、原图、任意产物带入旁听问答。"""
+        digest = await self._one(
+            "SELECT substr(text,1,4096) AS text, length(text)>4096 AS clipped "
+            "FROM digests WHERE session_id=? ORDER BY t_to DESC LIMIT 1",
+            (session_id,),
+        )
+        utterances = await self._all(
+            "SELECT t_start AS t, substr(text,1,2048) AS text, length(text)>2048 AS clipped "
+            "FROM utterances WHERE session_id=? ORDER BY t_start DESC,id DESC LIMIT 100",
+            (session_id,),
+        )
+        frames = await self._all(
+            "SELECT t, substr(caption,1,1024) AS text, length(caption)>1024 AS clipped "
+            "FROM frames WHERE session_id=? AND caption IS NOT NULL ORDER BY t DESC,id DESC LIMIT 10",
+            (session_id,),
+        )
+        summary = (digest["text"] + ("…[截断]" if digest["clipped"] else "")) if digest else ""
+        rows = [
+            (row["t"], row["text"] + ("…[截断]" if row["clipped"] else ""))
+            for row in [*utterances, *frames]
+        ]
+        return summary, sorted(rows, key=lambda row: row[0], reverse=True)
+
+    async def register_principals(self, users: list[tuple[str, str]]) -> None:
+        async with self._transaction():
+            await self._db.executemany(
+                "INSERT INTO principals VALUES (?, ?) ON CONFLICT(id) DO UPDATE "
+                "SET display_name = excluded.display_name",
+                users,
+            )
+            await self._db.commit()
+
+    async def save_login(self, digest: str, principal: str, expires_at: float) -> None:
+        async with self._transaction():
+            await self._db.execute(
+                "DELETE FROM login_sessions WHERE expires_at <= ?", (time.time(),)
+            )
+            await self._db.execute(
+                "INSERT INTO login_sessions VALUES (?, ?, ?)", (digest, principal, expires_at)
+            )
+            await self._db.commit()
+
+    async def get_login(self, digest: str) -> dict | None:
+        row = await self._one(
+            "SELECT * FROM login_sessions WHERE digest = ? AND expires_at > ?",
+            (digest, time.time()),
+        )
+        return dict(row) if row else None
+
+    async def revoke_login(self, digest: str, *, principal: str | None = None) -> None:
+        async with self._transaction():
+            column, value = ("principal_id", principal) if principal else ("digest", digest)
+            await self._db.execute(f"DELETE FROM login_sessions WHERE {column} = ?", (value,))
+            await self._db.commit()
+
+    async def membership(self, session_id: str, principal: str) -> dict | None:
+        row = await self._one(
+            "SELECT role, allow_questions FROM meeting_members "
+            "WHERE session_id = ? AND principal_id = ?",
+            (session_id, principal),
+        )
+        return dict(row) if row else None
+
+    async def members(self, session_id: str) -> list[dict]:
+        return [
+            dict(row)
+            for row in await self._all(
+                "SELECT m.principal_id, p.display_name, m.role, m.allow_questions FROM meeting_members m "
+                "JOIN principals p ON p.id = m.principal_id WHERE m.session_id = ? ORDER BY m.principal_id",
+                (session_id,),
+            )
+        ]
+
+    async def set_member(
+        self, session_id: str, principal: str, role: str | None, allow_questions: bool = False
+    ) -> bool:
+        """同一事务保护最后一个主持人；返回 False 表示不能降权或移除。"""
+        async with self._transaction():
+            old = await self.membership(session_id, principal)
+            if old and old["role"] == "host" and role != "host":
+                hosts = await self._one(
+                    "SELECT COUNT(*) FROM meeting_members WHERE session_id = ? AND role = 'host'",
+                    (session_id,),
+                )
+                if hosts[0] == 1:
+                    return False
+            if role is None:
+                await self._db.execute(
+                    "DELETE FROM meeting_members WHERE session_id = ? AND principal_id = ?",
+                    (session_id, principal),
+                )
+            else:
+                await self._db.execute(
+                    "INSERT INTO meeting_members VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(session_id, principal_id) DO UPDATE SET role=excluded.role, "
+                    "allow_questions=excluded.allow_questions",
+                    (session_id, principal, role, int(allow_questions)),
+                )
+            await self._db.commit()
+        return True
+
+    async def unclaimed_sessions(self) -> list[dict]:
+        return [
+            dict(r)
+            for r in await self._all(
+                "SELECT id, title FROM sessions WHERE id NOT IN "
+                "(SELECT session_id FROM meeting_members WHERE role = 'host') ORDER BY started_at"
+            )
+        ]
+
+    async def claim_session(self, session_id: str, principal: str) -> bool:
+        async with self._transaction():
+            if await self.get_session(session_id) is None:
+                raise LookupError("会议不存在")
+            hosts = await self._all(
+                "SELECT principal_id FROM meeting_members WHERE session_id = ? AND role = 'host'",
+                (session_id,),
+            )
+            if hosts:
+                return len(hosts) == 1 and hosts[0][0] == principal
+            await self._db.execute(
+                "INSERT INTO meeting_members VALUES (?, ?, 'host', 1)", (session_id, principal)
+            )
+            await self._db.commit()
+            return True
 
     async def get_summary(
         self, session_id: str, *, now: float | None = None

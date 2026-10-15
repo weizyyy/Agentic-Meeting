@@ -23,6 +23,25 @@ CREATE TABLE IF NOT EXISTS sessions (
     deletion_pending INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS principals (
+    id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS login_sessions (
+    digest TEXT PRIMARY KEY,
+    principal_id TEXT NOT NULL REFERENCES principals(id),
+    expires_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS meeting_members (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    principal_id TEXT NOT NULL REFERENCES principals(id),
+    role TEXT NOT NULL CHECK (role IN ('host', 'watcher')),
+    allow_questions INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (session_id, principal_id)
+);
+
 -- 每次连接一行。t_from / t_to 是这次连接覆盖的会话时间轴（秒）；中断的空档就是相邻两行之间的缝。
 -- 会话状态不存列：ended_at 非空 = 已结束；为空时应用内存里有活动连接 = 进行中，否则 = 已中断。
 CREATE TABLE IF NOT EXISTS session_connections (

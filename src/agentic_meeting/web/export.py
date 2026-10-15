@@ -38,6 +38,7 @@ from agentic_meeting.types import (
     TaskEvent,
     TaskRecord,
 )
+from agentic_meeting.web.access import authorize
 from agentic_meeting.web.errors import ApiError, invalid
 
 MERGE_GAP_SECS = 120.0  # 同一个人隔了这么久才接着说，另起一段（时间戳才有参考价值）
@@ -459,6 +460,7 @@ def register(app: FastAPI) -> None:
         stem, dot, suffix = name.rpartition(".")
         if not dot or not stem or suffix not in ("md", "json", "zip"):
             raise invalid("导出地址的格式是 /api/export/<会议编号>.md（或 .json、.zip）", 404)
+        await authorize(request, stem)
         if await resources.store.get_session(stem) is not None:
             await resources.store.require_available(stem)
         data = await collect(

@@ -56,6 +56,15 @@ NOTICES: dict[str, Callable[[Params], str]] = {
 
 # HTTP 接口的错误：代码 → 中文（interfaces.md §5.9）。
 ERRORS: dict[str, Callable[[Params], str]] = {
+    "access.denied": lambda p: "无权执行此操作",
+    "access.invalid_member": lambda p: "成员不存在或不能主持会议",
+    "access.last_host": lambda p: "会议必须保留一位主持人",
+    "access.busy": lambda p: "录音服务正忙",
+    "text.context_too_large": lambda p: "问题和提示超出上下文预算",
+    "text.interrupted": lambda p: "只读问答被实时应答打断，请稍后重新提问",
+    "text.busy": lambda p: "只读问答队列已满或已有问题处理中",
+    "text.timeout": lambda p: "只读问答等待超时",
+    "text.failed": lambda p: "只读问答没有完成",
     "request.invalid": lambda p: f"请求格式有误：{p['detail']}",
     "request.too_large": lambda p: "请求体太大",
     "request.failed": lambda p: f"请求失败（{p['status']}）",

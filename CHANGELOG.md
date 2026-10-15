@@ -60,6 +60,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Optional meeting access uses stable local accounts, host/watcher grants, revocable logins,
+  authorized downloads and connection ownership. Non-recording logins ask bounded questions
+  without tools. Existing meetings can be claimed by a trusted operator while the server is stopped.
+
 - The meeting page shows **N 台设备在旁观** (N devices watching) while other devices follow the
   meeting; clicking it lists each device by platform and browser, such as _iPhone · Safari_, and
   since when it has been watching ([#21]).

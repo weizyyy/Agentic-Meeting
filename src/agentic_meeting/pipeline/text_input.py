@@ -65,9 +65,11 @@ class TextInputHandler:
         max_chars: int = MAX_TEXT_CHARS,
         busy_timeout_secs: float = BUSY_TIMEOUT_SECS,
         on_dispatch: Callable[[], Awaitable[None]] | None = None,
+        authorize: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         # 每次把请求交给模型之前调用（让后台模型先让路）
         self._on_dispatch = on_dispatch
+        self._authorize = authorize
         self._recorder = recorder
         self._push = push
         self._notice = notice
@@ -124,6 +126,8 @@ class TextInputHandler:
 
         结果提示（不合格、排队）默认只发给提交请求的 RTC 页面；HTTP 提问由 ``notice`` 收下，放进响应里。
         """
+        if self._authorize is not None:
+            await self._authorize()
         reply = notice or self._safe_notice
         text = raw.strip()
         if not text:
@@ -159,6 +163,8 @@ class TextInputHandler:
     async def _dispatch(self, utterance: Utterance) -> None:
         """把一条文字请求交给实时模型：只出文字、不打断。已经持有 ``_lock``。"""
         try:
+            if self._authorize is not None:
+                await self._authorize()
             line = await self._recorder.context_text(utterance)
             if self._on_dispatch is not None:
                 try:

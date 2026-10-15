@@ -121,6 +121,7 @@ class MeetingClient:
         response = await self._http.post("/api/offer", json=request)
         response.raise_for_status()
         answer = response.json()
+        self.pc_id = answer["pc_id"]
         await self.pc.setRemoteDescription(RTCSessionDescription(answer["sdp"], answer["type"]))
         await self._wait(lambda: self._channel.readyState == "open", "数据通道打开")
         self._channel_send("client-ready", {"version": "1.0.0", "about": {"library": "e2e-test"}})

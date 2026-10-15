@@ -332,6 +332,50 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return code
 
 
+async def _access(cfg: AppConfig, args: argparse.Namespace) -> int:
+    from agentic_meeting.store.db import Store
+    from agentic_meeting.store.instance import instance_lock
+
+    if not cfg.server.meeting_access:
+        print("请先启用 server.meeting_access 并配置本地账号。")
+        return 2
+    with instance_lock(cfg.resolve(cfg.session.data_dir)):
+        store = await Store.open(
+            cfg.resolve(cfg.session.data_dir) / "meetings.db", cfg.embedding.dimensions
+        )
+        try:
+            users = {user.id: user for user in cfg.server.local_users}
+            await store.register_principals(
+                [(f"local:{key}", user.display_name) for key, user in users.items()]
+            )
+            if args.access_command == "list-unclaimed":
+                for row in await store.unclaimed_sessions():
+                    print(f"{row['id']}\t{row['title']}")
+                return 0
+            owner = users.get(args.owner)
+            if owner is None or not owner.can_host:
+                print("指定的本地主体不存在或不能主持会议。")
+                return 2
+            if not await store.claim_session(args.session_id, f"local:{owner.id}"):
+                print("会议不存在或已经由其他主体认领。")
+                return 1
+            print(f"{args.session_id} -> local:{owner.id}")
+            return 0
+        finally:
+            await store.close()
+
+
+def cmd_access(args: argparse.Namespace) -> int:
+    cfg = _load_cfg(args.config)
+    if cfg is None:
+        return 2
+    try:
+        return asyncio.run(_access(cfg, args))
+    except RuntimeError as exc:
+        print(exc)
+        return 1
+
+
 def main() -> None:
     # 输出被重定向到文件或管道时，Windows 默认用本地代码页；两个流统一成 UTF-8，避免中文乱码。
     for stream in (sys.stdout, sys.stderr):
@@ -343,6 +387,16 @@ def main() -> None:
     parser.add_argument("--config", help="配置文件路径（默认 config/config.toml）")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("check", help="校验配置并列出缺项").set_defaults(func=cmd_check)
+
+    access = sub.add_parser("access", help="停机后管理旧会议归属")
+    access_sub = access.add_subparsers(dest="access_command", required=True)
+    access_sub.add_parser("list-unclaimed", help="列出没有主持人的会议").set_defaults(
+        func=cmd_access
+    )
+    claim = access_sub.add_parser("claim", help="认领旧会议，不覆盖已有归属")
+    claim.add_argument("session_id")
+    claim.add_argument("--owner", required=True, help="配置中的本地账号 id")
+    claim.set_defaults(func=cmd_access)
 
     services = sub.add_parser("services", help="管理本地推理服务")
     services_sub = services.add_subparsers(dest="services_command", required=True)

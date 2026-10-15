@@ -18,6 +18,8 @@ import { unsupportedText } from "./browserSupport.ts";
 import { useI18n } from "./i18n/index.ts";
 import { pruneSelection } from "./selection.ts";
 import { sessionTitle } from "./sessionView.ts";
+import type { AuthStatus } from "./auth.ts";
+import { AccessPanel } from "./components/AccessPanel.tsx";
 import type { TimeBase } from "./timeline.ts";
 import { useMeetingClient } from "./useMeetingClient.ts";
 
@@ -33,11 +35,12 @@ function shownOn(section: Section, current: Section): string {
 }
 
 interface Props {
+  auth?: AuthStatus;
   /** 启用了访问口令时才有：顶部栏显示「退出登录」 */
   onLogout?: () => void;
 }
 
-export function App({ onLogout }: Props = {}) {
+export function App({ onLogout, auth }: Props = {}) {
   const { t, language } = useI18n();
   const meeting = useMeetingClient();
   const { client, state } = meeting;
@@ -71,11 +74,19 @@ export function App({ onLogout }: Props = {}) {
     state.connection === "connecting" ||
     state.reconnectAttempt > 0;
 
-  const emptyText = inMeeting
-    ? t.session.emptyCaptions.live
-    : state.viewing
-      ? t.session.emptyCaptions.history
-      : t.session.emptyCaptions.none;
+  const readOnly = state.viewing?.access?.role === "watcher";
+  const canAsk = !readOnly || state.viewing?.access?.allow_questions === true;
+
+  const canStart =
+    meeting.unsupported === null && (!auth?.meeting_access || auth.principal?.can_host === true);
+  const emptyText =
+    auth?.meeting_access && !state.viewing && !canStart
+      ? t.login.noMeetings
+      : inMeeting
+        ? t.session.emptyCaptions.live
+        : state.viewing
+          ? t.session.emptyCaptions.history
+          : t.session.emptyCaptions.none;
 
   return (
     <PipecatClientProvider client={client}>
@@ -92,7 +103,10 @@ export function App({ onLogout }: Props = {}) {
               setListOpen((open) => !open);
               void meeting.refreshSessions();
             }}
-            canStart={meeting.unsupported === null}
+            canStart={
+              meeting.unsupported === null &&
+              (!auth?.meeting_access || auth.principal?.can_host === true)
+            }
             onStart={() => void meeting.start()}
             onStop={() => void meeting.stop()}
             onPresent={state.viewing ? () => setPresenting(true) : undefined}
@@ -107,7 +121,10 @@ export function App({ onLogout }: Props = {}) {
             </p>
           )}
           <AssistantAudio />
+          {auth?.meeting_access && <AccessPanel auth={auth} session={state.viewing} />}
           <SessionBanner
+            canStart={canStart}
+            emptyHint={auth?.meeting_access && !canStart ? t.login.noMeetings : undefined}
             session={state.viewing}
             connection={state.connection}
             reconnectAttempt={state.reconnectAttempt}
@@ -127,7 +144,10 @@ export function App({ onLogout }: Props = {}) {
           {!state.viewing?.deletion_pending && (
             // 宽屏两列：左边字幕（报告）在上、屏幕在下，右边助理和后台任务；
             // 手机上只显示当前分页的那一块
-            <main className="flex min-h-0 flex-1 flex-col gap-4 max-md:gap-2 md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,360px)] md:grid-rows-[minmax(0,1fr)_auto] md:[grid-template-areas:'captions_side'_'screen_side']">
+            <main
+              key={state.viewing?.id ?? "none"}
+              className="flex min-h-0 flex-1 flex-col gap-4 max-md:gap-2 md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,360px)] md:grid-rows-[minmax(0,1fr)_auto] md:[grid-template-areas:'captions_side'_'screen_side']"
+            >
               {/* 手机上分页：字幕、助理、任务、画面，一次一块占满下面的高度 */}
               <Tabs
                 value={section}
@@ -193,19 +213,21 @@ export function App({ onLogout }: Props = {}) {
                   </TabsList>
                 </div>
                 <TabsContent value="captions" className="flex min-h-0 flex-col" tabIndex={-1}>
-                  <SpeakerBar
-                    speakers={state.speakers}
-                    members={state.members}
-                    onRename={(idx, name) => void meeting.renameSpeaker(idx, name)}
-                    onMerge={(idx, into) => void meeting.mergeSpeakers(idx, into)}
-                    selectedCount={selected.size}
-                    onAssign={(target) => {
-                      void meeting.assignSpeaker([...selected], target).then((done) => {
-                        if (done) setSelected(new Set());
-                      });
-                    }}
-                    onClearSelection={() => setSelected(new Set())}
-                  />
+                  <div inert={readOnly}>
+                    <SpeakerBar
+                      speakers={state.speakers}
+                      members={state.members}
+                      onRename={(idx, name) => void meeting.renameSpeaker(idx, name)}
+                      onMerge={(idx, into) => void meeting.mergeSpeakers(idx, into)}
+                      selectedCount={selected.size}
+                      onAssign={(target) => {
+                        void meeting.assignSpeaker([...selected], target).then((done) => {
+                          if (done) setSelected(new Set());
+                        });
+                      }}
+                      onClearSelection={() => setSelected(new Set())}
+                    />
+                  </div>
                   <CaptionList
                     lines={state.captions}
                     hasOlder={state.hasOlder}
@@ -237,7 +259,7 @@ export function App({ onLogout }: Props = {}) {
                     text={state.assistantText}
                     replyMode={state.replyMode}
                     notices={state.notices}
-                    canSend={state.connection === "connected" || meeting.watching}
+                    canSend={canAsk && (state.connection === "connected" || meeting.watching)}
                     watching={meeting.watching}
                     onSend={meeting.sendText}
                     onDismissNotice={meeting.dismissNotice}
@@ -245,6 +267,7 @@ export function App({ onLogout }: Props = {}) {
                 </div>
                 <div className={`contents ${shownOn("tasks", section)}`}>
                   <TaskPanel
+                    readOnly={readOnly}
                     tasks={state.tasks}
                     onLoad={meeting.loadTask}
                     onCancel={(id) => void meeting.cancelTask(id)}
