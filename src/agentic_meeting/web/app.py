@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -68,6 +69,8 @@ BotRunner = Callable[[Any, Any, AppResources], Awaitable[None]]
 
 # 应用关闭时，断开连接之后再等管线自己结束的时间；超过就取消。
 BOT_EXIT_TIMEOUT_SECS = 5.0
+# uvicorn 自己记着的连接都关完之后，再等 asyncio 服务器确认连接全部关闭的时间（见 MeetingServer）。
+SERVER_CLOSE_GRACE_SECS = 2.0
 
 NOT_BUILT_HTML = """<!doctype html>
 <html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -438,27 +441,81 @@ def create_app(
     return app
 
 
-class MeetingServer(uvicorn.Server):
-    """关闭时先结束旁观会议的事件流，再交给 uvicorn。
+class _BoundedServer:
+    """包住 asyncio 的服务器对象，等它确认连接全部关闭时有时限。
 
-    uvicorn 先等正在处理的请求全部结束，才进入应用的收尾（lifespan）；事件流是不会自己结束的请求，
-    在收尾里才结束它们就晚了，Ctrl+C 一次停不下来。
+    uvicorn 关闭时先等它自己记着的连接都关掉，最后还要 ``wait_closed()``，等 asyncio 服务器把接受过的每条连接
+    都登记为关闭。这一步不打日志、没有时限，再按 Ctrl+C 也不管用。有连接没登记上（比如 Windows 的事件循环关闭
+    一条已被对方重置的连接时 ``socket.shutdown()`` 抛错，后面的登记被跳过），就会一直卡在「Shutting down」。
+    走到这一步时 uvicorn 那边的连接已经关完，剩下的等待只是记账，等一小会儿就够了。
     """
 
-    def __init__(self, config: uvicorn.Config, app: FastAPI) -> None:
+    def __init__(self, server: Any) -> None:
+        self._server = server
+
+    def close(self) -> None:
+        self._server.close()
+
+    async def wait_closed(self) -> None:
+        try:
+            await asyncio.wait_for(self._server.wait_closed(), SERVER_CLOSE_GRACE_SECS)
+        except TimeoutError:
+            logger.warning(
+                "HTTP 服务器在 {:g} 秒内没有确认全部连接已关闭，不再等", SERVER_CLOSE_GRACE_SECS
+            )
+
+
+class MeetingServer(uvicorn.Server):
+    """在 uvicorn 的关闭流程上补三处：
+
+    * 先结束旁观会议的事件流。uvicorn 先等正在处理的请求全部结束，才进入应用的收尾（lifespan）；
+      事件流是不会自己结束的请求，在收尾里才结束它们就晚了，Ctrl+C 一次停不下来。
+    * 等 asyncio 服务器确认连接关闭有时限（``_BoundedServer``）。
+    * 关闭过程中再收到停止信号（再按一次 Ctrl+C 或 Ctrl+Break）就立即退出：先调 ``on_force_quit``
+      （结束一并拉起的推理服务），再结束进程，不再等任何收尾。uvicorn 自己只在第二次 Ctrl+C 时跳过一部分等待，
+      第二次 Ctrl+Break 什么都不做。
+    """
+
+    def __init__(
+        self,
+        config: uvicorn.Config,
+        app: FastAPI,
+        on_force_quit: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(config)
         self._app = app
+        self._on_force_quit = on_force_quit
+
+    def handle_exit(self, sig: int, frame: Any) -> None:
+        if self.should_exit:
+            logger.warning("关闭过程中再次收到停止信号，立即退出")
+            if self._on_force_quit is not None:
+                try:
+                    self._on_force_quit()
+                except Exception:
+                    logger.exception("结束推理服务时出错")
+            os._exit(1)
+        super().handle_exit(sig, frame)
 
     async def shutdown(self, sockets: Any = None) -> None:
         resources = getattr(self._app.state, "resources", None)
         sessions = getattr(resources, "sessions", None)
         if sessions is not None:
             sessions.watchers.close_all()
+        self.servers = [_BoundedServer(server) for server in self.servers]
         await super().shutdown(sockets)
 
 
-def make_server(cfg: AppConfig, app: FastAPI | None = None) -> uvicorn.Server:
-    """按配置创建 uvicorn 服务器；配置了证书时启用 HTTPS（局域网内的浏览器访问必须 HTTPS）。"""
+def make_server(
+    cfg: AppConfig,
+    app: FastAPI | None = None,
+    *,
+    on_force_quit: Callable[[], None] | None = None,
+) -> uvicorn.Server:
+    """按配置创建 uvicorn 服务器；配置了证书时启用 HTTPS（局域网内的浏览器访问必须 HTTPS）。
+
+    ``on_force_quit``：关闭过程中再按一次 Ctrl+C、进程立即退出之前调用（见 ``MeetingServer``）。
+    """
     app = app or create_app(cfg)
     config = uvicorn.Config(
         app,
@@ -468,4 +525,4 @@ def make_server(cfg: AppConfig, app: FastAPI | None = None) -> uvicorn.Server:
         ssl_keyfile=str(cfg.resolve(cfg.server.tls_key)) if cfg.server.tls_key else None,
         log_level="info",
     )
-    return MeetingServer(config, app)
+    return MeetingServer(config, app, on_force_quit)

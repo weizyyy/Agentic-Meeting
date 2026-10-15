@@ -19,7 +19,18 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   meeting; clicking it lists each device by platform and browser, such as _iPhone · Safari_, and
   since when it has been watching ([#21]).
 
+### Fixed
+
+- Stopping `agentic-meeting serve` on Windows: `Ctrl+Break` now stops it like `Ctrl+C` instead of
+  ending the process before the inference services are stopped, and pressing either key again
+  while it is still shutting down quits at once, killing the inference services, where it used to
+  do nothing. The last wait in uvicorn's shutdown, which could keep the server at "Shutting down"
+  with no way out, now gives up after two seconds. ([#80])
+- With `--with-services`, the inference services are now given their grace period to exit after
+  `Ctrl+C`; the stop used to be cut off right after sending them the stop signal. ([#80])
+
 [#21]: https://github.com/weizyyy/Agentic-Meeting/issues/21
+[#80]: https://github.com/weizyyy/Agentic-Meeting/pull/80
 
 ## [0.4.0] - 2026-10-14
 

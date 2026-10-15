@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import asyncio
-import sys
+import socket
 import time
 
 import pytest
 
 from .meeting_client import WatchingDevice
-from .waiting import until
+from .waiting import until, until_sync
 
 
 async def test_transcription_survives_failing_assistant_services(app, http, meeting, inference):
@@ -109,13 +109,9 @@ async def test_meetings_survive_a_restart(start_app, inference, meeting_factory)
         assert texts == ["重启之前说的话", "重启之后接着说"]
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="Windows 上停应用发的是 Ctrl+Break，不是 Ctrl+C",
-)
 async def test_ctrl_c_during_a_meeting_stops_the_server(start_app, meeting_factory):
-    """没有一并拉起模型服务时，按一次 Ctrl+C 应当直接停下；页面按原有逻辑发现连接断了，不需要额外通知。
-    有设备开着旁观的事件流也一样：这条流不会自己结束，应用退出时要先把它关掉。"""
+    """没有一并拉起模型服务时，按一次 Ctrl+C（Windows 上是 Ctrl+Break）应当直接停下；页面按原有逻辑发现
+    连接断了，不需要额外通知。有设备开着旁观的事件流也一样：这条流不会自己结束，应用退出时要先把它关掉。"""
     app = await start_app()
     async with app.http() as http:
         client = meeting_factory(http)()
@@ -124,9 +120,32 @@ async def test_ctrl_c_during_a_meeting_stops_the_server(start_app, meeting_facto
         assert await phone.open() == 200
         await phone.next_message("state", state="live")
         started = time.monotonic()
-        await app.shutdown(timeout_secs=20)  # 超时会被强行结束
+        assert await app.shutdown(timeout_secs=20) == 0  # 超时会被强行结束
         assert time.monotonic() - started < 10, "按一次 Ctrl+C 没有停下"
         await phone.wait_for(lambda: phone.ended, "事件流随应用退出结束")
+    assert "已停止。" in app.log_text()  # 正常收尾，不是被信号直接结束的
+
+
+async def test_second_ctrl_c_stops_a_server_that_is_still_shutting_down(start_app):
+    """有请求一直没收完时，按一次 Ctrl+C 服务端会一直等它；再按一次（Windows 上是 Ctrl+Break）应当立即退出。"""
+    app = await start_app()
+    host, port = app.base_url.removeprefix("http://").split(":")
+    with socket.create_connection((host, int(port)), timeout=10) as stalled:
+        # 请求体说有 100 字节，只发了 1 个：这个请求永远收不完
+        stalled.sendall(
+            f"POST /api/offer HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n"
+            "Content-Length: 100\r\n\r\n{".encode()
+        )
+        await asyncio.sleep(1)
+        app.interrupt()
+        await until_sync(lambda: "Shutting down" in app.log_text(), "开始关闭")
+        await asyncio.sleep(2)
+        assert app.process.poll() is None, "第一次 Ctrl+C 不该丢下没收完的请求"
+        started = time.monotonic()
+        app.interrupt()
+        await asyncio.to_thread(app.process.wait, 20)
+        assert time.monotonic() - started < 5, "第二次 Ctrl+C 没有立即退出"
+    assert "再次收到停止信号" in app.log_text()
 
 
 @pytest.mark.parametrize("service", ["asr", "llm"])

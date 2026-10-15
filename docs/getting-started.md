@@ -118,7 +118,9 @@ uv run agentic-meeting serve --with-services
 ```
 
 This starts the local inference services, waits until they are healthy, then starts the
-application. `Ctrl+C` stops everything. Open <http://localhost:7860>, click **开始新会议** and allow
+application. `Ctrl+C` (or `Ctrl+Break` on Windows) stops everything: the application finishes the
+meeting, then stops the inference services and waits for them to exit. If stopping hangs, press
+it again to quit at once; the inference services are killed as well. Open <http://localhost:7860>, click **开始新会议** and allow
 microphone access.
 
 To manage the inference services separately:
