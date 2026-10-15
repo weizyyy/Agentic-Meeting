@@ -8,6 +8,13 @@ class names and import paths are in [pipecat-notes.md](pipecat-notes.md).
 
 ## 1. Overview
 
+Meeting watchers use the single `WatcherHub` owned by the session manager. Each meeting has one
+bounded history and transient cache, and its subscriptions also form the presence list. Producers
+publish against their source meeting; custom RTVI frames are not mirrored a second time. The page
+consumes snapshots and replay through the same reducer as recording messages. Subscription capture
+precedes database reads, and the response deadline includes network sends so a slow watcher cannot
+block transcription or retain a subscription indefinitely (interfaces.md §5.1).
+
 ```
 Browser                                      Server host (GPU)
 ┌────────────────────────┐              ┌───────────────────────────────────────────────┐

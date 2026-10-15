@@ -453,7 +453,7 @@ def wire_screen_state(rtvi: Any) -> None:
 def watcher_observers(
     manager: SessionManager | None, live: LiveConnection | None
 ) -> list[WatcherObserver]:
-    """把推给会议页面的消息抄给旁观这场会议的设备（interfaces.md §5.1）。"""
+    """按来源会议观察助理累计回答与说话帧（interfaces.md §5.1）。"""
     if manager is None or live is None:
         return []
     return [WatcherObserver(manager.watchers, live.session.id)]
@@ -565,6 +565,13 @@ async def run_bot(
                 live.connection_id * SEGMENT_IDS_PER_CONNECTION + 1 if live is not None else 1
             ),
         )
+        if manager is not None and live is not None:
+
+            def publish(data: dict) -> None:
+                manager.publish(live.session.id, data)
+
+            parts.recorder.on_event = publish
+            parts.asr.on_event = publish
         worker = PipelineWorker(
             Pipeline(pipeline_processors(transport, parts)),
             params=PipelineParams(
@@ -582,6 +589,8 @@ async def run_bot(
         )
 
         async def send(data: dict) -> None:
+            if manager is not None and live is not None:
+                manager.publish(live.session.id, data)
             await worker.queue_frame(RTVIServerMessageFrame(data=data))
 
         wire_wake_events(parts.wake, send)
@@ -590,14 +599,20 @@ async def run_bot(
         async def notice(level: str, msg: Message) -> None:
             await send(msg.notice(level))
 
+        async def requester_notice(level: str, msg: Message) -> None:
+            # 输入校验和排队提示只返回提交它的 RTC 页面，不写会议历史。
+            await worker.queue_frame(RTVIServerMessageFrame(data=msg.notice(level)))
+
         text_input = TextInputHandler(
             recorder=parts.recorder,
             push=worker.queue_frame,
-            notice=notice,
+            notice=requester_notice,
             tts_enabled=parts.tts is not None,
             on_dispatch=activity.request_sent,
         )
-        wire_text_input(worker.rtvi, parts.assistant_aggregator, parts.recorder, text_input, notice)
+        wire_text_input(
+            worker.rtvi, parts.assistant_aggregator, parts.recorder, text_input, requester_notice
+        )
         wire_activity(activity, parts.wake, parts.assistant_aggregator, parts.recorder)
         wire_tool_activity(parts.llm, activity, text_input)
         if cfg.turn.single_activation:

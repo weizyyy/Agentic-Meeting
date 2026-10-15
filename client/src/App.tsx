@@ -112,6 +112,7 @@ export function App({ onLogout }: Props = {}) {
             connection={state.connection}
             reconnectAttempt={state.reconnectAttempt}
             watching={meeting.watching}
+            watcherDisconnected={state.watcherDisconnected}
             watchers={
               state.liveSessionId !== null && state.liveSessionId === state.viewing?.id
                 ? state.watchers

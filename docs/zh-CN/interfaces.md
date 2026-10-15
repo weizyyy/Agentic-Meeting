@@ -547,29 +547,45 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 旁观者提的问题只用文字回答，不管语音合成怎么配置，都不会在会议室里念出来：会议室的扬声器属于持有连接的那台设备，
 旁观者却可能在任何地方。旁观者和会议页面共用文字输入队列，所以合起来最多有五条在排队（§6.3）。
 
-**实时旁观一场会议。** 显示一场会议、但不持有它的连接的页面，打开 `GET /api/sessions/{id}/events`，
-这是一个 `text/event-stream` 响应。每个事件是一行 `data:`，内容是一个带 `type` 的 JSON 对象，后面跟一个空行；
-没有别的可发时，每 15 秒发一行注释 `: ping`。流里有：
+文字输入的校验和排队提示（`text.empty`、`text.too_long`、`text.malformed`、`text.queued`、
+`text.queue_full`）仅返回请求者：录音页面的 RTC 数据通道或提交请求的 HTTP 响应。
+它们不进入会议事件历史或其他页面的事件流；会议级服务故障和恢复提示仍然共享。
 
-- `{"type": "state", "state": "live" | "interrupted" | "ended"}`：开流时先发一条，之后会议状态每变一次发一条，
-  即活动连接就绪、连接断开、会议结束时。同一场会议被另一台设备接管时，直接再发 `live`，中间不发 `interrupted`。
-- §6.1 中这些消息，和会议页面收到的完全一样：`caption`、`utterance`、`utterance_update`、`speaker`、
-  `speakers_merged`、`frame`、`frame_caption`、`task`、`task_event`。提示、`assistant_state`、`session`、
-  `session_closed` 和 `watchers` 只发给会议页面。助理的回答（不论语音还是文字）以落库后的 `utterance`
-  （`speaker_idx = -1`）推过去；生成过程中流式输出的文字不推。
+**实时旁观一场会议。** 只读页面打开 `GET /api/sessions/{id}/events`，不发 offer、不请求麦克风、不成为录音所有者。
+这是单进程内存事件历史，不是持久消息队列，也不提供会议 ACL；仍使用现有共享口令门禁。
 
-流开着时，这台设备算作这场会议的旁观者。设备用 `device` 描述，由服务端根据请求的 `User-Agent` 头得出：
-平台和浏览器，例如 `iPhone · Safari`、`Windows · Edge`；只认出一部分时只写那一部分，都认不出时是空字符串。
-设备的其他信息一概不留，名单只存在内存里。会议页面通过 `watchers`（§6.1）收到这份名单。
+事件流使用命名 SSE。`snapshot` 和 `meeting` 带 `id: <epoch>:<seq>`，JSON 为
+`{session_id, epoch, seq, data}`。每会议 epoch 包含随机进程标识与会议编号；每次发布递增序号。
+`Last-Event-ID` 优先于可选的 `after` 查询游标。历史与单订阅队列各限256条；有效游标仅重放之后的事件。
+无游标返回完整快照；过期、格式错误、超前、跨会议或旧进程游标先返回无id的
+`reset: {reason: "cursor_unavailable"}`，再返回快照。队列溢出时，在仍能发送的情况下返回
+`reset: {reason: "slow_consumer"}` 并关闭请求。
 
-所选会议为 `live` 或 `interrupted` 时，页面保持只读事件流，以便主持端恢复中断会议后无需刷新就能继续显示。
-文字提问仍只在 `live` 时启用。会议结束、被删除或等待删除、切换所选会议、本设备开始录音或会议视图卸载时，
-页面关闭事件流。刷新详情返回 404 时，页面移除已删除的会议。打开或保留这条流不会请求麦克风或发送 WebRTC offer。
+登记订阅、选择重放、捕获序号与临时状态之间没有await。随后数据库快照持有现有session work租约，
+并发事件保留在队列。snapshot的data包含详情 `session`、全部 `utterances`、`speakers`、`frames`
+（含描述状态）、`tasks`（含带稳定id的进度事件）与 `transient: {captions, answer, assistant_state, speaking}`。
+快照整体替换持久面板，后续队列事件按稳定id更新。重放和快照补齐旧发言更正、截图与任务，不只是最后id之后的字幕。
+页面拒绝其他会议和重复序号；reset清掉游标，等待新快照。
 
-每条流最多攒 500 条没发出去的消息；跟不上的设备会被断开，重连后自己补齐。浏览器的 `EventSource` 会自动重连。
-每次流打开，页面都重新读取会议信息、最后一条字幕之后的发言（§5.4）和任务（§5.5），断开期间发出的内容不会丢。
-会议被删除或应用退出时，服务端关闭这条流。会议不存在返回 404 `session.not_found`；等待删除时返回 409
-`session.busy`。这个接口在 `/api` 下，所以启用访问口令时设备需要先登录（§5.7）；`EventSource` 会带上会话 cookie。
+`meeting.data` 包含现有字幕、发言/更正、说话人/合并、截图/描述、任务/进度，以及
+`session_updated`、`session_state`、`session_deleted`、`frame_caption_status`、会议级 `notice`、
+`assistant_state`、`assistant_speaking`、`assistant_answer: {response_id, phase, text}`。
+phase为 `started`、`text`、`ended`、`interrupted`；text为累计内容，不是追加增量。
+stable与unstable都为空的caption撤回临时段，后续快照也不保留；不会持久化空发言。
+记录器、ASR状态、回答帧和后台任务绑定来源会议，切换当前录音后迟到结果仍归原会。
+仅面向提问者的拒绝提示留在HTTP响应或录音通道；旁听文字提问仍只出文字，不在会议室朗读。
+
+`live` 和 `interrupted` 时保留订阅，只有 `live` 启用文字提问。会议结束、删除/待删除、切会、开始录音连接
+或视图卸载时关闭旧订阅；详情404时移除已删会议。浏览器带最后游标重连，重连提示标明事件流暂时中断。
+
+健康流14秒续期，最多每5秒心跳；公开ASGI响应15秒期限包含实际await网络send，finally关闭生成器，
+即使对端停止读取也释放订阅。uvicorn的 `timeout_graceful_shutdown=5` 限制应用清理前的请求/任务停机等待。
+这是应用/请求期限，不保证立即物理TCP关闭：缓冲字节可保留到对端读取或关闭；被socket阻塞的reset不能算已送达，
+下次连接按游标/快照恢复。
+
+每条实际订阅在录音页watchers名单中占一项。User-Agent标签只描述连接，不代表认证用户或独立设备；
+两个标签页计两条连接，续期/重连可能换连接id。关闭、终态、溢出或期限到达移除连接；进程重启不保留名单/重放。
+未知会议返回404 `session.not_found`，待删除返回409 `session.busy`；启用共享口令时EventSource携带会话cookie（§5.7）。
 
 PATCH 必须是 JSON 对象，至少含 `title`、`keep` 中一个，不能含未知字段。`keep` 只接受 JSON
 `true`/`false`，不接受 null、数字或字符串。只改 keep 保留原标题，只改 title 保留 keep；同时改两者
@@ -1237,7 +1253,7 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 | `notice`           | `level`：`info` / `warn` / `error`，`code`，`params`，`text`                            | 需要让用户知道的提示（如某服务不可用）。`code` 和 `params` 标明是哪一条提示，页面据此用自己的界面语言显示（§6.1.1）；`text` 是同一条提示的中文，给日志和旧页面用。实时模型、语音合成的请求出错时，服务端把管线里的错误换成提示发出来（`pipeline/errors.py`）；Pipecat 自带的 RTVI `error` 消息页面只显示致命的 |
 | `session`          | `id, title, keep, started_at, resumed, base_secs, state`                                | 连接建立后发一次：所属会话与当前保留标记；`resumed` 表示继续；`base_secs` 是本次连接的时间轴起点                                                                                                                                                                                                               |
 | `session_closed`   | `reason`：`taken_over` / `ended` / `server_stopping`                                    | 连接即将被服务端关闭的原因（尽力而为地发出），页面据此提示而不是静默变成未连接                                                                                                                                                                                                                                 |
-| `watchers`         | `items`：`[{id, device, since}]`                                                        | 通过 `GET /api/sessions/{id}/events` 旁观这场会议的设备（§5.1）：`id` 是应用运行期间唯一的编号，`device` 的含义见那一节，`since` 是开流的时刻（Unix 秒）。在 `session` 之后发一次，名单每变一次再发                                                                                                            |
+| `watchers`         | `items`：`[{id, device, since}]`                                                        | 通过 `GET /api/sessions/{id}/events` 旁听这场会议的连接（§5.1）：`id` 是应用运行期间唯一的编号，`device` 的含义见那一节，`since` 是开流的时刻（Unix 秒）。在 `session` 之后发一次，名单每变一次再发                                                                                                            |
 
 发送连接就绪消息时，从当前持久状态读取 `session.keep`。`session.recording_notice=true` 时，
 每次连接就绪后在 session 消息之后发送一次现有 `notice`：`level="info"`，

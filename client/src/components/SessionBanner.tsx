@@ -33,6 +33,7 @@ interface Props {
   reconnectAttempt: number;
   /** 正在只读地看一场在别的设备上进行的会议 */
   watching: boolean;
+  watcherDisconnected: boolean;
   /** 这台设备开着这场会议时：别的设备里谁在旁观 */
   watchers: Watcher[];
   keepPending: boolean;
@@ -75,6 +76,7 @@ export function SessionBanner({
   connection,
   reconnectAttempt,
   watching,
+  watcherDisconnected,
   watchers,
   onRename,
   onKeep,
@@ -250,6 +252,7 @@ export function SessionBanner({
         )}
       </div>
       {pending && <Hint tone="error">{t.session.deletionIncomplete}</Hint>}
+      {watcherDisconnected && !pending && <Hint tone="warn">{t.session.watcherDisconnected}</Hint>}
       {reconnectAttempt > 0 && <Hint tone="warn">{t.session.reconnecting(reconnectAttempt)}</Hint>}
       {watching && !pending && (
         <Hint tone="info">

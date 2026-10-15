@@ -42,7 +42,7 @@ def task_json(task: TaskRecord) -> dict[str, Any]:
 
 
 def event_json(event: TaskEvent) -> dict[str, Any]:
-    return {"at": event.at, "kind": event.kind, "summary": event.summary}
+    return {"id": event.id, "at": event.at, "kind": event.kind, "summary": event.summary}
 
 
 def register(app: FastAPI, cfg: AppConfig) -> None:

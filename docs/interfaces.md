@@ -649,45 +649,62 @@ synthesis settings: the room's loudspeaker belongs to the device holding the con
 watcher can be anywhere. Watchers share the typed-input queue with the live page, so together they
 can have at most five questions waiting (§6.3).
 
-**Following a meeting live.** A page that shows a meeting without holding its connection opens
-`GET /api/sessions/{id}/events`, a `text/event-stream` response. Each event is one `data:` line
-holding a JSON object with a `type`, followed by a blank line; while nothing else is sent, a comment
-line `: ping` follows every 15 s. The stream carries:
+Typed-input validation and queue notices (`text.empty`, `text.too_long`, `text.malformed`,
+`text.queued`, `text.queue_full`) belong only to their requester: the recording page's RTC data
+channel or the submitting HTTP response. They never enter the meeting event history or other
+pages' event streams. Meeting-wide service failures and recovery notices remain shared.
 
-- `{"type": "state", "state": "live" | "interrupted" | "ended"}` first, and again whenever the
-  meeting's state changes: when a live connection is ready, when it drops, and when the meeting is
-  ended. When another device takes over the same meeting, `live` follows without an `interrupted`
-  in between.
-- These messages of §6.1, exactly as the live page receives them: `caption`, `utterance`,
-  `utterance_update`, `speaker`, `speakers_merged`, `frame`, `frame_caption`, `task` and
-  `task_event`. Notices, `assistant_state`, `session`, `session_closed` and `watchers` are for the
-  live page only. The assistant's answers, spoken or typed, arrive as their stored `utterance`
-  (`speaker_idx = -1`); the text streamed while an answer is generated does not.
+**Following a meeting live.** A read-only page opens `GET /api/sessions/{id}/events` without
+creating an offer, requesting a microphone, or becoming the recording owner. This is one process's
+event history, not a durable message broker or a meeting ACL; the existing shared-password gate applies.
 
-While a stream is open, its device is listed as a watcher of the meeting. The device is described
-by `device`, made on the server from the request's `User-Agent` header: platform and browser, such
-as `iPhone · Safari` or `Windows · Edge`, either part alone when only one is recognized, or an empty
-string. Nothing else about the device is kept, and the list exists in memory only. The live page
-receives the list as `watchers` (§6.1).
+The stream uses named SSE events. `snapshot` and `meeting` have an `id: <epoch>:<seq>` and a JSON
+envelope `{session_id, epoch, seq, data}`. The per-meeting epoch contains a random process identifier
+and the meeting id; the sequence increases for every published event. `Last-Event-ID` takes precedence
+over the optional `after` query cursor. Up to 256 events are retained, and each subscription queues
+at most 256. A valid cursor replays only later events. Missing cursors receive a full snapshot;
+expired, malformed, future, cross-meeting or previous-process cursors first receive `reset` with
+`{reason: "cursor_unavailable"}`, then a full snapshot. Reset has no id. Queue overflow sends
+`reset` with `{reason: "slow_consumer"}` and closes the request if sending remains possible.
 
-The page keeps its read-only stream open while the selected meeting is `live` or `interrupted`,
-so a host resuming an interrupted meeting is detected without reloading the page. Typed questions
-remain enabled only while the meeting is `live`. The page closes the stream when the meeting ends,
-is deleted or pending deletion, another meeting is selected, this device starts recording, or the
-meeting view unmounts. A detail refresh returning 404 clears the deleted meeting from the page.
-Opening or retaining this stream does not request microphone access or send a WebRTC offer.
+Subscription registration, replay selection, sequence and transient-state capture have no await
+between them. The following database snapshot holds the existing session work lease; concurrent
+events remain queued. Snapshot `data` contains `session` (the detail response), all `utterances`,
+`speakers`, `frames` (including caption status), `tasks` (including progress events with stable `id`),
+and `transient: {captions, answer, assistant_state, speaking}`. It replaces the page's durable panels;
+queued events then upsert stable object ids. Replayed revisions and full snapshots restore edits to
+older utterances, screenshots and task state, not just captions after the last id. The page rejects
+other-meeting events and duplicate sequence numbers; resets clear the cursor before the next snapshot.
 
-A stream holds at most 500 undelivered messages; a device that falls further behind is disconnected
-and catches up when it reconnects. The browser's `EventSource` reconnects on its own. Every time the
-stream opens, the page reloads the meeting detail, the captions after its last caption id (§5.4)
-and the tasks (§5.5), so nothing sent while it was away is lost. The server closes the stream when
-the meeting is deleted or the application stops. 404 `session.not_found` for an unknown meeting;
-409 `session.busy` while it waits for deletion. The route is under `/api`, so with an access
-password the device has to be logged in (§5.7); `EventSource` sends the session cookie.
+`meeting.data` carries the existing caption, utterance/revision, speaker/merge, screenshot/caption,
+task and progress messages, plus `session_updated`, `session_state`, `session_deleted`,
+`frame_caption_status`, meeting-wide `notice`, `assistant_state`, `assistant_speaking`, and
+`assistant_answer: {response_id, phase, text}`. Answer phases are `started`, `text`, `ended`,
+`interrupted`; `text` is cumulative, never an append-only delta. Caption messages with empty stable
+and unstable text remove the temporary segment, including from new snapshots; no empty utterance
+is persisted. Recorder, ASR status, answer frames and background work publish against their source
+meeting even after the current recording has changed. Requester-only rejection notices stay on the
+HTTP response or recording channel. Typed watcher questions remain text-only, never room TTS.
 
-Clock synchronization: the browser records its local time before and after the request, `t0` and
-`t1`; the offset "server time − local time" is approximately `server_time − (t0 + t1) / 2`. Three
-measurements are taken on connection and the one with the shortest round trip is used.
+The page retains its subscription in `live` and `interrupted`, with typed questions enabled only in
+`live`. Ended/deleted/pending-deletion meetings, selection changes, starting a recording connection,
+and view unmount close the old subscription. A 404 detail refresh clears a removed meeting. The
+browser reconnects with its last cursor; a reconnecting hint identifies an interrupted event feed.
+
+The generator renews a healthy stream after 14 seconds and sends a heartbeat at most every 5 seconds.
+A public ASGI response deadline of 15 seconds includes awaited network sends and closes the
+generator in `finally`, releasing its subscription even when the peer stops reading. Uvicorn's
+`timeout_graceful_shutdown=5` bounds its request/task shutdown wait before application cleanup.
+These are application/request limits, not a promise of immediate physical TCP closure: buffered
+bytes can remain until the peer reads or closes. A reset blocked by the socket is not delivered;
+the next request recovers through its cursor or snapshot.
+
+Each open subscription appears once in the recording page's `watchers` list. Labels derived from
+User-Agent describe connections, not authenticated people or distinct devices. Two tabs count as
+two connections; renewal/reconnection may allocate a new connection id. Closing, terminal state,
+overflow or request deadline removes the connection. No presence or replay state survives a process
+restart. 404 `session.not_found` identifies unknown meetings; 409 `session.busy` identifies pending
+deletion. The session cookie is sent by EventSource when the shared password is enabled (§5.7).
 
 ### 5.2 WebRTC signaling
 
@@ -1398,7 +1415,7 @@ The server pushes `RTVIServerMessageFrame(data=<object>)`; the browser receives 
 | `notice`           | `level`: `info` / `warn` / `error`, `code`, `params`, `text`                            | Something the user should know, such as a degraded service. `code` and `params` identify the message so the page can show it in its own language (§6.1.1); `text` is the same message in Chinese for logs and older pages. Errors of the realtime LLM and TTS are translated into notices by `pipeline/errors.py`; of Pipecat's own RTVI `error` messages the page shows only fatal ones |
 | `session`          | `id, title, keep, started_at, resumed, base_secs, state`                                | Sent once after connecting: which session the connection belongs to, its current keep flag, whether it is a resume, and the timeline origin of this connection                                                                                                                                                                                                                           |
 | `session_closed`   | `reason`: `taken_over` / `ended` / `server_stopping`                                    | Why the server is about to close the connection (best effort)                                                                                                                                                                                                                                                                                                                            |
-| `watchers`         | `items`: `[{id, device, since}]`                                                        | The devices following this meeting through `GET /api/sessions/{id}/events` (§5.1): `id` is a number unique while the application runs, `device` is described there, `since` is when the stream opened, in Unix seconds. Sent after `session` and whenever the list changes                                                                                                               |
+| `watchers`         | `items`: `[{id, device, since}]`                                                        | The connections following this meeting through `GET /api/sessions/{id}/events` (§5.1): `id` is a number unique while the application runs, `device` is described there, `since` is when the stream opened, in Unix seconds. Sent after `session` and whenever the list changes                                                                                                           |
 
 The `session.keep` flag is read from current persisted state when the ready message is sent.
 With `session.recording_notice=true`, send one existing `notice` with `level="info"` and

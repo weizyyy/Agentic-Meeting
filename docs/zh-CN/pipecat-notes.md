@@ -508,6 +508,12 @@ await self.push_frame(RTVIServerMessageFrame(data={"type": "caption", ...}))
 
 ## 10. 自定义处理器
 
+`pipeline/watchers.py` 的 `WatcherObserver` 观察固定1.12.0的回答/说话帧，已核对安装源码。
+`BaseObserver(observe_every_push=False)` 经 `on_push_frame(FramePushed)` 只收到每帧首次推出。
+`LLMFullResponseStartFrame`、`LLMTextFrame`、`LLMFullResponseEndFrame`、`InterruptionFrame`、
+`BotStartedSpeakingFrame`、`BotStoppedSpeakingFrame` 提供累计回答和说话状态。
+记录器 `_send`、ASR状态和bot `send` 各自按来源会议发布自定义消息，observer不再镜像RTVI，避免重复。
+
 ```python
 from pipecat.frames.frames import Frame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor

@@ -555,6 +555,14 @@ await self.push_frame(RTVIServerMessageFrame(data={"type": "caption", ...}))
 
 ## 10. Custom processors
 
+`WatcherObserver` in `pipeline/watchers.py` observes answer and speech frames in the pinned
+1.12.0 source. `BaseObserver(observe_every_push=False)` delivers each frame's first push to
+`on_push_frame(FramePushed)`. `LLMFullResponseStartFrame`, `LLMTextFrame`,
+`LLMFullResponseEndFrame`, `InterruptionFrame`, `BotStartedSpeakingFrame` and
+`BotStoppedSpeakingFrame` provide cumulative answers and speaking state. Recorder `_send`, ASR
+status and bot `send` publish their own custom messages against the source meeting; the observer
+does not mirror RTVI messages again, so these sources are not duplicated.
+
 ```python
 from pipecat.frames.frames import Frame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor

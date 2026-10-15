@@ -205,7 +205,10 @@ def create_app(
             await sessions.append_context(session_id, line)
 
         async def notify_page(session_id: str, data: dict) -> None:
-            await sessions.push_to(session_id, data)
+            if data["type"] == "frame_caption_status":
+                sessions.publish(session_id, data)
+            else:
+                await sessions.push_to(session_id, data)
 
         captions = CaptionWorker(
             store=the_store,
@@ -524,5 +527,6 @@ def make_server(
         ssl_certfile=str(cfg.resolve(cfg.server.tls_cert)) if cfg.server.tls_cert else None,
         ssl_keyfile=str(cfg.resolve(cfg.server.tls_key)) if cfg.server.tls_key else None,
         log_level="info",
+        timeout_graceful_shutdown=5,
     )
     return MeetingServer(config, app, on_force_quit)

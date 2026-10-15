@@ -73,8 +73,12 @@ taking it over. Captions, speaker changes, screenshots and tasks appear there as
 that device records nothing. Typed questions from it still reach the assistant; the answer appears
 in the captions on every device and is never spoken aloud. **在这台设备上继续** (Continue on this
 device) moves the connection there. While other devices are watching, the meeting page shows
-**N 台设备在旁观** (N devices watching) next to the meeting's state; click it to see each device
-(for example _iPhone · Safari_) and since when it has been watching.
+**N following connections** next to the meeting's state; click it to see each connection's label
+(for example _iPhone · Safari_) and since when it has been watching. These are following
+connections, not a count of people or distinct devices: two tabs count twice, and reconnecting
+can replace a connection id. A disconnected-update hint means the displayed content may be stale;
+the stream resumes from its cursor or replaces the panels with a complete snapshot, including
+older caption corrections, screenshots and task progress.
 
 If the host's connection is interrupted, leave the meeting open: following devices keep listening
 for its return and show new captions automatically when the host resumes. Typed questions are

@@ -159,6 +159,7 @@ export interface FrameItem {
   width: number;
   height: number;
   caption: string | null;
+  caption_status?: string;
 }
 
 /** 时间线里最多留多少张（再多就丢最早的；完整的在服务端）。 */

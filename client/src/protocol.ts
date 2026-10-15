@@ -26,6 +26,25 @@ export interface AssistantStateMessage {
   state: AssistantStateName;
 }
 
+export interface AssistantAnswerMessage {
+  type: "assistant_answer";
+  response_id: string;
+  phase: "started" | "text" | "ended" | "interrupted";
+  text: string;
+}
+
+export interface AssistantSpeakingMessage {
+  type: "assistant_speaking";
+  speaking: boolean;
+}
+
+export interface FrameCaptionStatusMessage {
+  type: "frame_caption_status";
+  id: number;
+  caption_status: string;
+  caption?: string;
+}
+
 export const NOTICE_LEVELS = ["info", "warn", "error"] as const;
 export type NoticeLevel = (typeof NOTICE_LEVELS)[number];
 
@@ -97,7 +116,7 @@ export interface SessionClosedMessage {
   reason: SessionClosedReason;
 }
 
-/** 正在旁观这场会议的一台设备：`device` 是服务端从 User-Agent 得出的「平台 · 浏览器」，认不出来是空字符串。 */
+/** 一条旁听连接：`device` 只是 User-Agent 的「平台 · 浏览器」说明，不是用户或独立设备身份。 */
 export interface Watcher {
   id: number;
   device: string;
@@ -105,7 +124,7 @@ export interface Watcher {
   since: number;
 }
 
-/** 正在旁观的设备名单，只发给会议页面。 */
+/** 真实旁听连接名单，只发给录音会议页面；同浏览器多标签各计一条。 */
 export interface WatchersMessage {
   type: "watchers";
   items: Watcher[];
@@ -162,6 +181,9 @@ export interface TaskEventMessage {
 
 export type ServerMessage =
   | CaptionMessage
+  | AssistantAnswerMessage
+  | AssistantSpeakingMessage
+  | FrameCaptionStatusMessage
   | TaskMessage
   | TaskEventMessage
   | FrameMessage
@@ -209,6 +231,28 @@ export function fatalErrorText(data: unknown): string | null {
 export function parseServerMessage(data: unknown): ServerMessage | null {
   if (!isRecord(data)) return null;
   switch (data.type) {
+    case "assistant_answer": {
+      const { response_id, phase, text } = data;
+      if (
+        typeof response_id === "string" &&
+        typeof text === "string" &&
+        (phase === "started" || phase === "text" || phase === "ended" || phase === "interrupted")
+      )
+        return { type: "assistant_answer", response_id, phase, text };
+      return null;
+    }
+    case "assistant_speaking":
+      return typeof data.speaking === "boolean"
+        ? { type: "assistant_speaking", speaking: data.speaking }
+        : null;
+    case "frame_caption_status": {
+      const { id, caption_status, caption } = data;
+      return typeof id === "number" &&
+        typeof caption_status === "string" &&
+        (caption === undefined || typeof caption === "string")
+        ? { type: "frame_caption_status", id, caption_status, caption }
+        : null;
+    }
     case "caption": {
       const { segment_id, speaker_idx, speaker_name, t_start, stable, unstable } = data;
       if (

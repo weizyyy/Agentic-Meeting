@@ -14,6 +14,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   unchanged.
 - A device following a live meeting on another device shows "Connected" in the header while its
   event stream is open, instead of "Not connected"; it still says this device is not transcribing.
+- Typed-input validation and queue notices stay with the requester; following pages continue to
+  receive meeting-wide service failure and recovery notices.
+
 - Following devices keep their read-only event stream during an interruption and automatically
   receive new captions when the host resumes. Typed questions stay disabled until the host returns;
   a deleted meeting is cleared when the event stream's detail refresh reports it missing ([#21]).
@@ -22,6 +25,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   view.
 
 ### Changed
+
+- Following pages recover complete meeting snapshots and bounded event replay, including historical
+  edits, screenshots, task progress and cumulative answers. Slow streams release their subscription
+  within the request deadline; presence labels count connections rather than distinct devices.
 
 - A device following a meeting gets captions, speaker corrections, screenshots, tasks and the
   assistant's answers pushed to it as they happen, instead of reloading the captions every three

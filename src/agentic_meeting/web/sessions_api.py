@@ -11,56 +11,26 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import StreamingResponse
-from starlette.types import Receive, Scope, Send
 
 from agentic_meeting.config import AppConfig
 from agentic_meeting.pipeline.bot import AppResources
 from agentic_meeting.pipeline.session import SessionManager
-from agentic_meeting.pipeline.watchers import PING_SECS, Watcher, WatcherHub, device_label
+from agentic_meeting.pipeline.watchers import device_label
 from agentic_meeting.store.db import SessionBusy, Store
 from agentic_meeting.types import NamedUtterance, Session, SessionSummary
 from agentic_meeting.web.errors import ApiError, invalid
+from agentic_meeting.web.frames_api import frame_json
+from agentic_meeting.web.tasks_api import event_json, task_json
 
 MAX_TITLE_CHARS = 200
 MAX_SPEAKER_NAME_CHARS = 50
 MAX_PAGE = 500
 MAX_REASSIGN = 500  # 一次最多改这么多条发言的说话人
-
-
-class WatcherStream(StreamingResponse):
-    """旁观的事件流：响应怎么结束（设备断开、被踢掉、应用退出），都把这个旁观者从名单里去掉。"""
-
-    def __init__(self, hub: WatcherHub, watcher: Watcher) -> None:
-        super().__init__(
-            _events(watcher),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-        self._hub = hub
-        self._watcher = watcher
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        try:
-            await super().__call__(scope, receive, send)
-        finally:
-            self._hub.unsubscribe(self._watcher)
-
-
-async def _events(watcher: Watcher):
-    """一条消息一个 ``data:`` 事件；没有消息时每 ``PING_SECS`` 秒发一行注释，免得被中间的代理当成空闲断开。"""
-    while True:
-        try:
-            data = await asyncio.wait_for(watcher.next(), PING_SECS)
-        except TimeoutError:
-            yield ": ping\n\n"
-            continue
-        if data is None:
-            return
-        yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
 def summary_json(summary: SessionSummary, *, live: bool) -> dict[str, Any]:
@@ -213,14 +183,105 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         }
 
     @app.get("/api/sessions/{session_id}/events")
-    async def watch_session(request: Request, session_id: str) -> StreamingResponse:
-        """旁观这场会议：服务端推送的事件流（interfaces.md §5.1「Following a meeting live」）。"""
-        _, manager = parts(request)
+    async def session_events(
+        request: Request, session_id: str, after: str | None = None
+    ) -> StreamingResponse:
+        # 与普通会议读取使用同一解析/授权入口；不触碰媒体连接。
+        store, manager = parts(request)
         session = await resolve(request, session_id)
-        state = (await summary_of(request, session))["state"]
-        device = device_label(request.headers.get("user-agent", ""))
-        watcher = manager.watchers.subscribe(session.id, device, state)
-        return WatcherStream(manager.watchers, watcher)
+        cursor = request.headers.get("last-event-id", after)
+
+        def encode(kind: str, payload: dict, *, event_id: bool = True) -> str:
+            identifier = f"id: {payload['epoch']}:{payload['seq']}\n" if event_id else ""
+            return f"{identifier}event: {kind}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+        async def stream() -> AsyncIterator[str]:
+            subscriber, valid, replay = manager.watchers.subscribe(
+                session.id, device_label(request.headers.get("user-agent", "")), cursor
+            )
+            source = subscriber.source
+            seq = source.seq
+            transient = source.snapshot_transient()
+            deadline = asyncio.get_running_loop().time() + 14
+            try:
+                yield "retry: 1000\n\n"
+                if not valid:
+                    if cursor:
+                        yield encode("reset", {"reason": "cursor_unavailable"}, event_id=False)
+                    # 读取期间保留生产工作租约，避免删除在快照中途移除半套记录。
+                    async with store.session_work(session.id):
+                        snapshot = {
+                            "session": await session_detail(request, session),
+                            "utterances": [
+                                utterance_json(u) for u in await store.all_utterances(session.id)
+                            ],
+                            "speakers": [
+                                {"idx": s.idx, "display_name": s.display_name}
+                                for s in await store.list_speakers(session.id)
+                            ],
+                            "tasks": [
+                                {
+                                    **task_json(t),
+                                    "events": [
+                                        event_json(e) for e in await store.list_task_events(t.id)
+                                    ],
+                                }
+                                for t in await store.list_tasks(session.id)
+                            ],
+                            "frames": [frame_json(f) for f in await store.list_frames(session.id)],
+                            "transient": transient,
+                        }
+                    yield encode("snapshot", source.envelope(snapshot, seq=seq))
+                for event in replay:
+                    if subscriber.overflow:
+                        break
+                    if event is None:
+                        return
+                    yield encode("meeting", event)
+                    if event["data"]["type"] == "session_deleted" or (
+                        event["data"]["type"] == "session_state"
+                        and event["data"]["state"] == "ended"
+                    ):
+                        return
+                while True:
+                    if subscriber.overflow:
+                        yield encode("reset", {"reason": "slow_consumer"}, event_id=False)
+                        return
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        return
+                    try:
+                        event = await asyncio.wait_for(subscriber.queue.get(), min(5, remaining))
+                    except TimeoutError:
+                        yield ": heartbeat\n\n"
+                        continue
+                    if event is None:
+                        return
+                    yield encode("meeting", event)
+                    if event["data"]["type"] == "session_deleted" or (
+                        event["data"]["type"] == "session_state"
+                        and event["data"]["state"] == "ended"
+                    ):
+                        return
+            finally:
+                manager.watchers.unsubscribe(subscriber)
+
+        body = stream()
+
+        class EventResponse(StreamingResponse):
+            async def stream_response(self, send):
+                try:
+                    async with asyncio.timeout(15):
+                        await super().stream_response(send)
+                finally:
+                    # send 可能阻塞在生成器外；取消请求时仍须立即关闭生成器的订阅。
+                    await body.aclose()
+
+        return EventResponse(
+            body,
+            media_type="text/event-stream",
+            headers={"Cache-Control": "private, no-store", "X-Accel-Buffering": "no"},
+        )
 
     async def end(request: Request, session: Session) -> dict[str, Any]:
         _, manager = parts(request)
@@ -313,15 +374,16 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
             live = manager.live
             if live is not None and live.recorder is not None:
                 live.recorder.set_speaker_name(idx, name)
-            for utterance_id in changed:
-                await manager.push(
-                    {
-                        "type": "utterance_update",
-                        "id": utterance_id,
-                        "speaker_idx": idx,
-                        "speaker_name": name,
-                    }
-                )
+        for utterance_id in changed:
+            await manager.push_to(
+                session.id,
+                {
+                    "type": "utterance_update",
+                    "id": utterance_id,
+                    "speaker_idx": idx,
+                    "speaker_name": name,
+                },
+            )
         return {"speaker": {"idx": idx, "display_name": name}, "ids": changed}
 
     # ---- 说话人 ----
@@ -357,7 +419,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         if live is not None and live.session.id == session.id:
             if live.recorder is not None:
                 live.recorder.set_speaker_name(idx, name)
-            await manager.push({"type": "speaker", "idx": idx, "display_name": name})
+        await manager.push_to(session.id, {"type": "speaker", "idx": idx, "display_name": name})
         return {"idx": idx, "display_name": name}
 
     @app.post("/api/speakers/{idx}/merge")
