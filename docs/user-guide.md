@@ -76,6 +76,11 @@ device) moves the connection there. While other devices are watching, the meetin
 **N 台设备在旁观** (N devices watching) next to the meeting's state; click it to see each device
 (for example _iPhone · Safari_) and since when it has been watching.
 
+If the host's connection is interrupted, leave the meeting open: following devices keep listening
+for its return and show new captions automatically when the host resumes. Typed questions are
+disabled during the interruption. Following stops when the meeting ends or is deleted, you choose
+another meeting, start recording on this device, or close the meeting page.
+
 **Microphone.** During a meeting, **麦克风** (Microphone) in the top bar mutes the microphone; it then
 reads **已静音** (Muted) until you click it again. The arrow next to it picks the microphone and the
 speaker, and the bars on the button move with the sound it picks up.

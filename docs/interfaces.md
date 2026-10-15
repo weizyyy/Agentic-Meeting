@@ -670,6 +670,13 @@ as `iPhone · Safari` or `Windows · Edge`, either part alone when only one is r
 string. Nothing else about the device is kept, and the list exists in memory only. The live page
 receives the list as `watchers` (§6.1).
 
+The page keeps its read-only stream open while the selected meeting is `live` or `interrupted`,
+so a host resuming an interrupted meeting is detected without reloading the page. Typed questions
+remain enabled only while the meeting is `live`. The page closes the stream when the meeting ends,
+is deleted or pending deletion, another meeting is selected, this device starts recording, or the
+meeting view unmounts. A detail refresh returning 404 clears the deleted meeting from the page.
+Opening or retaining this stream does not request microphone access or send a WebRTC offer.
+
 A stream holds at most 500 undelivered messages; a device that falls further behind is disconnected
 and catches up when it reconnects. The browser's `EventSource` reconnects on its own. Every time the
 stream opens, the page reloads the meeting detail, the captions after its last caption id (§5.4)

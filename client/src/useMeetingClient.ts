@@ -40,12 +40,12 @@ const SESSION_CHECK_MS = 5000;
 /** 旁观时有新发言，最多隔这么久取一次会议信息（时长、发言数在里面）。 */
 const WATCH_DETAIL_MS = 5000;
 
-/** 正在只读旁观的会议：自己没连着，看的这场正在别的设备上进行 */
+/** 只读订阅的会议：中断时也保留事件流，才能获知别的设备恢复了会议。 */
 function watchingSessionId(state: MeetingState): string | null {
   return state.connection === "disconnected" &&
     state.reconnectAttempt === 0 &&
     !state.viewing?.deletion_pending &&
-    state.viewing?.state === "live"
+    (state.viewing?.state === "live" || state.viewing?.state === "interrupted")
     ? state.viewing.id
     : null;
 }
@@ -554,9 +554,13 @@ export function useMeetingClient(): MeetingClient {
           const tasks = await api.listTasks(id);
           if (stillWatching()) dispatch({ type: "tasksLoaded", sessionId: id, items: tasks });
         })
-        .catch(() => undefined); // 取不到就等下一次
+        .catch((error: unknown) => {
+          if (error instanceof ApiError && error.status === 404)
+            dispatch({ type: "sessionRemoved", id });
+          else fail("loadSession", error);
+        });
     },
-    [api],
+    [api, fail],
   );
   useEffect(() => {
     if (watchingId === null) return;
@@ -883,7 +887,7 @@ export function useMeetingClient(): MeetingClient {
     state,
     start,
     resume,
-    watching: watchingId !== null,
+    watching: watchingId !== null && state.viewing?.state === "live",
     keepAwake,
     unsupported,
     mergeSpeakers,
