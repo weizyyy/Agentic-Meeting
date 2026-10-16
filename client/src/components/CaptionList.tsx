@@ -9,6 +9,7 @@ import { formatSpan, useI18n } from "../i18n/index.ts";
 import { connectionGaps, gapPositions } from "../resume.ts";
 import { selectRange, selectSpan, selectableId, toggleSelection } from "../selection.ts";
 import { wallClockLabel, type TimeBase } from "../timeline.ts";
+import { useArrowScroll } from "../useArrowKeys.ts";
 
 interface Props {
   lines: readonly CaptionLine[];
@@ -69,6 +70,7 @@ export function CaptionList({
   const swallowClick = useRef(false);
   const lastPicked = useRef<number | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  useArrowScroll(scroller);
   // 自动滚动的每一帧要用最新的 dragOver（它读当前的 lines）
   const dragOverLatest = useRef<(index: number) => void>(() => {});
 

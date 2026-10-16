@@ -126,9 +126,9 @@ own as on a computer.
 On every phone the assistant answers typed questions in text and speaks spoken ones; if its voice
 does not play, tap **打开助理声音** (Turn on assistant voice). Screen sharing is not available.
 
-**Keyboard and screen readers.** Every control can be reached with `Tab` and shows a focus ring;
-once the captions have focus, the arrow keys scroll them, and `Esc` closes dialogs and
-presentation mode. Screen readers announce new notices and the answer to a typed question; spoken
+**Keyboard and screen readers.** Every control can be reached with `Tab` and shows a focus ring.
+When no text box, menu or tab has focus, `↑` `↓` scroll the captions (or the report) and `←` `→`
+pick the previous or next screenshot; `Esc` closes dialogs and presentation mode. Screen readers announce new notices and the answer to a typed question; spoken
 answers are heard anyway, and captions are not read out so that they do not talk over the meeting.
 Text meets the WCAG AA contrast ratio in both themes, and animations are skipped when the system
 asks for reduced motion.
@@ -183,7 +183,9 @@ Click **共享屏幕** (Share screen) in the screen panel under the captions and
 display. A screenshot is taken whenever the picture changes, and once a minute otherwise. Thumbnails
 appear on the timeline; scroll the strip with the mouse wheel, click a thumbnail to enlarge it, and
 step through with `←` `→` or **上一张** (Previous) and **下一张** (Next). A short summary is
-generated for each new picture; the latest one is shown next to the panel's title.
+generated for each new picture and shown next to the panel's title for the framed thumbnail. That
+is the latest one until you pick another with `←` `→` (when no text box or menu has focus) or by
+viewing it enlarged; moving back to the last one follows new screenshots again.
 
 Screenshots are uploaded only while a meeting is live. From another device this requires HTTPS.
 Phone browsers cannot share the screen, so the button is missing there; screens shared from a

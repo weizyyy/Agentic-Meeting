@@ -26,6 +26,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The screen panel under the captions takes about a third less height: the latest screenshot's
   summary sits next to the panel's title, and each thumbnail's time is shown on the thumbnail.
   On a small laptop screen this leaves more room for the captions.
+- When no text box, menu or tab has focus, `↑` `↓` scroll the captions or the report, and `←` `→`
+  pick the previous or next screenshot (framed, with its summary next to the panel's title)
+  instead of scrolling the thumbnail strip.
 
 ### Fixed
 
