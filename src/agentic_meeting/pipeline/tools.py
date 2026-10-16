@@ -223,10 +223,10 @@ async def recall(
 
 @_tool
 async def get_digest(params: FunctionCallParams, scope: str = "all"):
-    """读取会议纪要，用于当场概括或回顾讨论。不会创建后台任务；明确要求交给后台整理文档时不要用本工具代替交办。
+    """读取会中滚动摘要，用于当场概括或回顾讨论。只读，不会修改会后纪要或创建后台任务；明确要求后台整理文稿时直接交办，不先调用本工具。
 
     Args:
-        scope: "all" 取到目前为止的整场纪要，外加纪要之后的发言；"recent" 只取最近几分钟的发言原文。
+        scope: "all" 取截至当前的整场滚动摘要，外加摘要之后的发言；"recent" 只取最近几分钟的发言原文。
     """
     env = _Env(params)
     if scope.strip().lower() == "recent":
@@ -529,7 +529,7 @@ def delegate_tool(task_timeout_secs: float) -> Callable[..., Awaitable[None]]:
         minutes_of_context: float = DEFAULT_CONTEXT_MINUTES,
         include_screen: bool = False,
     ):
-        """把工作交给后台 agent，包括根据会议内容整理文档，以及联网检索、核实事实、读图分析、计算或画图。对方明确要求交给后台时必须调用，不能只口头答应或用 get_digest 代替。只有收到任务编号和 accepted 状态后才能确认交办，做完后你会再收到结果。
+        """仅用于独立的研究工作。要求记下、更正或修改会议纪要时，无论是否说「让后台」，都不要调用本工具；口头确认更正后结束本轮。本工具不能修改系统纪要。可交办的工作包括另写实验方案、调研文稿，以及联网检索、核实事实、读图分析、计算或画图。明确交办这些独立工作时先调用本工具，执行器会自动带上会议转录，无需先取纪要。只有收到任务编号和 accepted 状态后才能确认交办，做完后你会再收到结果。
 
         Args:
             goal: 要做的事。写成一段完整、独立可读的描述：查什么、为什么查、结果要回答什么问题。

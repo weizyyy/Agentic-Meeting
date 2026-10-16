@@ -1590,6 +1590,12 @@ timeout_secs=<agent.task_timeout_secs + 140>)`. It reports acceptance immediatel
   with `status: "accepted"`; progress and failure claims must come from `task_status` or a task result.
   The asynchronous tool's initial placeholder means only that the call is running, not that a
   task has been accepted; a rejected call must not be presented as successful delegation.
+- Running summaries returned by `get_digest` are read-only context, separate from the report
+  generated after a meeting ends or is interrupted (§5.6). Requests to note or correct something
+  in the eventual minutes are acknowledged in the conversation, without delegating an edit to a
+  nonexistent report. Neither the realtime tools nor the task agent can edit the application's
+  transcript, running summary or report. A separately requested document draft can be delegated,
+  but its result does not update those records.
 
 When `realtime.direct_mcp_tools` is non-empty, those MCP tools are attached to the realtime LLM
 directly (pipecat-notes.md §7).
