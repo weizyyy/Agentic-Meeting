@@ -46,6 +46,7 @@ from agentic_meeting.types import (
     TaskRecord,
     Utterance,
 )
+from agentic_meeting.voice.clips import VoiceClip
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 _VEC_DIMS = re.compile(r"float\[(\d+)\]")
@@ -1009,6 +1010,59 @@ class Store:
             "SELECT display_name FROM speakers WHERE session_id = ? AND idx = ?", (session_id, idx)
         )
         return self._name(idx, row["display_name"] if row else None)
+
+    # ------------------------------------------------------------------ #
+    # 声纹片段（interfaces.md §2.7）
+    # ------------------------------------------------------------------ #
+
+    async def add_voice_clip(self, clip: VoiceClip, *, now: float | None = None) -> bool:
+        """发言已经不在（被删、会议在清理）时不写，返回 False。"""
+        now = time.time() if now is None else now
+        async with self._transaction():
+            if not await self._writable(clip.session_id):
+                return False
+            owner = await self._one(
+                "SELECT 1 FROM utterances WHERE id = ? AND session_id = ? AND source = 'asr'",
+                (clip.utterance_id, clip.session_id),
+            )
+            if owner is None:
+                return False
+            await self._db.execute(
+                "INSERT INTO voice_clips (session_id, utterance_id, t_start, t_end, secs, diar_idx, "
+                "vector, model_sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    clip.session_id,
+                    clip.utterance_id,
+                    clip.t_start,
+                    clip.t_end,
+                    clip.secs,
+                    clip.diar_idx,
+                    pack_vector(clip.vector),
+                    clip.model_sha256,
+                    now,
+                ),
+            )
+            await self._db.commit()
+        return True
+
+    async def voice_secs(self, session_id: str) -> dict[int, float]:
+        """每位说话人已有声纹片段的语音总时长（秒），按发言当前的说话人算。"""
+        rows = await self._all(
+            "SELECT u.speaker_idx, SUM(c.secs) FROM voice_clips c "
+            "JOIN utterances u ON u.id = c.utterance_id "
+            "WHERE c.session_id = ? GROUP BY u.speaker_idx",
+            (session_id,),
+        )
+        return {int(r[0]): float(r[1]) for r in rows}
+
+    async def delete_voice_clips(self, session_id: str) -> int:
+        """清除一场会议的全部声纹片段，文字记录不动。返回删掉的片段数。"""
+        async with self._transaction():
+            cursor = await self._db.execute(
+                "DELETE FROM voice_clips WHERE session_id = ?", (session_id,)
+            )
+            await self._db.commit()
+            return cursor.rowcount
 
     # ------------------------------------------------------------------ #
     # 发言

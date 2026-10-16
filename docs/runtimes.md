@@ -156,16 +156,17 @@ Place the following files anywhere under `models/` and reference them in `config
 last column lists what the project has been tested with; other models of the same kind are
 configured the same way.
 
-| Configuration key                              | File                                       | Tested with                                                                       |
-| ---------------------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------- |
-| `realtime_llm.llama_server.launch.model_path`  | Chat model GGUF (`llama_server` mode only) | Any model with tool calling                                                       |
-| `realtime_llm.llama_server.launch.mmproj_path` | Its vision projector GGUF                  | Leave empty and set `supports_vision = false` for text-only models                |
-| `asr.launch.model_path`                        | ASR model GGUF                             | Confucius4-R2T2, Q8_0 and f16                                                     |
-| `asr.launch.mmproj_path`                       | The ASR model's audio projector GGUF       | The `mmproj` file from the same release                                           |
-| `diarization.model_path`                       | Diarization GGUF in NeMo-Speech.cpp format | Nemotron-3-Diarization, q8_0                                                      |
-| `tts.launch.model_path`                        | Talker GGUF in qwentts.cpp format          | Qwen3-TTS custom-voice, 0.6B and 1.7B                                             |
-| `tts.launch.codec_path`                        | Tokenizer/codec GGUF                       | From the same release as the talker                                               |
-| `embedding.launch.model_path`                  | Embedding GGUF                             | Qwen3-Embedding 0.6B, Q8_0; set `embedding.dimensions` to the model's output size |
+| Configuration key                              | File                                                            | Tested with                                                                                                 |
+| ---------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `realtime_llm.llama_server.launch.model_path`  | Chat model GGUF (`llama_server` mode only)                      | Any model with tool calling                                                                                 |
+| `realtime_llm.llama_server.launch.mmproj_path` | Its vision projector GGUF                                       | Leave empty and set `supports_vision = false` for text-only models                                          |
+| `asr.launch.model_path`                        | ASR model GGUF                                                  | Confucius4-R2T2, Q8_0 and f16                                                                               |
+| `asr.launch.mmproj_path`                       | The ASR model's audio projector GGUF                            | The `mmproj` file from the same release                                                                     |
+| `diarization.model_path`                       | Diarization GGUF in NeMo-Speech.cpp format                      | Nemotron-3-Diarization, q8_0                                                                                |
+| `tts.launch.model_path`                        | Talker GGUF in qwentts.cpp format                               | Qwen3-TTS custom-voice, 0.6B and 1.7B                                                                       |
+| `tts.launch.codec_path`                        | Tokenizer/codec GGUF                                            | From the same release as the talker                                                                         |
+| `embedding.launch.model_path`                  | Embedding GGUF                                                  | Qwen3-Embedding 0.6B, Q8_0; set `embedding.dimensions` to the model's output size                           |
+| `speaker_memory.launch.model_path`             | Speaker-embedding ONNX model for sherpa-onnx, 16 kHz (optional) | Not yet tested with a real model; 3D-Speaker CAM++ or ERes2Net trained on Chinese speech are the candidates |
 
 **Hardware tiers.** GPU memory used by all local services together (ASR, diarization, speech
 synthesis, embeddings), with the tested models:

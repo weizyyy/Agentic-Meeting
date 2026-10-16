@@ -13,6 +13,7 @@ recordings. Transcription status means transcription, not an audio-file recordin
 | Session title, speakers, connection history, utterances, full-text index and utterance vectors | `<data_dir>/meetings.db`                               |
 | Screenshot timestamps, descriptions and file references                                        | Database; images in `<data_dir>/sessions/<id>/frames/` |
 | Running summaries (digests) and meeting reports                                                | Database                                               |
+| Voiceprints of speech clips, when `speaker_memory` is enabled                                  | Database (`voice_clips`)                               |
 | Task goals, results, sources, progress events and outbound metadata                            | Database                                               |
 | Persistent task input copies and fetched artifacts                                             | `<data_dir>/sessions/<id>/tasks/<label>/`              |
 | Service/application logs                                                                       | `<data_dir>/logs/`                                     |
@@ -24,6 +25,15 @@ reported artifacts back into the persistent task directory. On leaving the task 
 attempts to close and delete the sandbox; cleanup failures are logged. These temporary workspaces
 are not retention scan roots, so deleting the task directory does not guarantee removal of sandbox
 remnants left by a failure or crash.
+
+**Voiceprints** are biometric data. With `speaker_memory.backend` other than `"none"`, the server
+cuts single-speaker clips of up to 6 s from the meeting audio in memory, has a local speaker service
+turn each into a vector and stores the vector with the caption it belongs to. The audio of the clips
+is not stored. The speaker service must listen on a loopback address of the meeting server, so
+voiceprints never leave it. Erase a meeting's voiceprints without touching its transcript with
+`DELETE /api/sessions/{id}/voice` ([interfaces.md §5.4](interfaces.md)). Recognizing people across
+meetings is not part of this release; the plan, including consent, is in
+[design/speaker-memory.md](design/speaker-memory.md).
 
 Downloaded exports are separate copies wherever the operator/browser saves them. Logs and task
 results can also contain meeting content; they are not equivalent to the utterance table.
@@ -53,7 +63,8 @@ outside the meeting server. Review these settings before a meeting:
 | `agent.mcp_servers`                           | Tool parameters/results according to tools used by the agent                                                                                         |
 | `agent.sandbox`                               | Task code and inputs, including copied screenshot files; network access is separately controlled by `network`                                        |
 
-Speaker diarization uses the configured in-process native backend. `check`/`serve` and the browser
+Speaker diarization uses the configured in-process native backend. The speaker service for
+voiceprints (`speaker_memory.base_url`) is restricted to loopback addresses. `check`/`serve` and the browser
 warn about some configured external flows; those reminders are not a complete destination audit.
 Service providers, tools and network-enabled sandbox code may retain their own copies. Application
 retention and manual deletion do not revoke data already sent elsewhere.
@@ -67,12 +78,12 @@ integers from 0 to 36500. `cleanup_interval_secs` defaults to 3600 and accepts 6
 Each day is 86400 seconds. A pass samples server UTC Unix time once and expires anchors **strictly
 older** than `now - days * 86400`; equality and future timestamps are retained.
 
-| Period                | Clock anchor                                                                          | Removed data                                                        |
-| --------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `transcript_days`     | Meeting inactivity: maximum of started, last-active and ended timestamps (if present) | Utterances, their vectors and full-text entries                     |
-| `screenshots_days`    | Same meeting inactivity anchor                                                        | Frame rows, including descriptions, and the owned `frames/` subtree |
-| `reports_days`        | Each terminal report's completion; each digest's creation                             | Terminal report rows and digest rows                                |
-| `task_artifacts_days` | Each terminal task's completion; legacy terminal tasks without it use creation        | Owned task directories and `artifacts_json` lists, reset to `[]`    |
+| Period                | Clock anchor                                                                          | Removed data                                                           |
+| --------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `transcript_days`     | Meeting inactivity: maximum of started, last-active and ended timestamps (if present) | Utterances, their vectors and full-text entries, and their voiceprints |
+| `screenshots_days`    | Same meeting inactivity anchor                                                        | Frame rows, including descriptions, and the owned `frames/` subtree    |
+| `reports_days`        | Each terminal report's completion; each digest's creation                             | Terminal report rows and digest rows                                   |
+| `task_artifacts_days` | Each terminal task's completion; legacy terminal tasks without it use creation        | Owned task directories and `artifacts_json` lists, reset to `[]`       |
 
 Interrupted meetings may expire without being ended. Live meetings and protected background work
 are skipped: this includes queued/running tasks and still-active writes/finalization. New reports
@@ -95,7 +106,7 @@ separate copies with independent lifetimes or survive until full meeting deletio
 Delete from the meeting list explicitly removes a whole meeting, including kept meetings. Busy
 meetings or protected work return 409 without beginning deletion. After admission, the server
 marks the meeting **pending deletion** before removing its owned files, vectors and database rows
-(including related tasks/events, reports, digests, frames, speakers and connections).
+(including related tasks/events, reports, digests, frames, speakers, voiceprints and connections).
 
 A pending meeting still exposes metadata but its content/export, rename, keep, resume, end and new
 work are blocked. The page shows **待删除** and preserves **重试删除** in the list. Keep cannot cancel

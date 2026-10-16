@@ -1,4 +1,4 @@
-"""假推理服务：在测试进程里起几个本机 HTTP 服务，代替识别、实时模型、语音合成、嵌入和后台 agent。
+"""假推理服务：在测试进程里起几个本机 HTTP 服务，代替识别、实时模型、语音合成、嵌入、声纹和后台 agent。
 
 应用照常按配置去连它们，走的是和真实部署一样的 HTTP 协议；只是回答由测试安排：
 
@@ -6,6 +6,7 @@
 * 模型（实时、后台 agent 共用一套）：按规则匹配最后一条消息，回一段文字或一次工具调用。
 * 语音合成：回一段非静音的 PCM。
 * 嵌入：按字符散列成固定维度的向量，字面相近的文字向量也相近。
+* 声纹：按音频的响度起伏算一个固定维度的单位向量；记下每段音频的时长。
 
 每个服务可以单独「停掉」（返回 503），用来验证降级。
 """
@@ -38,6 +39,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 VOICED_RMS = 300  # 识别窗口的 RMS 超过它才算有人说话（16 位采样）
 CHARS_PER_SEC = 6.0  # 未收尾时每秒音频认出几个字
 EMBEDDING_DIMENSIONS = 64
+VOICE_DIMENSIONS = 8
 
 
 @dataclass
@@ -229,6 +231,32 @@ class FakeEmbedding(FakeService):
             }
 
 
+class FakeSpeaker(FakeService):
+    """声纹服务（``/v1/info``、``/v1/embed``，见 agentic_meeting/voice/service.py）。"""
+
+    def __init__(self) -> None:
+        super().__init__("声纹服务")
+
+        @self.app.get("/v1/info")
+        async def info() -> dict[str, Any]:
+            return {"dimensions": VOICE_DIMENSIONS, "model_sha256": "fake-model-sha256"}
+
+        @self.app.post("/v1/embed")
+        async def embed(request: Request) -> dict[str, Any]:
+            pcm = np.frombuffer(await request.body(), dtype="<i2").astype(np.float64)
+            self.record({"secs": len(pcm) / 16000})
+            frames = [pcm[i : i + 1600] for i in range(0, len(pcm), 1600)] or [np.zeros(1)]
+            levels = [math.sqrt(float(np.mean(f**2))) for f in frames]
+            vector = [levels[i % len(levels)] + 1.0 for i in range(VOICE_DIMENSIONS)]
+            norm = math.sqrt(sum(x * x for x in vector))
+            return {"embedding": [x / norm for x in vector]}
+
+    def seconds(self) -> list[float]:
+        """收到的每段音频的时长。"""
+        with self._lock:
+            return [r["secs"] for r in self.requests]
+
+
 class Inference:
     """全部假服务，跑在后台线程自己的事件循环里，不受测试的事件循环阻塞影响。"""
 
@@ -241,6 +269,7 @@ class Inference:
         )
         self.tts = FakeTTS()
         self.embedding = FakeEmbedding()
+        self.speaker = FakeSpeaker()
         for service in self.services:
             service.host = host
         self._servers: list[uvicorn.Server] = []
@@ -251,7 +280,7 @@ class Inference:
 
     @property
     def services(self) -> list[FakeService]:
-        return [self.asr, self.llm, self.agent, self.tts, self.embedding]
+        return [self.asr, self.llm, self.agent, self.tts, self.embedding, self.speaker]
 
     def start(self) -> None:
         self._thread.start()

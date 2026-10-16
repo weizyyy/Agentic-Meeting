@@ -76,6 +76,15 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The meeting page shows **N 条旁听连接** (N following connections) while other devices follow the
   meeting; clicking it lists each connection by platform and browser, such as _iPhone · Safari_, and
   since when it has been watching ([#21]).
+- First step towards remembering speakers across meetings ([#25]), off by default. With
+  `speaker_memory.backend = "sherpa_onnx"` and a speaker-embedding model, the server cuts short
+  clips in which only one person speaks, has a new local speaker service turn each into a
+  voiceprint, and stores it with the caption, so speaker corrections and merges carry it along and
+  transcript retention removes it. `GET /api/speakers` reports how many seconds each speaker has,
+  and `DELETE /api/sessions/{id}/voice` erases a meeting's voiceprints while keeping its
+  transcript (hosts only when meeting access is on, recorded in the access log). The service needs `uv sync --extra speaker`, runs on the CPU, listens only on a
+  loopback address and is started by `serve --with-services`. Recognizing people in later meetings
+  comes in a later release.
 
 ### Fixed
 
@@ -89,6 +98,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 [#21]: https://github.com/weizyyy/Agentic-Meeting/issues/21
 [#22]: https://github.com/weizyyy/Agentic-Meeting/issues/22
+[#25]: https://github.com/weizyyy/Agentic-Meeting/issues/25
 [#80]: https://github.com/weizyyy/Agentic-Meeting/pull/80
 
 ## [0.4.0] - 2026-10-14

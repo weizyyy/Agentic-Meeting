@@ -181,6 +181,23 @@ ice_servers = [
 | `min_similarity` | `0.4`                        | 语义匹配的余弦相似度下限；`0` 表示不设下限                                               |
 | `launch.*`       |                              | 见[启动参数](#启动参数)。在 `extra_args` 中加入 `--device none` 可使该服务完全不占用显卡 |
 
+## `[speaker_memory]`
+
+跨会议记住说话人（[#25](https://github.com/weizyyy/Agentic-Meeting/issues/25)）。这一版在会议中采集每位说话人的
+语音片段并保存声纹；在以后的会议里认出人来是下一步。声纹属于生物特征数据：由本机的服务计算，从不离开本机
+（[data-governance.md](data-governance.md)）。整段可以不写。
+
+| 配置项                            | 默认值                    | 说明                                                                              |
+| --------------------------------- | ------------------------- | --------------------------------------------------------------------------------- |
+| `backend`                         | `"none"`                  | `"none"` 关闭此功能；`"sherpa_onnx"` 使用声纹服务，需要 `uv sync --extra speaker` |
+| `base_url`                        | `"http://127.0.0.1:8084"` | 声纹服务地址。必须是写明端口的回环地址，服务另行启动时也一样                      |
+| `launch.enabled`                  | `true`                    | 设为 `false` 表示服务另行启动                                                     |
+| `launch.model_path`               | `""`                      | 声纹模型文件（ONNX）；由应用启动服务时必填                                        |
+| `launch.num_threads`              | `1`                       | 服务的 CPU 线程数，1–16                                                           |
+| `launch.env`、`launch.extra_args` |                           | 同[启动参数](#启动参数)                                                           |
+
+服务只用 CPU。命令行见 [interfaces.md §9](interfaces.md)，采集规则见 [interfaces.md §4.4](interfaces.md)。
+
 ## `[audio]`
 
 输入音频的自动增益，在语音活动检测之前生效。

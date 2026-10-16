@@ -43,6 +43,17 @@ def test_check_lists_what_is_missing(tmp_path, inference):
     assert broken.returncode == 2 and "server.port" in broken.stdout
 
 
+def test_voice_features_stay_on_this_machine(tmp_path, inference):
+    config = app_config(inference, tmp_path / "data", 7860)
+    config["speaker_memory"]["backend"] = "sherpa_onnx"
+    missing = run_cli(tmp_path, config, "check")
+    assert missing.returncode == 1 and "speaker_memory.launch.model_path" in missing.stdout
+
+    config["speaker_memory"]["base_url"] = "http://192.0.2.10:8084"
+    remote = run_cli(tmp_path, config, "check")
+    assert remote.returncode == 2 and "speaker_memory.base_url" in remote.stdout
+
+
 def test_services_status_probes_without_starting_anything(tmp_path, inference):
     inference.reset()
     inference.tts.down = True

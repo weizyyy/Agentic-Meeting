@@ -77,15 +77,16 @@ network latency are outside the project's control.
 
 Ports come from the configuration; the table shows the defaults in the template.
 
-| Process      | Default port | Program                                                                                                                   | Required                                  |
-| ------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Application  | 7860         | `agentic-meeting serve`                                                                                                   | Yes                                       |
-| Realtime LLM | 8080         | Mode 1: `llama-server` (chat and vision, two slots). Mode 2: an external chat completions endpoint; no process is started | Yes                                       |
-| ASR          | 8081         | `llama-server` with audio input                                                                                           | Yes                                       |
-| TTS          | 8082         | `tts-server`                                                                                                              | No (answers are text-only without it)     |
-| Embeddings   | 8083         | `llama-server --embedding`                                                                                                | No (keyword search only without it)       |
-| Diarization  | —            | Library loaded into the application process                                                                               | No (captions carry no speaker without it) |
-| Code sandbox | —            | One Docker container per task                                                                                             | No                                        |
+| Process        | Default port | Program                                                                                                                   | Required                                          |
+| -------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Application    | 7860         | `agentic-meeting serve`                                                                                                   | Yes                                               |
+| Realtime LLM   | 8080         | Mode 1: `llama-server` (chat and vision, two slots). Mode 2: an external chat completions endpoint; no process is started | Yes                                               |
+| ASR            | 8081         | `llama-server` with audio input                                                                                           | Yes                                               |
+| TTS            | 8082         | `tts-server`                                                                                                              | No (answers are text-only without it)             |
+| Embeddings     | 8083         | `llama-server --embedding`                                                                                                | No (keyword search only without it)               |
+| Speaker memory | 8084         | `python -m agentic_meeting.voice.service` (CPU)                                                                           | No (`speaker_memory.backend = "none"` by default) |
+| Diarization    | —            | Library loaded into the application process                                                                               | No (captions carry no speaker without it)         |
+| Code sandbox   | —            | One Docker container per task                                                                                             | No                                                |
 
 Inference services started by the application listen on `127.0.0.1` only. The application port is
 the only one exposed.

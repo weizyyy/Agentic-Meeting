@@ -23,23 +23,24 @@ The source of truth is the pydantic model in
 [`config/config.example.toml`](../config/config.example.toml). Every key is described in
 [configuration.md](configuration.md).
 
-| Section        | Contents                                                                                                                          |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `session`      | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory                                                |
-| `server`       | Bind address and port, TLS certificate, ICE servers, access password, login duration, `meeting_access` and `local_users` (§5.11)  |
-| `realtime_llm` | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`            |
-| `asr`          | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings                              |
-| `diarization`  | Backend, library path, model path, GPU index, segmentation thresholds                                                             |
-| `tts`          | Endpoint, model field, voice, language, launch settings                                                                           |
-| `embedding`    | Endpoint, model field, dimensions, query prefix, similarity floor, launch settings                                                |
-| `audio`        | Input gain: switch, initial gain, limit, target level, noise floor, log interval                                                  |
-| `turn`         | Silence threshold, VAD volume gate, end-of-turn model, wake window, single activation                                             |
-| `realtime`     | Context budget, verbatim window after compaction, summary interval and provider, warm-up interval, direct MCP tools               |
-| `screen`       | Screenshot intervals and threshold, summaries and their provider                                                                  |
-| `transcript`   | Merging of adjacent segments into one caption                                                                                     |
-| `report`       | Report provider and input size per request                                                                                        |
-| `agent`        | Remote model endpoint, extra request fields, output budget, screenshot attachment, MCP servers, sandbox, concurrency and timeouts |
-| `retention`    | Independent retention periods and cleanup interval (§1.1)                                                                         |
+| Section          | Contents                                                                                                                          |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `session`        | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory                                                |
+| `server`         | Bind address and port, TLS certificate, ICE servers, access password, login duration, `meeting_access` and `local_users` (§5.11)  |
+| `realtime_llm`   | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`            |
+| `asr`            | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings                              |
+| `diarization`    | Backend, library path, model path, GPU index, segmentation thresholds                                                             |
+| `tts`            | Endpoint, model field, voice, language, launch settings                                                                           |
+| `embedding`      | Endpoint, model field, dimensions, query prefix, similarity floor, launch settings                                                |
+| `speaker_memory` | Remembering speakers across meetings: backend, address of the local speaker service, launch settings (§4.4)                       |
+| `audio`          | Input gain: switch, initial gain, limit, target level, noise floor, log interval                                                  |
+| `turn`           | Silence threshold, VAD volume gate, end-of-turn model, wake window, single activation                                             |
+| `realtime`       | Context budget, verbatim window after compaction, summary interval and provider, warm-up interval, direct MCP tools               |
+| `screen`         | Screenshot intervals and threshold, summaries and their provider                                                                  |
+| `transcript`     | Merging of adjacent segments into one caption                                                                                     |
+| `report`         | Report provider and input size per request                                                                                        |
+| `agent`          | Remote model endpoint, extra request fields, output budget, screenshot attachment, MCP servers, sandbox, concurrency and timeouts |
+| `retention`      | Independent retention periods and cleanup interval (§1.1)                                                                         |
 
 Rules:
 
@@ -254,6 +255,29 @@ Allocation advances the high-water value and inserts the explicit id under the s
 and transaction; rollback and restart preserve a valid high-water value. Deletion never lowers it.
 This preserves HTTP `after_id`, digest watermarks and historical task outbound frame references;
 token checks alone cannot protect these persistent cursors/references.
+
+### 2.7 Voice clips
+
+`voice_clips` holds voiceprints of single-speaker speech, written only while
+`speaker_memory.backend` is not `"none"` (§4.4). It is created by `schema.sql` on startup; existing
+databases need no migration.
+
+| Column         | Meaning                                                                                   |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| `session_id`   | Meeting; `ON DELETE CASCADE` from `sessions`                                              |
+| `utterance_id` | The caption the speech belongs to; `ON DELETE CASCADE` from `utterances`                  |
+| `t_start`      | Start of the first piece on the session timeline (seconds)                                |
+| `t_end`        | End of the last piece                                                                     |
+| `secs`         | Total speech in the clip; gaps between pieces are not counted                             |
+| `diar_idx`     | Diarization slot the speech was taken from; `0` when diarization is off                   |
+| `vector`       | Little-endian float32, unit length                                                        |
+| `model_sha256` | SHA-256 of the model file that computed the vector; vectors of different models never mix |
+| `created_at`   | Wall-clock time of the write                                                              |
+
+A clip belongs to a caption, not to a speaker. Its speaker is always the caption's current
+`speaker_idx`, so reassigning captions and merging speakers (§5.4) carry the clips along, and
+deleting captions (retention, meeting deletion) deletes them. A write is skipped when the meeting is
+pending deletion or the caption no longer exists or did not come from ASR.
 
 ## 3. Streaming ASR
 
@@ -584,6 +608,47 @@ Details of `TranscriptAssembler`:
 - Dropped echo deltas do not extend a caption's end time, but a dropped delta that ends a segment
   still closes the caption.
 
+### 4.4 Voice clips and the speaker service
+
+Remembering speakers across meetings (#25; design in
+[design/speaker-memory.md](design/speaker-memory.md)) starts by collecting voice clips during a
+meeting. Nothing here happens when `speaker_memory.backend = "none"`.
+
+**Collection** (`voice/clips.py`, driven by the recorder). The recorder hands `VoiceClipper` the
+incoming 16 kHz audio (a 60 s ring buffer), the time span of every ASR segment together with the
+caption it was stored in or merged into, and the periods in which the assistant speaks. A caption is
+processed once it has stopped growing (another caption arrived, or `merge_gap_secs + 1` seconds
+passed) and 6 s more of audio have arrived, so that diarization and late correction (§4.3) have
+settled. When the pipeline ends normally, the remaining captions are processed at once (for at
+most 5 s); when it is cancelled, for example by a dropped connection, they are discarded.
+
+1. Take the caption's speech spans and remove the assistant's periods (echo; each is extended by
+   0.3 s).
+2. With diarization, keep only the parts where exactly one slot is speaking, and only the slot of
+   the caption's speaker; for unknown or manually assigned speakers, the slot that speaks most.
+   Without diarization the whole span counts and the slot is `0`.
+3. Trim 0.1 s from both ends of each part, drop parts shorter than 0.3 s, and pack the rest in order
+   into windows of at most 6 s of speech. A window with less than 1 s is dropped.
+4. Each window is sent to the speaker service and stored with the caption id (§2.7).
+
+At most 32 captions wait for processing; beyond that the oldest is dropped. Every failure (service
+unreachable, a request over 5 s, invalid answer, storage error) drops that window and is logged once
+per outage; captions and recognition continue (hard rule 7).
+
+**Speaker service** (`voice/service.py`). A separate process of this project that listens on a
+loopback address only. `speaker_memory.base_url` must also be a loopback address with a port; the
+application's requests bypass the system proxy.
+
+| Method and path  | Request and response                                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `GET /health`    | 200 once the model is loaded                                                                                            |
+| `GET /v1/info`   | `{"dimensions", "model_sha256", "sample_rate": 16000}`; `model_sha256` is the SHA-256 of the model file                 |
+| `POST /v1/embed` | Body: 16 kHz mono 16-bit little-endian PCM (`application/octet-stream`), 0.3–30 s → `{"embedding": [...]}`, unit length |
+
+`/v1/embed` returns 400 for a body of the wrong length and 422 when the model cannot compute a
+vector from it; errors are `{"error": "<message>"}`. The client caches `/v1/info` after the first
+success and rejects vectors of the wrong dimension or with non-finite values.
+
 ## 5. HTTP API
 
 All endpoints except signaling exchange JSON. Business errors are returned as
@@ -812,10 +877,11 @@ Behavior (`screen/ingest.py`, `screen/caption.py`):
 | `GET /api/utterances?session_id=&after_id=&limit=`  | Captions with id greater than `after_id`, ascending. Used to catch up after a reconnect                                                                                                                                                                         |
 | `GET /api/utterances?session_id=&tail=50`           | The **last 50** captions, ascending                                                                                                                                                                                                                             |
 | `GET /api/utterances?session_id=&before_id=&limit=` | Pages towards earlier captions, ascending                                                                                                                                                                                                                       |
-| `GET /api/speakers?session_id=`                     | `{"items": [{"idx", "display_name"}]}`                                                                                                                                                                                                                          |
+| `GET /api/speakers?session_id=`                     | `{"items": [{"idx", "display_name"}]}`; with `speaker_memory` enabled each item also has `voice_secs` (below)                                                                                                                                                   |
 | `PUT /api/speakers/{idx}`                           | Body `{"session_id"?, "display_name": "..."}` → `{"idx", "display_name"}`; broadcasts `speaker`                                                                                                                                                                 |
 | `POST /api/utterances/speaker`                      | Body `{"session_id"?, "ids": [...], "speaker_idx": 2}` or `{…, "new_speaker": "..."}`. Reassigns the captions to an existing or a new speaker → `{"speaker": {idx, display_name}, "ids": [actually changed]}`; broadcasts `utterance_update` for a live session |
 | `POST /api/speakers/{idx}/merge`                    | Body `{"session_id"?, "into": 2}`. Moves all captions of `idx` to `into` and deletes `idx` → `{"from", "into", "display_name", "moved"}`; broadcasts `speakers_merged` for a live session                                                                       |
+| `DELETE /api/sessions/{session_id}/voice`           | Erases the meeting's voice clips (§2.7) and keeps its captions → `{"id", "clips": <number deleted>}`                                                                                                                                                            |
 
 Caption item: `{"id", "speaker_idx", "speaker_name", "t_start", "t_end", "text", "source"}`.
 `limit` and `tail` are 1–500; `after_id`, `before_id` and `tail` are mutually exclusive (400).
@@ -834,6 +900,12 @@ loaded captions from the single `speakers_merged` message.
 
 A speaker record is created on first appearance with the default name "说话人 N". `-1` carries the
 assistant's name and `-2` the name "文字输入".
+
+**Voice clips.** `voice_secs` is the total speech in the voice clips of the speaker's captions,
+rounded to 0.1 s; it follows reassignment and merging. The field is absent while
+`speaker_memory.backend = "none"`. Erasing works for live and past meetings and needs no setting;
+in a live meeting, collection continues with later speech. A missing session yields 404. In access
+mode erasing needs the host role (§5.11) and is logged as `voice.erase` (§5.13).
 
 **Wall-clock times** are computed in the browser (`client/src/timeline.ts`): for a timeline value
 `t` inside a connection span, `connected_at + (t − t_from)`; otherwise `started_at + t`.
@@ -1432,7 +1504,7 @@ and `POST /api/auth/logout-all` ends every login of the caller.
 Creating a meeting grants its creator `host` in the same transaction; only accounts with
 `can_host` may create meetings. A `watcher` reads the meeting and may ask questions only when
 `allow_questions` is true (default false). A host may also record and resume, rename, keep, end
-and delete the meeting, edit speakers, generate reports, cancel tasks, and manage members and
+and delete the meeting, edit speakers, erase voice clips, generate reports, cancel tasks, and manage members and
 shares. A meeting always keeps at least one host, and only `can_host` accounts can be made hosts.
 Roles are never taken from request data. Session responses carry the caller's
 `access: {role, allow_questions, tool_enabled, share_expires_at}` so the page can show the right
@@ -1569,6 +1641,7 @@ name at the time of the entry (`Guest` for guests). Reading the log is not itsel
 | `meeting.view`     | A login reads the meeting's content                 | `role`, `sources` (where the access came from)      |
 | `meeting.export`   | A host or watcher downloads an export or the report | `format`                                            |
 | `meeting.end`      | A host ends the meeting                             | —                                                   |
+| `voice.erase`      | A host erases the meeting's voice clips             | `clips` (number deleted)                            |
 | `recording.start`  | A recording connection starts the meeting           | —                                                   |
 | `recording.resume` | A recording connection resumes the meeting          | —                                                   |
 | `member.set`       | A host grants or changes a role                     | `principal_id`, `role`, `allow_questions`           |
@@ -1921,7 +1994,7 @@ Interrupted sessions can expire without being explicitly ended; future anchors a
 
 | Category       | Deletion set                                                                                            | Anchor                                                                               |
 | -------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| Transcript     | Session utterances, their `utterances_vec` rows and FTS entries                                         | Session `inactive_at`                                                                |
+| Transcript     | Session utterances, their `utterances_vec` rows, FTS entries and voice clips (§2.7, by cascade)         | Session `inactive_at`                                                                |
 | Screenshots    | Frame rows including captions, and the application-owned `frames/` subtree                              | Session `inactive_at`                                                                |
 | Reports        | Terminal report rows and running-summary (`digests`) rows                                               | Each report's `finished_at`; each digest's `created_at`                              |
 | Task artifacts | Application-owned directories of terminal tasks and each task's `artifacts_json` list (cleared to `[]`) | Each task's `finished_at`; legacy terminal rows lacking it fall back to `created_at` |
@@ -1975,7 +2048,7 @@ further automatic removal, but cannot restore files already removed.
 
 Manual DELETE ignores keep. After passing the busy checks it persistently sets `deletion_pending=1`
 before file removal. It then removes only that session's owned files and commits vector removal
-plus session deletion (foreign-key cascades cover utterances, frames, digests, reports,
+plus session deletion (foreign-key cascades cover utterances, voice clips, frames, digests, reports,
 speakers, connections, tasks and task events); FTS delete triggers remove the deleted utterances'
 index entries. `deletion_pending` remains on any real filesystem or database failure and on
 cancellation after the claim: return 500 for a failed HTTP attempt,
@@ -2052,6 +2125,16 @@ llama-server -m <model_path> -a <embedding.model> --embedding
 `gpu_layers = "0"` alone still allocates a few hundred MB on every GPU; add `--device none` to
 `extra_args` to avoid that, as the template does.
 
+**Speaker service** (only when `speaker_memory.backend` is not `"none"`; §4.4)
+
+```
+<python> -m agentic_meeting.voice.service --model <model_path> --host 127.0.0.1
+         --port <from base_url> --threads <num_threads> <extra_args...>
+```
+
+`<python>` is the interpreter running the application, which needs `uv sync --extra speaker`. The
+service runs on the CPU and reads only the configured model file.
+
 **TTS**
 
 ```
@@ -2062,7 +2145,7 @@ tts-server --model <model_path> --codec <codec_path> --alias <tts.model>
 General rules:
 
 - Health check: `GET /health` returning 200, for both programs.
-- Service names are fixed: `realtime`, `asr`, `tts`, `embedding`.
+- Service names are fixed: `realtime`, `asr`, `tts`, `embedding`, `speaker`.
 - Standard output and error of each child are appended to `data/logs/<name>.log`. A failed start
   reports the last 30 lines written by the current run.
 - `launch.env` is merged into the child's environment. A service with `launch.enabled = false` is

@@ -77,6 +77,7 @@ from agentic_meeting.store.embeddings import EmbeddingClient
 from agentic_meeting.store.retention import RetentionWorker
 from agentic_meeting.store.work import drain_io
 from agentic_meeting.types import Session
+from agentic_meeting.voice.client import SpeakerClient
 
 # 不用轮次结束模型时，停顿多久算说完（pipecat-notes.md §3.2）。
 SPEECH_TIMEOUT_SECS = 0.6
@@ -110,6 +111,7 @@ class AppResources:
     access: Any = None  # 可选会议授权，旧模式为 None
     live: Any = None  # 每条管线冻结的会议连接，工具不读取全局 live
     identity: Any = None  # 服务器认证的录音登录，不来自 requestData
+    speaker: SpeakerClient | None = None  # 声纹服务；跨会议记住说话人关闭时没有
 
 
 @dataclass
@@ -167,6 +169,7 @@ def build_parts(
     clock: SessionClock | None = None,
     messages: list[dict[str, Any]] | None = None,
     first_segment_id: int = 1,
+    speaker: SpeakerClient | None = None,
 ) -> BotParts:
     """按配置造出各个处理器。``audio`` 是 ``load_audio_models`` 在工作线程里加载好的模型。
     ``asr_backend``、``llm``、``tts``、``store``、``diarizer`` 可注入，测试时换成假的。
@@ -224,6 +227,7 @@ def build_parts(
             merge_gap_secs=cfg.transcript.merge_gap_secs,
             merge_soft_chars=cfg.transcript.merge_soft_chars,
             merge_max_chars=cfg.transcript.merge_max_chars,
+            speaker_client=speaker,
         ),
         wake=wake,
         user_aggregator=aggregators.user(),
@@ -570,6 +574,7 @@ async def run_bot(
             first_segment_id=(
                 live.connection_id * SEGMENT_IDS_PER_CONNECTION + 1 if live is not None else 1
             ),
+            speaker=resources.speaker,
         )
         if manager is not None and live is not None:
 
