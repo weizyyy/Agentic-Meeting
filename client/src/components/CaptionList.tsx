@@ -9,6 +9,7 @@ import { formatSpan, useI18n } from "../i18n/index.ts";
 import { connectionGaps, gapPositions } from "../resume.ts";
 import { selectRange, selectSpan, selectableId, toggleSelection } from "../selection.ts";
 import { wallClockLabel, type TimeBase } from "../timeline.ts";
+import { useArrowScroll } from "../useArrowKeys.ts";
 
 interface Props {
   lines: readonly CaptionLine[];
@@ -123,6 +124,7 @@ export function CaptionList({
     );
   };
   const scroller = useRef<HTMLDivElement>(null);
+  useArrowScroll(scroller);
   const stuck = useRef(true);
   // 往上翻看时显示「跟随最新」，点一下回到底部
   const [following, setFollowing] = useState(true);

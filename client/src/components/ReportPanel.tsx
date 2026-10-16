@@ -6,7 +6,7 @@ import {
   PackageIcon,
   RotateCwIcon,
 } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { SessionSummary } from "../api.ts";
@@ -23,6 +23,7 @@ import {
   type ReportSection,
 } from "../report.ts";
 import { exportUrl } from "../sessionView.ts";
+import { useArrowScroll } from "../useArrowKeys.ts";
 
 interface Props {
   session: SessionSummary | null;
@@ -57,6 +58,8 @@ export function ReportPanel({
     [report],
   );
   const running = report?.status === "running";
+  const scroller = useRef<HTMLElement>(null);
+  useArrowScroll(scroller);
 
   const generate = (
     <Button
@@ -81,6 +84,7 @@ export function ReportPanel({
       className="flex min-h-0 flex-1 gap-6 overflow-y-auto px-4 py-4 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset md:px-6"
       aria-label={t.report.label}
       tabIndex={0}
+      ref={scroller}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2">
