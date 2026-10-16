@@ -652,6 +652,8 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(
             finally:
                 network["sends"].append(clock() - started)
                 network["sending_since"] = None
+                if clock() - started > 1:
+                    network["blocked_since"] = started
 
         try:
             await application(scope, receive, measured_send)
@@ -766,7 +768,6 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(
                     "发送期限释放 ASGI 请求及订阅",
                     timeout_secs=1 if revocation else 18,
                 )
-                request_seconds = network["finished"] - network["started"]
                 if revocation:
                     assert network["finished"] - revoked_at < 1
                     assert (await viewer.get(f"/api/export/{sid}.json")).status_code == 404
@@ -783,7 +784,8 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(
                     await recorder.speak()
                     await recorder.next_message("utterance", text="撤权后主持录音继续")
                 else:
-                    assert 14 <= request_seconds < 17
+                    # 从阻塞的那次发送开始算：之前发快照用了多久取决于机器快慢，不该计入发送期限
+                    assert 14 <= network["finished"] - network["blocked_since"] < 17, network
                 assert max(network["sends"]) > 1
                 assert sessions.live_for(sid) is live
                 assert not reader.at_eof()
