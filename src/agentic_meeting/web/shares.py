@@ -226,20 +226,21 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
         if "site_password" in value and not isinstance(value["site_password"], str):
             raise invalid("站点口令无效")
         if kind == "link":
-            source, candidate = value.get("share_id"), value.get("token")
+            # 链接令牌是 32 个随机字节，用 SHA-256 比对即可；会议口令另走 scrypt，两者不共用变量
+            source, token, password = value.get("share_id"), value.get("token"), None
             if (
                 not isinstance(source, str)
                 or not re.fullmatch(r"[a-f0-9]{32}", source)
-                or not isinstance(candidate, str)
-                or not re.fullmatch(r"[A-Za-z0-9_-]{43}", candidate)
+                or not isinstance(token, str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{43}", token)
                 or "password" in value
             ):
                 raise invalid("链接字段无效")
         else:
-            source, candidate = None, value.get("password")
+            source, token, password = None, None, value.get("password")
             if (
-                not isinstance(candidate, str)
-                or not 1 <= len(candidate) <= 128
+                not isinstance(password, str)
+                or not 1 <= len(password) <= 128
                 or {"share_id", "token"} & value.keys()
             ):
                 raise invalid("口令字段无效")
@@ -254,16 +255,16 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
             site_ok = access.site is None or await access.site.check_password_async(
                 value.get("site_password", "")
             )
-            if kind == "password":
+            if password is not None:
                 verifier = await asyncio.to_thread(
-                    stretch_password, candidate, bytes.fromhex(row["salt"]) if row else dummy_salt
+                    stretch_password, password, bytes.fromhex(row["salt"]) if row else dummy_salt
                 )
                 valid = hmac.compare_digest(
                     verifier.hex(), row["credential_hash"] if row else "0" * 64
                 )
             else:
                 valid = hmac.compare_digest(
-                    hashlib.sha256(candidate.encode()).hexdigest(),
+                    hashlib.sha256(token.encode()).hexdigest(),
                     row["credential_hash"] if row else "0" * 64,
                 )
             if row is None or not site_ok or not valid:
