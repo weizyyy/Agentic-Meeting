@@ -4,7 +4,7 @@ import { defineMessages } from "./define.ts";
 export const tasks = defineMessages(
   {
     title: "后台任务",
-    empty: "还没有后台任务。请助理查资料、整理内容时，任务会出现在这里。",
+    empty: "尚未创建后台任务。明确要求助理交给后台处理，任务受理后会出现在这里。",
     statuses: {
       queued: "排队中",
       running: "进行中",
@@ -39,7 +39,7 @@ export const tasks = defineMessages(
   {
     title: "Background tasks",
     empty:
-      "No background tasks yet. When you ask the assistant to look something up or put something together, the task appears here.",
+      "No background tasks have been created. Ask the assistant to hand work to the background agent; accepted tasks appear here.",
     statuses: {
       queued: "Queued",
       running: "Running",

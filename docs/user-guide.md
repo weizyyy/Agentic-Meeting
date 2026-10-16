@@ -196,6 +196,16 @@ three numbers as a bar chart" — and the assistant acknowledges the request, ha
 background agent and reports the result when it is done, waiting for a pause in the conversation.
 Tasks requested by typing are reported in text only.
 
+An explicit request to hand work to the background agent also covers preparing a document from
+the meeting; asking for an immediate summary is separate. The assistant confirms delegation only
+after a task has been created. The **后台任务** (Background tasks) panel stays visible on desktop
+even before the first task, so an empty panel means no task has been created for that meeting.
+
+During the meeting, "note this in the minutes" or a correction gets a brief acknowledgement;
+it does not create a background task to edit the eventual report. The running summary is context
+for the assistant, while the report is generated afterwards. A separately requested document draft
+is a background task; its result does not edit the application's meeting records.
+
 The task panel shows progress, with an icon for each state (queued, running, done, failed,
 cancelled). Open a task to see the detailed result, sources, generated files and
 **exactly what was sent to the remote model**. Running tasks can be cancelled, and you can ask the

@@ -1591,6 +1591,18 @@ timeout_secs=<agent.task_timeout_secs + 140>)`. It reports acceptance immediatel
 - Pipecat appends an English instruction about late results to the system prompt when asynchronous
   tools are present. It contradicts this flow and is removed in `RealtimeLLMService`;
   `realtime_tasks.md` describes how late results are handled.
+- Explicit requests to hand work to the background agent use `delegate_task`, including document
+  preparation based only on the meeting. This takes priority over `get_digest`, which is for an
+  immediate summary. The assistant may confirm delegation only after the tool returns a task id
+  with `status: "accepted"`; progress and failure claims must come from `task_status` or a task result.
+  The asynchronous tool's initial placeholder means only that the call is running, not that a
+  task has been accepted; a rejected call must not be presented as successful delegation.
+- Running summaries returned by `get_digest` are read-only context, separate from the report
+  generated after a meeting ends or is interrupted (§5.6). Requests to note or correct something
+  in the eventual minutes are acknowledged in the conversation, without delegating an edit to a
+  nonexistent report. Neither the realtime tools nor the task agent can edit the application's
+  transcript, running summary or report. A separately requested document draft can be delegated,
+  but its result does not update those records.
 
 When `realtime.direct_mcp_tools` is non-empty, those MCP tools are attached to the realtime LLM
 directly (pipecat-notes.md §7).

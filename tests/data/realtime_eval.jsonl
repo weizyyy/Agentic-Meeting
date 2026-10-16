@@ -12,5 +12,13 @@
 {"id": "screen-slide", "expect_tool": "look_at_screen", "context": ["[00:22:00 说话人 2] 我翻到下一页了。"], "question": "{name}，现在这页幻灯片的标题是什么？"}
 {"id": "delegate-search", "expect_tool": "delegate_task", "context": ["[00:27:30 说话人 1] 这个方法我记得去年有一篇综述讲过。"], "question": "{name}，帮我上网查一下近两年关于流式说话人区分的综述文章，列出三篇。"}
 {"id": "delegate-compute", "expect_tool": "delegate_task", "context": ["[00:33:10 说话人 2] 三组实验的准确率分别是八十一点二、八十三点五和七十九点八。"], "question": "{name}，把这三组数画成柱状图，再算一下均值和标准差。"}
+{"id": "delegate-document", "expect_tool": "delegate_task", "context": ["[00:08:00 说话人 1] 文献综述文档要包含实验设计和评价指标。"], "question": "{name}，对，交给后台 agent 去做，综合整场会议整理这份文档。"}
+{"id": "delegate-confirm", "expect_tool": "delegate_task", "context": ["[00:12:00 说话人 1] 请把我们讨论的实验计划整理成文档，交给后台处理。", "[00:12:05 助理] 你是想整理成包含基线和消融实验的计划吗？"], "question": "{name}，对，交给后台 agent 去做。"}
+{"id": "delegate-meeting-only", "expect_tool": "delegate_task", "context": ["[00:24:00 说话人 2] 基线的参数和数据划分今天都讲清楚了。"], "question": "{name}，让后台把今天讨论的实验方案整理成文档，不用上网查资料，做完告诉我。"}
+{"id": "minutes-note-correction", "expect_tool": null, "context": ["[00:24:00 说话人 1] 刚才说错了，基线学习率是千分之一，不是千分之三。"], "question": "{name}，这点记到会后纪要里，学习率按千分之一写。"}
+{"id": "minutes-edit-unavailable", "expect_tool": null, "context": ["[00:18:00 说话人 2] 会议还没结束，我们接着看第二组实验。", "[00:17:50 滚动摘要]【此前会议纪要】基线学习率为千分之三，第二组实验尚未讨论。"], "question": "{name}，让后台把会议纪要的学习率改成千分之一。"}
+{"id": "minutes-no-extra-task", "expect_tool": null, "context": ["[任务 t1 完成] 三组实验的均值是百分之八十二。"], "question": "{name}，把这个结果告诉大家就行，不用另外做文档。"}
+{"id": "delegate-separate-draft", "expect_tool": "delegate_task", "context": ["[00:18:00 说话人 1] 基线用固定学习率，接下来要补两组消融实验。"], "question": "{name}，现在交给后台写一份独立的实验方案草稿，不是会后纪要。"}
+{"id": "task-status-after-promise", "expect_tool": "task_status", "context": ["[00:30:00 文字输入] 把实验计划交给后台整理成文档。", "[00:30:02 助理] 好，我这就交给后台整理。"], "question": "{name}，后台 agent 做到哪了？"}
 {"id": "task-status", "expect_tool": "task_status", "context": ["[00:41:00 说话人 1] 刚才让助理去查综述了。"], "question": "{name}，刚才交给你查的那件事做到哪了？"}
 {"id": "task-cancel", "expect_tool": "cancel_task", "context": ["[00:42:00 说话人 1] 综述我自己找到了。"], "question": "{name}，刚才那个查综述的任务不用做了，取消吧。"}

@@ -20,7 +20,10 @@ from typing import Any
 
 from pipecat.processors.aggregators import async_tool_messages
 
-STARTED_TEXT = "后台任务已经开始，结果稍后送达。不要重复调用，也不要猜结果。"
+STARTED_TEXT = (
+    "交办工具正在调用，尚未确认任务受理。收到任务编号和已受理结果后才能确认交办。"
+    "不要重复调用，也不要猜结果。"
+)
 CANCELLED_TEXT = (
     "[任务没有完成] 这次调用被取消或超时了，没有结果。对方还在等的话，如实告诉他没办成。"
 )
