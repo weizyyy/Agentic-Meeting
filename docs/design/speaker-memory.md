@@ -40,7 +40,7 @@ So a second model is needed: a **speaker-embedding** (speaker verification) mode
 seconds of one person's speech into a fixed-length vector whose cosine similarity is high for the
 same person and low for different people, independent of the meeting.
 
-## 3. Runtime dependency (needs the owner's go-ahead)
+## 3. Runtime dependency
 
 | Option                                                                | What it brings                                                                                                                                                                                                                                                                                                                         | Assessment                                                                                                                       |
 | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
@@ -49,7 +49,7 @@ same person and low for different people, independent of the meeting.
 | C. PyTorch stacks (SpeechBrain, pyannote, WeSpeaker's Python package) | Reference implementations                                                                                                                                                                                                                                                                                                              | Rejected: gigabytes of dependencies for a model of a few tens of megabytes                                                       |
 | D. Wait for a speaker-embedding API in NeMo-Speech.cpp                | Same runtime as diarization                                                                                                                                                                                                                                                                                                            | Not available in the pinned release; can replace A later behind the same service interface (§5)                                  |
 
-Proposal: add `sherpa-onnx` with an exact version pin as a new optional extra `speaker`
+Decision (approved by the owner): add `sherpa-onnx` with an exact version pin as a new optional extra `speaker`
 (`uv sync --extra speaker`), installed in the application container image. The base install does
 not change. Model weights are placed by the user under `models/` like every other model;
 `docs/runtimes.md` will list the models that were tested. Candidates for Mandarin group meetings are
@@ -252,9 +252,12 @@ diarization on the user's machine.
 4. Profile retention, the command line, the container image and threshold calibration in
    benchmarks.md.
 
-## 14. Decisions for review
+## 14. Decisions
 
-1. The dependency in §3 (`sherpa-onnx` as an optional extra).
-2. Clips stored with the meeting by default (`store_session_voice = true`) so that past meetings can
+Decided: the dependency in §3 (`sherpa-onnx` as an optional extra).
+
+For review:
+
+1. Clips stored with the meeting by default (`store_session_voice = true`) so that past meetings can
    be used for enrollment.
-3. Confirmed matches update the profile automatically (`auto_update = true`).
+2. Confirmed matches update the profile automatically (`auto_update = true`).
