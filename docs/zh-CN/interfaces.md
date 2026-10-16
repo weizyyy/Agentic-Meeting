@@ -570,7 +570,8 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 `meeting.data` 包含现有字幕、发言/更正、说话人/合并、截图/描述、任务/进度，以及
 `session_updated`、`session_state`、`session_deleted`、`frame_caption_status`、会议级 `notice`、
 `assistant_state`、`assistant_speaking`、`assistant_answer: {response_id, phase, text}`。
-phase为 `started`、`text`、`ended`、`interrupted`；text为累计内容，不是追加增量。
+phase为 `started`、`text`、`ended`、`interrupted`；text为累计内容，不是追加增量。回答进行中
+`text` 最多每 0.25 秒发一次，`ended` 和 `interrupted` 总是带完整内容。
 stable与unstable都为空的caption撤回临时段，后续快照也不保留；不会持久化空发言。
 记录器、ASR状态、回答帧和后台任务绑定来源会议，切换当前录音后迟到结果仍归原会。
 仅面向提问者的拒绝提示留在HTTP响应或录音通道；旁听文字提问仍只出文字，不在会议室朗读。
@@ -578,13 +579,13 @@ stable与unstable都为空的caption撤回临时段，后续快照也不保留�
 `live` 和 `interrupted` 时保留订阅，只有 `live` 启用文字提问。会议结束、删除/待删除、切会、开始录音连接
 或视图卸载时关闭旧订阅；详情404时移除已删会议。浏览器带最后游标重连，重连提示标明事件流暂时中断。
 
-健康流14秒续期，最多每5秒心跳；公开ASGI响应15秒期限包含实际await网络send，finally关闭生成器，
-即使对端停止读取也释放订阅。uvicorn的 `timeout_graceful_shutdown=5` 限制应用清理前的请求/任务停机等待。
+健康的流一直保持打开，5 秒没有事件就发一行 `: heartbeat` 注释。每次网络发送最多等 15 秒：
+对端停止读取时关闭请求，finally 关闭生成器并释放订阅。uvicorn的 `timeout_graceful_shutdown=5` 限制应用清理前的请求/任务停机等待。
 这是应用/请求期限，不保证立即物理TCP关闭：缓冲字节可保留到对端读取或关闭；被socket阻塞的reset不能算已送达，
 下次连接按游标/快照恢复。
 
 每条实际订阅在录音页watchers名单中占一项。User-Agent标签只描述连接，不代表认证用户或独立设备；
-两个标签页计两条连接，续期/重连可能换连接id。关闭、终态、溢出或期限到达移除连接；进程重启不保留名单/重放。
+两个标签页计两条连接，网络出错后重连会换连接id和起始时间。关闭、终态、溢出或发送超时移除连接；进程重启不保留名单/重放。
 未知会议返回404 `session.not_found`，待删除返回409 `session.busy`；启用共享口令时EventSource携带会话cookie（§5.7）。
 
 PATCH 必须是 JSON 对象，至少含 `title`、`keep` 中一个，不能含未知字段。`keep` 只接受 JSON

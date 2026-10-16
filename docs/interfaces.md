@@ -680,7 +680,8 @@ other-meeting events and duplicate sequence numbers; resets clear the cursor bef
 task and progress messages, plus `session_updated`, `session_state`, `session_deleted`,
 `frame_caption_status`, meeting-wide `notice`, `assistant_state`, `assistant_speaking`, and
 `assistant_answer: {response_id, phase, text}`. Answer phases are `started`, `text`, `ended`,
-`interrupted`; `text` is cumulative, never an append-only delta. Caption messages with empty stable
+`interrupted`; `text` is cumulative, never an append-only delta, and is published at most every
+0.25 seconds while the answer streams; `ended` and `interrupted` always carry the full text. Caption messages with empty stable
 and unstable text remove the temporary segment, including from new snapshots; no empty utterance
 is persisted. Recorder, ASR status, answer frames and background work publish against their source
 meeting even after the current recording has changed. Requester-only rejection notices stay on the
@@ -691,9 +692,9 @@ The page retains its subscription in `live` and `interrupted`, with typed questi
 and view unmount close the old subscription. A 404 detail refresh clears a removed meeting. The
 browser reconnects with its last cursor; a reconnecting hint identifies an interrupted event feed.
 
-The generator renews a healthy stream after 14 seconds and sends a heartbeat at most every 5 seconds.
-A public ASGI response deadline of 15 seconds includes awaited network sends and closes the
-generator in `finally`, releasing its subscription even when the peer stops reading. Uvicorn's
+A healthy stream stays open; when no event arrives for 5 seconds the server sends a `: heartbeat`
+comment line. Each network send may wait at most 15 seconds: a peer that stops reading has its
+request closed and the generator closed in `finally`, releasing its subscription. Uvicorn's
 `timeout_graceful_shutdown=5` bounds its request/task shutdown wait before application cleanup.
 These are application/request limits, not a promise of immediate physical TCP closure: buffered
 bytes can remain until the peer reads or closes. A reset blocked by the socket is not delivered;
@@ -701,8 +702,8 @@ the next request recovers through its cursor or snapshot.
 
 Each open subscription appears once in the recording page's `watchers` list. Labels derived from
 User-Agent describe connections, not authenticated people or distinct devices. Two tabs count as
-two connections; renewal/reconnection may allocate a new connection id. Closing, terminal state,
-overflow or request deadline removes the connection. No presence or replay state survives a process
+two connections; a reconnection after a network error gets a new connection id and start time. Closing, terminal state,
+overflow or the send deadline removes the connection. No presence or replay state survives a process
 restart. 404 `session.not_found` identifies unknown meetings; 409 `session.busy` identifies pending
 deletion. The session cookie is sent by EventSource when the shared password is enabled (§5.7).
 

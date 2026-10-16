@@ -24,6 +24,8 @@ from pipecat.frames.frames import (
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 
 EVENT_LIMIT = 256
+# 回答文字是累计全文，逐个 token 发会很快挤满历史和队列；中途最多这么久发一次，结束时总会发全文。
+ANSWER_TEXT_SECS = 0.25
 
 # 按顺序匹配：先认更具体的（iPad 的 UA 里也有 Mac、安卓的 UA 里也有 Linux，Edge 的 UA 里也有 Chrome）
 _PLATFORMS = (
@@ -247,6 +249,7 @@ class WatcherObserver(BaseObserver):
         self._response_id = ""
         self._text = ""
         self._answering = False
+        self._text_sent_at = 0.0
 
     async def on_push_frame(self, data: FramePushed) -> None:
         frame = data.frame
@@ -254,11 +257,15 @@ class WatcherObserver(BaseObserver):
         if isinstance(frame, LLMFullResponseStartFrame):
             self._response_id = uuid.uuid4().hex
             self._text = ""
+            self._text_sent_at = 0.0
             self._answering = True
             phase = "started"
         elif isinstance(frame, LLMTextFrame) and self._answering:
             self._text += frame.text
-            phase = "text"
+            now = time.monotonic()
+            if now - self._text_sent_at >= ANSWER_TEXT_SECS:
+                self._text_sent_at = now
+                phase = "text"
         elif isinstance(frame, LLMFullResponseEndFrame) and self._answering:
             self._answering = False
             phase = "ended"

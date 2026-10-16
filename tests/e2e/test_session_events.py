@@ -472,7 +472,7 @@ async def test_snapshot_race_slow_queue_cleanup_and_late_task_routing(controlled
         await second.close()
 
 
-async def test_event_header_heartbeat_and_bounded_stream_renewal(app, http, meeting):
+async def test_event_header_heartbeat_and_cursor_resume(app, http, meeting):
     recorder = meeting()
     sid = (await recorder.connect())["id"]
     await recorder.close()
@@ -484,7 +484,6 @@ async def test_event_header_heartbeat_and_bounded_stream_renewal(app, http, meet
     async with Watcher(http, sid) as first:
         await first.find("snapshot")
         cursor = first.cursor
-    started = asyncio.get_running_loop().time()
     async with http.stream(
         "GET",
         f"/api/sessions/{sid}/events",
@@ -495,20 +494,40 @@ async def test_event_header_heartbeat_and_bounded_stream_renewal(app, http, meet
         changed = await http.patch(f"/api/sessions/{sid}", json={"title": "请求头优先"})
         assert changed.status_code == 200
         heartbeat, received = False, None
-        async for line in response.aiter_lines():
-            assert line not in {"event: reset", "event: snapshot"}
-            if line == ": heartbeat":
-                heartbeat = True
-            elif line.startswith("data: "):
-                received = json.loads(line[6:])
-                assert received["data"]["type"] == "session_updated"
-    assert heartbeat and received["data"]["title"] == "请求头优先"
-    assert asyncio.get_running_loop().time() - started < 22
+        async with asyncio.timeout(20):
+            async for line in response.aiter_lines():
+                assert line not in {"event: reset", "event: snapshot"}
+                if line == ": heartbeat":
+                    heartbeat = True
+                elif line.startswith("data: "):
+                    received = json.loads(line[6:])
+                    assert received["data"]["type"] == "session_updated"
+                if heartbeat and received is not None:
+                    break
+    assert received["data"]["title"] == "请求头优先"
     cursor = f"{received['epoch']}:{received['seq']}"
-    async with Watcher(http, sid, cursor) as renewed:
+    async with Watcher(http, sid, cursor) as resumed:
         await http.patch(f"/api/sessions/{sid}", json={"keep": True})
-        await renewed.find(type="session_updated", keep=True)
-        assert not any(kind == "snapshot" for kind, _ in renewed.events)
+        await resumed.find(type="session_updated", keep=True)
+        assert not any(kind == "snapshot" for kind, _ in resumed.events)
+
+
+async def test_a_watching_device_stays_listed_while_its_stream_is_healthy(http, meeting):
+    """事件流不定期重建：主持人看到的旁观设备和「几点起」一直不变。"""
+    recorder = meeting()
+    sid = (await recorder.connect())["id"]
+    async with Watcher(http, sid) as watcher:
+        await watcher.find("snapshot")
+        listed = await recorder.wait_for(
+            lambda: next((m for m in recorder.of_type("watchers") if len(m["items"]) == 1), None),
+            "主持人看到一台旁观设备",
+        )
+        await asyncio.sleep(20)  # 超过单次发送期限，健康的流仍不断开
+        assert [kind for kind, _ in watcher.events].count("snapshot") == 1
+        assert recorder.of_type("watchers")[-1]["items"] == listed["items"]
+        await http.patch(f"/api/sessions/{sid}", json={"title": "一直在看"})
+        await watcher.find(type="session_updated", title="一直在看")
+    await recorder.close()
 
 
 async def test_disabled_captioning_emits_skipped_only_to_observers(start_app):

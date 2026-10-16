@@ -31,6 +31,8 @@ MAX_TITLE_CHARS = 200
 MAX_SPEAKER_NAME_CHARS = 50
 MAX_PAGE = 500
 MAX_REASSIGN = 500  # 一次最多改这么多条发言的说话人
+HEARTBEAT_SECS = 5  # 旁观事件流空闲时多久发一行心跳
+SEND_TIMEOUT_SECS = 15  # 旁观事件流一次发送最多等这么久，对端不读就断开
 
 
 def summary_json(summary: SessionSummary, *, live: bool) -> dict[str, Any]:
@@ -202,7 +204,6 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
             source = subscriber.source
             seq = source.seq
             transient = source.snapshot_transient()
-            deadline = asyncio.get_running_loop().time() + 14
             try:
                 yield "retry: 1000\n\n"
                 if not valid:
@@ -247,11 +248,8 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
                     if subscriber.overflow:
                         yield encode("reset", {"reason": "slow_consumer"}, event_id=False)
                         return
-                    remaining = deadline - asyncio.get_running_loop().time()
-                    if remaining <= 0:
-                        return
                     try:
-                        event = await asyncio.wait_for(subscriber.queue.get(), min(5, remaining))
+                        event = await asyncio.wait_for(subscriber.queue.get(), HEARTBEAT_SECS)
                     except TimeoutError:
                         yield ": heartbeat\n\n"
                         continue
@@ -270,9 +268,13 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
 
         class EventResponse(StreamingResponse):
             async def stream_response(self, send):
+                async def bounded_send(message):
+                    # 只限制单次发送：对端不读时在期限内释放请求，健康的流一直开着，不定期重建。
+                    async with asyncio.timeout(SEND_TIMEOUT_SECS):
+                        await send(message)
+
                 try:
-                    async with asyncio.timeout(15):
-                        await super().stream_response(send)
+                    await super().stream_response(bounded_send)
                 finally:
                     # send 可能阻塞在生成器外；取消请求时仍须立即关闭生成器的订阅。
                     await body.aclose()
