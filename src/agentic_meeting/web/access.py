@@ -12,8 +12,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
+from loguru import logger
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from agentic_meeting.config import AppConfig, secret
@@ -31,6 +32,10 @@ from agentic_meeting.web.auth import (
     load_or_create_secret,
 )
 from agentic_meeting.web.errors import ApiError, error_response, invalid
+
+# 同一个登录反复读同一场会议，这么久之内只记一条「查看」
+VIEW_LOG_SECS = 1800
+VIEW_LOG_MAX_KEYS = 10000
 
 
 @dataclass(frozen=True)
@@ -77,6 +82,7 @@ class MeetingAccess:
             salt.hex(), guest_salt, session_secs=min(cfg.server.auth_session_days * 86400, 86400)
         )
         self.pruned_at = time.monotonic()
+        self.viewed: dict[tuple[str, str], float] = {}
         self.store: Store
         self.leases: set[Lease] = set()
         self.monitor: asyncio.Task | None = None
@@ -139,6 +145,32 @@ class MeetingAccess:
             "sources": ([{"kind": "acl"}] if membership else [])
             + [{"kind": "share_" + s["kind"], "id": s["id"]} for s in shares],
         }
+
+    def display_name(self, identity: Identity) -> str:
+        user = None if identity.guest else self.users.get(identity.principal)
+        return "Guest" if user is None else user.display_name
+
+    async def audit(self, identity: Identity, session_id: str, action: str, **detail: Any) -> None:
+        """记一条访问记录；写不进去只记日志，不影响请求本身。"""
+        try:
+            await self.store.log_access(
+                session_id, identity.principal, self.display_name(identity), action, detail
+            )
+        except Exception:
+            logger.exception(f"写会议 {session_id} 的访问记录失败")
+
+    async def note_view(self, identity: Identity, session_id: str, access: dict) -> None:
+        """读会议内容：同一个登录对同一场会议 ``VIEW_LOG_SECS`` 内只记一次。"""
+        key, now = (identity.digest, session_id), time.monotonic()
+        if now - self.viewed.get(key, -VIEW_LOG_SECS) < VIEW_LOG_SECS:
+            return
+        if len(self.viewed) >= VIEW_LOG_MAX_KEYS:
+            cutoff = now - VIEW_LOG_SECS
+            self.viewed = {k: t for k, t in self.viewed.items() if t > cutoff}
+        self.viewed[key] = now
+        await self.audit(
+            identity, session_id, "meeting.view", role=access["role"], sources=access["sources"]
+        )
 
     def guard(self, identity: Identity) -> AuthGuard:
         return self.guest_guard if identity.guest else self.guards[identity.principal]
@@ -212,8 +244,17 @@ class MeetingAccess:
 
 
 async def authorize(
-    request: Request, session_id: str, action: str = "read", *, missing: str = "session.not_found"
+    request: Request,
+    session_id: str,
+    action: str = "read",
+    *,
+    missing: str = "session.not_found",
+    view: bool = True,
 ) -> dict | None:
+    """会议权限模式下检查调用者对这场会议的权限。
+
+    读内容（``action="read"``）时顺带记一条「查看」；列表之类不算查看的读取传 ``view=False``。
+    """
     access = request.app.state.resources.access
     if access is None:
         return None
@@ -226,7 +267,16 @@ async def authorize(
     if not hasattr(request.state, "authorized_sessions"):
         request.state.authorized_sessions = set()
     request.state.authorized_sessions.add(session_id)
+    if view and action == "read":
+        await access.note_view(request.state.identity, session_id, result)
     return result
+
+
+async def audit(request: Request, session_id: str, action: str, **detail: Any) -> None:
+    """会议权限模式下给这场会议记一条访问记录；旧模式什么也不做。"""
+    access = request.app.state.resources.access
+    if access is not None:
+        await access.audit(request.state.identity, session_id, action, **detail)
 
 
 def host_write(function):
@@ -364,12 +414,38 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
         async with access.lock:
             await authorize(request, session_id, "host")
             user = access.users.get(principal_id)
-            if user is None or (role == "host" and not user.can_host):
+            # 移除不要求账号还在配置里：账号删掉之后，主持人仍要能把它从名单上去掉
+            if role is not None and (user is None or (role == "host" and not user.can_host)):
                 raise ApiError(400, "access.invalid_member")
             if not await access.store.set_member(session_id, principal_id, role, questions):
                 raise ApiError(409, "access.last_host")
+        if role is None:
+            await access.audit(
+                request.state.identity, session_id, "member.remove", principal_id=principal_id
+            )
+        else:
+            await access.audit(
+                request.state.identity,
+                session_id,
+                "member.set",
+                principal_id=principal_id,
+                role=role,
+                allow_questions=questions,
+            )
         await access.sweep()
         return {"items": await access.store.members(session_id)}
+
+    @app.get("/api/sessions/{session_id}/access-log")
+    async def access_log(
+        request: Request,
+        session_id: str,
+        limit: int = Query(100, ge=1, le=500),
+        before_id: int | None = None,
+    ) -> dict:
+        await authorize(request, session_id, "host", view=False)
+        return {
+            "items": await access.store.access_log(session_id, limit=limit, before_id=before_id)
+        }
 
     from agentic_meeting.web.shares import register as register_shares
 

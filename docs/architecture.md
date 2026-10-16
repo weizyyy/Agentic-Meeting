@@ -527,6 +527,16 @@ must never stop recognition and captions.
 | Docker missing                                          | No code execution              | The agent still searches and reads images, and reports that it could not run code                                     |
 | Browser disconnects                                     | Capture stops                  | The client reconnects; the session is kept and the timeline continues                                                 |
 
-## Meeting shares
+## 10. Meeting access
 
-Sharing is available only in meeting-access mode, without additional configuration or dependencies. Hosts grant temporary watcher access through meeting passwords or opaque links. The optional site password remains an additional gate. Login identity and permanent ACL remain independent of exact-login share leases. See [interfaces §5.12](interfaces.md#512-meeting-shares) for expiry, revocation, storage, response cancellation and safe downgrade boundaries. Default shares last 24 hours, at most seven days; guest login lasts at most 24 hours and the configured login duration. Revocation cannot recall previously received bytes or clipboard/history copies.
+With `server.meeting_access = true` every person logs in with a local account from the
+configuration, and each meeting is visible only to its members (host or watcher) and to logins that
+redeemed one of its shares. There is no identity provider, so it works offline. `web/access.py`
+authenticates logins, decides each request's role from `meeting_members` and active shares, and
+keeps a lease on every long response (event streams, downloads, read-only questions, recording
+connections); a sweep every 0.5 seconds ends leases whose access was revoked or expired.
+`web/shares.py` manages meeting passwords and links. Only the login that owns the recording
+connection can use tools; everyone else's questions take a tool-free path with a bounded context,
+so a watcher cannot pause or slow transcription. Access changes, exports and views are written to
+a per-meeting access log; a failed write is logged and never fails the request. Details are in
+[interfaces §5.11–§5.13](interfaces.md#511-meeting-access).

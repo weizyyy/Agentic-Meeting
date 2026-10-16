@@ -23,7 +23,7 @@ from agentic_meeting.pipeline.session import SessionManager
 from agentic_meeting.pipeline.watchers import device_label
 from agentic_meeting.store.db import SessionBusy, Store
 from agentic_meeting.types import NamedUtterance, Session, SessionSummary
-from agentic_meeting.web.access import authorize, host_write
+from agentic_meeting.web.access import audit, authorize, host_write
 from agentic_meeting.web.access import current_session as accessible_current
 from agentic_meeting.web.errors import ApiError, invalid
 from agentic_meeting.web.frames_api import frame_json
@@ -131,7 +131,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         for row in rows:
             item = summary_json(row, live=manager.is_live(row.session.id))
             if principal is not None:
-                item["access"] = await authorize(request, row.session.id)
+                item["access"] = await authorize(request, row.session.id, view=False)
             items.append(item)
         return {"items": items}
 
@@ -346,6 +346,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         ended = await manager.end(session.id)
         if ended is None:
             raise ApiError(404, "session.not_found")
+        await audit(request, session.id, "meeting.end")
         return {"id": ended.id, "ended_at": ended.ended_at}
 
     @app.post("/api/sessions/{session_id}/end")

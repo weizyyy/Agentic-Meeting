@@ -59,6 +59,8 @@ _UTTERANCE_COLUMNS = (
 )
 _UTTERANCE_FROM = "FROM utterances u LEFT JOIN speakers sp ON sp.session_id = u.session_id AND sp.idx = u.speaker_idx"
 
+ACCESS_LOG_KEEP = 2000  # 每场会议的访问记录最多留这么多条，旧的先删
+
 
 def _failure(error: Message) -> tuple[str, str, str]:
     """失败原因写库的三列：中文、代码、参数的 JSON（interfaces.md §5.10）。"""
@@ -1921,3 +1923,50 @@ class Store:
             await self._db.execute("DELETE FROM login_sessions WHERE expires_at <= ?", (now,))
             await self._remove_unused_guests(guests)
             await self._db.commit()
+
+    # ---- 访问记录 ----
+
+    async def log_access(
+        self,
+        session_id: str,
+        principal: str,
+        display_name: str,
+        action: str,
+        detail: dict[str, Any],
+        *,
+        at: float | None = None,
+        keep: int = ACCESS_LOG_KEEP,
+    ) -> None:
+        """记一条访问；每场会议只留最近 ``keep`` 条。会议已经删掉时什么也不做。"""
+        async with self._transaction():
+            if await self._one("SELECT 1 FROM sessions WHERE id = ?", (session_id,)) is None:
+                return
+            await self._db.execute(
+                "INSERT INTO access_log (session_id, at, principal_id, display_name, action, detail)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    session_id,
+                    time.time() if at is None else at,
+                    principal,
+                    display_name,
+                    action,
+                    json.dumps(detail, ensure_ascii=False),
+                ),
+            )
+            await self._db.execute(
+                "DELETE FROM access_log WHERE session_id = ? AND id <= (SELECT id FROM access_log"
+                " WHERE session_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?)",
+                (session_id, session_id, keep),
+            )
+            await self._db.commit()
+
+    async def access_log(
+        self, session_id: str, *, limit: int = 100, before_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        """新的在前。"""
+        rows = await self._all(
+            "SELECT id, at, principal_id, display_name, action, detail FROM access_log"
+            " WHERE session_id = ? AND (? IS NULL OR id < ?) ORDER BY id DESC LIMIT ?",
+            (session_id, before_id, before_id, limit),
+        )
+        return [{**dict(row), "detail": json.loads(row["detail"])} for row in rows]

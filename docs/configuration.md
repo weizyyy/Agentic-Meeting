@@ -93,6 +93,12 @@ A watcher cannot manage meetings. Questions from any login other than the record
 bounded meeting text and no tools; data goes to the configured realtime model provider, which can
 be remote. See [§5.11](interfaces.md#511-meeting-access) for route and revocation behavior.
 
+Hosts can also give temporary watcher access without an account, through a meeting password or a
+link from **Meeting shares** ([§5.12](interfaces.md#512-meeting-shares)); this needs no further
+configuration. Shares last 24 hours by default and at most seven days, and a guest login lasts at
+most 24 hours and never longer than `auth_session_days`. Hosts can read who opened, exported or
+changed access to a meeting under **Access log** ([§5.13](interfaces.md#513-access-log)).
+
 ## `[realtime_llm]`
 
 The model that answers when the assistant is called. `mode` selects one of two access modes; both
@@ -306,7 +312,3 @@ Each locally launched service has a `launch` table.
 
 The exact command lines are documented in [interfaces.md §9](interfaces.md), and multi-GPU layouts
 in [runtimes.md §5](runtimes.md).
-
-## Meeting shares
-
-Sharing is available only in meeting-access mode, without additional configuration or dependencies. Hosts grant temporary watcher access through meeting passwords or opaque links. The optional site password remains an additional gate. Login identity and permanent ACL remain independent of exact-login share leases. See [interfaces §5.12](interfaces.md#512-meeting-shares) for expiry, revocation, storage, response cancellation and safe downgrade boundaries. Default shares last 24 hours, at most seven days; guest login lasts at most 24 hours and the configured login duration. Revocation cannot recall previously received bytes or clipboard/history copies.

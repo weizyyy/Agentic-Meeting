@@ -356,8 +356,13 @@ async def _access(cfg: AppConfig, args: argparse.Namespace) -> int:
             if owner is None or not owner.can_host:
                 print("指定的本地主体不存在或不能主持会议。")
                 return 2
-            if not await store.claim_session(args.session_id, f"local:{owner.id}"):
-                print("会议不存在或已经由其他主体认领。")
+            try:
+                claimed = await store.claim_session(args.session_id, f"local:{owner.id}")
+            except LookupError:
+                print("会议不存在，请先用 access list-unclaimed 查看会议编号。")
+                return 1
+            if not claimed:
+                print("会议已经由其他账号认领。")
                 return 1
             print(f"{args.session_id} -> local:{owner.id}")
             return 0

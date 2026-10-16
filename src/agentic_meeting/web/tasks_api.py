@@ -20,7 +20,7 @@ from agentic_meeting.agent.tasks import task_dir
 from agentic_meeting.config import AppConfig
 from agentic_meeting.pipeline.bot import AppResources
 from agentic_meeting.types import TaskEvent, TaskRecord
-from agentic_meeting.web.access import authorize, current_session, host_write
+from agentic_meeting.web.access import audit, authorize, current_session, host_write
 from agentic_meeting.web.errors import ApiError
 
 
@@ -125,6 +125,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         if path is None:
             raise ApiError(404, "artifact.not_found")
         filename = os.path.basename(path)
+        await audit(request, task.session_id, "task.artifact", task_id=task.id, name=safe)
         media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
         # 产物是远端模型写的代码生成的：不让浏览器把它当页面或脚本执行
         inline = media_type in ("image/png", "image/jpeg", "image/webp", "image/gif")

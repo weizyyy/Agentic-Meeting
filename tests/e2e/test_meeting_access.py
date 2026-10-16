@@ -376,6 +376,11 @@ async def test_offline_claim_and_account_recovery(start_app, inference, tmp_path
     await enabled.shutdown()
     listed = await asyncio.to_thread(run_cli, tmp_path, cfg, "access", "list-unclaimed")
     assert listed.returncode == 0 and sid in listed.stdout
+    mistyped = await asyncio.to_thread(
+        run_cli, tmp_path, cfg, "access", "claim", "0" * 32, "--owner", "alpha"
+    )
+    assert mistyped.returncode == 1 and "会议不存在" in mistyped.stdout
+    assert "Traceback" not in mistyped.stderr
     for owner, code in (("alpha", 0), ("alpha", 0), ("beta", 1)):
         claimed = await asyncio.to_thread(
             run_cli, tmp_path, cfg, "access", "claim", sid, "--owner", owner
@@ -897,3 +902,53 @@ async def test_latest_long_material_keeps_bounded_excerpt(
             assert estimate_messages(sent["messages"]) + reserve <= 2000
         finally:
             await client.close()
+
+
+async def test_host_sees_who_opened_exported_and_was_granted_a_meeting(protected):
+    async with protected.http() as alpha, protected.http() as viewer:
+        await login(alpha, "alpha")
+        await login(viewer, "viewer")
+        recorder = MeetingClient(alpha)
+        sid = (await recorder.connect())["id"]
+        await recorder.close()
+        grant = {"role": "watcher", "allow_questions": True}
+        assert (
+            await alpha.put(f"/api/sessions/{sid}/members/local:viewer", json=grant)
+        ).status_code == 200
+        # 反复刷新同一场会议只记一次「查看」；列表不算查看
+        for _ in range(3):
+            assert (await viewer.get(f"/api/sessions/{sid}")).status_code == 200
+        assert (await viewer.get("/api/sessions")).status_code == 200
+        assert (await viewer.get(f"/api/export/{sid}.md")).status_code == 200
+        assert (await viewer.get(f"/api/sessions/{sid}/access-log")).status_code == 403
+        assert (await alpha.delete(f"/api/sessions/{sid}/members/local:viewer")).status_code == 200
+
+        log = await alpha.get(f"/api/sessions/{sid}/access-log")
+        assert log.status_code == 200
+        entries = [
+            (e["principal_id"], e["display_name"], e["action"])
+            for e in reversed(log.json()["items"])
+        ]
+        assert entries == [
+            ("local:alpha", "alpha", "recording.start"),
+            ("local:alpha", "alpha", "member.set"),
+            ("local:viewer", "viewer", "meeting.view"),
+            ("local:viewer", "viewer", "meeting.export"),
+            ("local:alpha", "alpha", "member.remove"),
+        ], entries
+        items = {e["action"]: e for e in log.json()["items"]}
+        assert items["member.set"]["detail"] == {
+            "principal_id": "local:viewer",
+            "role": "watcher",
+            "allow_questions": True,
+        }
+        assert items["meeting.view"]["detail"] == {"role": "watcher", "sources": [{"kind": "acl"}]}
+        assert items["meeting.export"]["detail"] == {"format": "md"}
+        older = await alpha.get(
+            f"/api/sessions/{sid}/access-log",
+            params={"limit": 2, "before_id": log.json()["items"][1]["id"]},
+        )
+        assert [e["action"] for e in older.json()["items"]] == ["meeting.view", "member.set"]
+
+        # 别人的会议：看不到它的访问记录，也不知道它存在
+        assert (await viewer.get(f"/api/sessions/{sid}/access-log")).status_code == 404

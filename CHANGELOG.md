@@ -6,8 +6,6 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-- Add meeting passwords and expiring watcher links with exact-login leases, guest access, and prompt revocation of streams and downloads.
-
 ### Fixed
 
 - A new slide that the browser uploads only as its periodic screenshot gets its own summary again.
@@ -18,16 +16,6 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   event stream is open, instead of "Not connected"; it still says this device is not transcribing.
 - A rejected typed question's notice (too long, queue full) goes only to the device that asked;
   devices following the meeting still see notices about the speech and language services.
-- Sharing regression fixtures start expiry after payload preparation and explicitly close injected-failure connections before recovery.
-
-- Closing meeting shares discards late UI results, so reopening cannot restore a one-time link.
-
-- Ordered meeting streams enforce login and meeting access during snapshot, replay and blocked
-  sends. Revoked views discard old materials and pending responses while other meetings continue.
-
-- Typed-input validation and queue notices stay with the requester; following pages continue to
-  receive meeting-wide service failure and recovery notices.
-
 - Following devices keep their read-only event stream during an interruption and automatically
   receive new captions when the host resumes. Typed questions stay disabled until the host returns;
   a deleted meeting is cleared when the event stream's detail refresh reports it missing ([#21]).
@@ -72,12 +60,21 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- Optional meeting access uses stable local accounts, host/watcher grants, revocable logins,
-  authorized downloads and connection ownership. Non-recording logins ask bounded questions
-  without tools. Existing meetings can be claimed by a trusted operator while the server is stopped.
-
-- The meeting page shows **N 台设备在旁观** (N devices watching) while other devices follow the
-  meeting; clicking it lists each device by platform and browser, such as _iPhone · Safari_, and
+- Optional meeting access with local accounts ([#22]). With `server.meeting_access = true`, each
+  person logs in with an account from `[[server.local_users]]` and sees only the meetings they host
+  or were granted; hosts add watchers or other hosts by principal id. It needs no identity provider
+  and works offline. Only the recording login can use the assistant's tools; other logins get
+  text answers without tools. Meetings recorded before can be assigned to an owner with
+  `agentic-meeting access claim` while the server is stopped.
+- Hosts can share a meeting through a meeting password or one-time links that expire after
+  24 hours by default and at most seven days. People without an account join as guests that can
+  only watch that meeting; revoking a share ends their access within a second ([#22]).
+- Hosts can see an access log of who opened or exported a meeting, downloaded task files, or
+  changed its members and shares ([#22]).
+- `agentic-meeting serve` locks its data directory: a second server on the same directory refuses
+  to start, and the offline `access` commands refuse to run while a server uses it.
+- The meeting page shows **N 条旁听连接** (N following connections) while other devices follow the
+  meeting; clicking it lists each connection by platform and browser, such as _iPhone · Safari_, and
   since when it has been watching ([#21]).
 
 ### Fixed
@@ -91,6 +88,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Ctrl+C`; the stop used to be cut off right after sending them the stop signal. ([#80])
 
 [#21]: https://github.com/weizyyy/Agentic-Meeting/issues/21
+[#22]: https://github.com/weizyyy/Agentic-Meeting/issues/22
 [#80]: https://github.com/weizyyy/Agentic-Meeting/pull/80
 
 ## [0.4.0] - 2026-10-14

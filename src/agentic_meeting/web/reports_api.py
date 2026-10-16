@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, Response
 
 from agentic_meeting.pipeline.report import ReportBusy, ReportUnavailable
 from agentic_meeting.types import Report
-from agentic_meeting.web.access import authorize, host_write
+from agentic_meeting.web.access import audit, authorize, host_write
 from agentic_meeting.web.errors import ApiError
 from agentic_meeting.web.export import download_headers, export_title
 
@@ -81,6 +81,7 @@ def register(app: FastAPI) -> None:
         report = await store.latest_report(session_id, done_only=True)
         if report is None:
             raise ApiError(404, "report.not_ready")
+        await audit(request, session_id, "meeting.export", format="report.md")
         return Response(
             report.text_md,
             media_type="text/markdown; charset=utf-8",

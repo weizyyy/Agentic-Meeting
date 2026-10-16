@@ -68,6 +68,19 @@ CREATE TABLE IF NOT EXISTS guest_logins (
     principal_id TEXT NOT NULL REFERENCES principals(id)
 );
 
+-- 会议的访问记录（只在会议权限模式下写）。主体不设外键：访客主体到期后删掉，记录仍要留着；
+-- display_name 记下当时的名字。会议删除时一起删除。
+CREATE TABLE IF NOT EXISTS access_log (
+    id INTEGER PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    at REAL NOT NULL,
+    principal_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    action TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_access_log_session ON access_log(session_id, id);
+
 -- 每次连接一行。t_from / t_to 是这次连接覆盖的会话时间轴（秒）；中断的空档就是相邻两行之间的缝。
 -- 会话状态不存列：ended_at 非空 = 已结束；为空时应用内存里有活动连接 = 进行中，否则 = 已中断。
 CREATE TABLE IF NOT EXISTS session_connections (

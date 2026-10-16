@@ -472,6 +472,9 @@ def create_app(
                         else resources.sessions.begin(owner=identity.principal)
                     )
                 live.identity = identity
+                await access.audit(
+                    identity, live.session.id, "recording.resume" if wanted else "recording.start"
+                )
                 resources = replace(resources, live=live, identity=identity)
                 access.peers[connection.pc_id] = (identity, live)
 

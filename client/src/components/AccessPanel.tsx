@@ -3,6 +3,7 @@ import { createApi, type MeetingMember, type SessionSummary } from "../api.ts";
 import type { AuthStatus } from "../auth.ts";
 import { useI18n } from "../i18n/index.ts";
 import { Button } from "./ui/button";
+import { AccessLog } from "./AccessLog.tsx";
 import { SharePanel } from "./SharePanel.tsx";
 import { Input } from "./ui/input";
 
@@ -122,6 +123,7 @@ export function AccessPanel({
         </details>
       )}
       {host && sid && <SharePanel key={sid} sessionId={sid} />}
+      {host && sid && <AccessLog key={sid} sessionId={sid} />}
       {error && (
         <p role="alert" className="text-destructive">
           {error}

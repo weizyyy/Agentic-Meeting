@@ -287,6 +287,13 @@ async def test_exchange_origin_csrf_site_and_strict_options(shared_app):
             ).status_code == 404
             assert (await redeem(viewer, app, {**link, "site_password": ""})).status_code == 404
             assert (await redeem(guest, app, link)).status_code == 200
+            # 反向代理终止 TLS：浏览器的 Origin 是 https，应用收到的是 http，同一主机照样能兑换。
+            async with app.http() as proxied:
+                behind_proxy = "https://" + app.base_url.split("://", 1)[1]
+                response = await proxied.post(
+                    "/api/shares/exchange", json=link, headers={"Origin": behind_proxy}
+                )
+                assert response.status_code == 200, response.text
             for ttl in (0, -1, 604801, True, "3600"):
                 assert (
                     await host.post(f"/api/sessions/{sid}/shares/links", json={"expires_in": ttl})
@@ -335,6 +342,28 @@ async def test_link_limit_and_shared_concurrent_failure_budget(shared_app):
                 json={"user_id": "viewer", "password": PASSWORD, "site_password": SITE},
             )
             assert login.status_code == 429
+        finally:
+            await recorder.close()
+
+
+async def test_one_address_creates_a_bounded_number_of_guest_logins(shared_app):
+    app = shared_app
+    async with app.http() as host:
+        await sign_in(host)
+        recorder = MeetingClient(host)
+        try:
+            sid = (await recorder.connect())["id"]
+            link = await make_link(host, sid)
+            for _ in range(20):
+                async with app.http() as guest:
+                    assert (await redeem(guest, app, link)).status_code == 200
+            async with app.http() as guest:
+                refused = await redeem(guest, app, link)
+                assert refused.status_code == 429 and "Retry-After" in refused.headers
+            # 已经登录的人再兑换不建新访客，不受这个上限影响。
+            async with app.http() as viewer:
+                await sign_in(viewer, "viewer")
+                assert (await redeem(viewer, app, link)).status_code == 200
         finally:
             await recorder.close()
 

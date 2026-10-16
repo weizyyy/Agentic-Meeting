@@ -84,8 +84,19 @@ export interface MeetingMember {
   allow_questions: boolean;
 }
 
+/** 会议访问日志的一条（docs/interfaces.md §5.13），新的在前 */
+export interface AccessLogEntry {
+  id: number;
+  at: number;
+  principal_id: string;
+  display_name: string;
+  action: string;
+  detail: Record<string, unknown>;
+}
+
 export interface Api {
   listMembers(id: string): Promise<MeetingMember[]>;
+  accessLog(id: string, beforeId?: number): Promise<AccessLogEntry[]>;
   setMember(
     id: string,
     principal: string,
@@ -180,6 +191,12 @@ export function createApi(
   return {
     async listMembers(id) {
       return (await request<{ items: MeetingMember[] }>(`/api/sessions/${enc(id)}/members`)).items;
+    },
+    async accessLog(id, beforeId) {
+      const body = await request<{ items: AccessLogEntry[] }>(
+        `/api/sessions/${enc(id)}/access-log${query({ limit: 100, before_id: beforeId })}`,
+      );
+      return body.items;
     },
     async setMember(id, principal, role, questions = false) {
       return (

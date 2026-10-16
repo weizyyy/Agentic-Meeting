@@ -239,3 +239,24 @@ the meeting is live:
 | **转录** (Transcript)     | Markdown: running summary, captions and screen summaries in time order, task results |
 | **JSON**                  | All structured data                                                                  |
 | **完整包** (Full archive) | ZIP with the transcript, JSON, report, every screenshot and all task artifacts       |
+
+## Accounts and sharing
+
+When the operator has turned on meeting access, log in with the account id and password you were
+given. You see only the meetings you host, the ones a host granted you, and the ones you opened
+through a share. The page shows your principal id (for example `local:alice`); give it to a host to
+be added to a meeting.
+
+A host manages a meeting from the panel above it:
+
+- **Meeting access** grants a watcher or host role to an exact principal id, optionally allowing
+  questions, and revokes it again. A meeting always keeps one host.
+- **Meeting shares** creates a meeting password or a one-time link for people without an account.
+  They join as watchers of that meeting only, for 24 hours by default and at most seven days. Copy
+  the link when it appears: it is shown only once. Revoking a share ends that access within a
+  second, but cannot recall what a guest already saw or downloaded.
+- **Access log** lists who opened the meeting, exported it or downloaded task files, and who
+  changed its members and shares, newest first.
+
+Only the login that is recording can use the assistant's tools. Questions typed from any other
+login, including a second host, get a text answer from the meeting so far, without tools.

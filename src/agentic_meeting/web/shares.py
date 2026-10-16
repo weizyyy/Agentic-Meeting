@@ -10,6 +10,7 @@ import re
 import secrets
 import time
 import uuid
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -19,6 +20,7 @@ from agentic_meeting.web.auth import (
     COOKIE_NAME,
     CSRF_HEADER,
     MAX_LOGIN_BODY_BYTES,
+    LoginLimiter,
     _client_address,
     _read_body_limited,
     stretch_password,
@@ -26,6 +28,20 @@ from agentic_meeting.web.auth import (
 from agentic_meeting.web.errors import ApiError, error_response, invalid
 
 HEADERS = {"Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer"}
+# 同一地址一小时内最多换这么多个访客登录；持有有效链接也不能无限制地建登录记录。
+GUEST_LOGINS_PER_HOUR = 20
+
+
+def same_origin(request: Request) -> bool:
+    """浏览器的 Origin 和请求的 Host 是同一站点。
+
+    只比主机和端口、不比协议：经反向代理终止 TLS 时，应用看到的是 http，浏览器发的是 https。
+    """
+    origin, host = request.headers.get("origin"), request.headers.get("host")
+    if not origin or not host:
+        return False
+    parts = urlsplit(origin)
+    return parts.scheme in ("http", "https") and parts.netloc.lower() == host.lower()
 
 
 async def body(request: Request, allowed: set[str]) -> dict:
@@ -55,7 +71,7 @@ def metadata(row: dict) -> dict:
 
 
 def outcome(action: str, row: dict, principal: str) -> dict:
-    # S06接入点仅返回已确认的非秘密来源，不记录凭据或未确认的目标。
+    # 只含不保密的来源编号，不含凭据。
     return {
         "name": "share." + action,
         "result": "success",
@@ -69,6 +85,7 @@ def outcome(action: str, row: dict, principal: str) -> dict:
 
 def register(app: FastAPI, access: MeetingAccess) -> None:
     dummy_salt = secrets.token_bytes(16)
+    guests = LoginLimiter(GUEST_LOGINS_PER_HOUR, 3600)
 
     @app.get("/api/sessions/{session_id}/shares")
     async def listing(request: Request, session_id: str) -> dict:
@@ -125,6 +142,17 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
             if not changed:
                 raise ApiError(404, "share.invalid")
         await access.sweep()
+        rotated = bool(old or previous_password)
+        await access.audit(
+            request.state.identity,
+            session_id,
+            "share.rotate" if rotated else "share.create",
+            kind=kind,
+            share_id=row["id"],
+            replaced_id=old,
+            expires_at=row["expires_at"],
+            allow_questions=questions,
+        )
         result = {
             "share": metadata(row),
             "action": outcome(
@@ -158,6 +186,7 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
             await access.store.prune_shares()
             await access.store.revoke_share(session_id, share_id)
         await access.sweep()
+        await access.audit(request.state.identity, session_id, "share.revoke", share_id=share_id)
         return {
             "revoked": True,
             "action": {
@@ -170,7 +199,7 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
 
     @app.post("/api/shares/exchange")
     async def exchange(request: Request) -> JSONResponse:
-        if request.headers.get("origin") != f"{request.url.scheme}://{request.url.netloc}":
+        if not same_origin(request):
             raise ApiError(403, "auth.csrf")
         cookie = request.cookies.get(COOKIE_NAME)
         identity = await access.authenticate(cookie)
@@ -243,6 +272,14 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
             async with access.lock:
                 guest = None
                 if identity is None:
+                    wait = guests.retry_after(address)
+                    if wait > 0:
+                        return error_response(
+                            429,
+                            "auth.too_many",
+                            headers={**HEADERS, "Retry-After": str(int(wait) + 1)},
+                        )
+                    guests.failed(address)  # 计的是建过的访客登录，不是失败
                     guest_cookie, _ = access.guest_guard.issue()
                     identity = Identity(
                         hashlib.sha256(guest_cookie.encode()).hexdigest(),
@@ -257,6 +294,9 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
                 if expires is None:
                     access.limiter.failed(address)
                     raise ApiError(404, "share.invalid")
+        await access.audit(
+            identity, sid, "share.redeem", kind=kind, share_id=row["id"], guest=guest is not None
+        )
         result = {
             "auth": access.status(identity),
             "session_id": sid,

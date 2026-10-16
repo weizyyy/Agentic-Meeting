@@ -38,7 +38,7 @@ from agentic_meeting.types import (
     TaskEvent,
     TaskRecord,
 )
-from agentic_meeting.web.access import authorize
+from agentic_meeting.web.access import audit, authorize
 from agentic_meeting.web.errors import ApiError, invalid
 
 MERGE_GAP_SECS = 120.0  # 同一个人隔了这么久才接着说，另起一段（时间戳才有参考价值）
@@ -468,6 +468,7 @@ def register(app: FastAPI) -> None:
         )
         if data is None:
             raise ApiError(404, "session.not_found")
+        await audit(request, stem, "meeting.export", format=suffix)
         title = export_title(data.summary)
         if suffix == "md":
             return Response(
