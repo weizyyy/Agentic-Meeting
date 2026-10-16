@@ -53,6 +53,11 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Single sign-on: people can log in with their organization account through OpenID Connect
+  (authorization code flow with PKCE, any number of providers in `server.oidc`), or be recognized
+  from the user-name header of a trusted reverse proxy (`server.proxy_auth`). Who may log in can
+  be limited to listed users or groups. The access password keeps working next to it, also while
+  the provider is offline, and the login page shows a button per provider ([#24]).
 - The meeting page shows **N 台设备在旁观** (N devices watching) while other devices follow the
   meeting; clicking it lists each device by platform and browser, such as _iPhone · Safari_, and
   since when it has been watching ([#21]).
@@ -68,6 +73,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Ctrl+C`; the stop used to be cut off right after sending them the stop signal. ([#80])
 
 [#21]: https://github.com/weizyyy/Agentic-Meeting/issues/21
+[#24]: https://github.com/weizyyy/Agentic-Meeting/issues/24
 [#80]: https://github.com/weizyyy/Agentic-Meeting/pull/80
 
 ## [0.4.0] - 2026-10-14

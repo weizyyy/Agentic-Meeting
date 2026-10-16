@@ -48,10 +48,13 @@ Periods must be integers, not booleans, negative/fractional or out-of-range valu
 | --------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `host`                | `"0.0.0.0"` | Bind address                                                                                                                                                 |
 | `port`                | `7860`      | HTTP(S) port                                                                                                                                                 |
+| `public_url`          | `""`        | The address browsers use, such as `"https://meet.example.org"`. Single sign-on builds its callback address from it; empty means taken from each request      |
 | `tls_cert`, `tls_key` | `""`        | Certificate and key files. Required for access from other devices; see [getting started](getting-started.md#access-from-other-devices)                       |
 | `ice_servers`         | `[]`        | STUN/TURN servers used by both the server and the browser. Leave empty on a single LAN; see below                                                            |
 | `password_env`        | `""`        | Name of the environment variable that holds the access password. Empty means no login is required. See [Access password](getting-started.md#access-password) |
 | `auth_session_days`   | `7`         | How long a login lasts, in days (more than 0, at most 365). The session ends at that time even if the page is in use                                         |
+| `oidc`                | `[]`        | OpenID Connect providers for single sign-on; see [Single sign-on](#single-sign-on) below                                                                     |
+| `proxy_auth`          | —           | Identity headers from a trusted reverse proxy; see [Single sign-on](#single-sign-on) below                                                                   |
 
 Each entry of `ice_servers` is either a URL string (`"stun:host:3478"`) or a table with `urls` (a
 string or a list), `username` and `credential_env`, the name of the environment variable that holds
@@ -71,7 +74,61 @@ warn otherwise.
 
 The password itself goes into `.env`, never into `config.toml`; it must be at least 8 characters
 long. Changing it logs out every device. `agentic-meeting check` and `serve` warn when `host` is
-not a loopback address and no password is set.
+not a loopback address and no login method is configured.
+
+### Single sign-on
+
+People can log in with an account they already have at their organization instead of the shared
+password. Both can be enabled together: the login page then shows one button per provider above
+the password field, and the password keeps working while the provider is unreachable. A device that
+is already logged in does not need the provider again until its login expires
+(`auth_session_days`). The protocol details are in [interfaces](interfaces.md#57-access-password-and-single-sign-on).
+
+**OpenID Connect.** Register this application at the provider (Keycloak, Authentik, Microsoft Entra
+ID, Google and others) as a web application with the authorization code flow, and give it the
+callback address `<public_url>/api/auth/oidc/<id>/callback`. Then add one entry per provider:
+
+```toml
+[server]
+public_url = "https://meet.example.org"
+oidc = [
+  { id = "lab", display_name = "Lab account", issuer = "https://id.example.org/realms/lab", client_id = "agentic-meeting", client_secret_env = "AGENTIC_MEETING_OIDC_SECRET", allowed_groups = ["lab-members"] },
+]
+```
+
+| Key                 | Default                          | Description                                                                                                          |
+| ------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `id`                | —                                | Lower-case letters, digits, `-` and `_`, at most 32 characters; part of the callback address                         |
+| `display_name`      | —                                | Text of the button: "Sign in with …"                                                                                 |
+| `issuer`            | —                                | Exactly as in the provider's discovery document, including any trailing slash. HTTPS unless it is a loopback address |
+| `client_id`         | —                                | Client id registered at the provider                                                                                 |
+| `client_secret_env` | `""`                             | Name of the environment variable that holds the client secret. Empty for a public client                             |
+| `scopes`            | `["openid", "profile", "email"]` | Requested scopes; must include `openid`. Add the scope that releases groups if the provider needs one                |
+| `username_claim`    | `"preferred_username"`           | Claim used as the user name (for example `email`); `sub` when it is missing                                          |
+| `groups_claim`      | `"groups"`                       | Claim that lists the user's groups                                                                                   |
+| `allowed_users`     | `[]`                             | User names allowed to log in                                                                                         |
+| `allowed_groups`    | `[]`                             | Groups whose members are allowed to log in. With both lists empty, everyone the provider accepts can log in          |
+
+`agentic-meeting check` reports a `client_secret_env` that is named but not set. The provider is
+contacted only when someone logs in, not at startup, so the application starts while it is offline.
+
+**Identity headers from a reverse proxy.** When a reverse proxy in front of the application already
+authenticates people (oauth2-proxy, Authelia, a web server module), it can pass the user name in a
+header:
+
+```toml
+[server.proxy_auth]
+trusted_proxies = ["127.0.0.1"]     # addresses or networks of the proxy itself
+user_header = "X-Forwarded-User"
+name_header = ""                    # optional: display name
+groups_header = ""                  # optional: comma-separated groups
+allowed_users = []
+allowed_groups = []
+```
+
+The headers are accepted only on connections that come directly from `trusted_proxies`; from any
+other address they are ignored. The proxy must authenticate every request it forwards and remove
+these headers from requests it receives. An empty `trusted_proxies` turns this off.
 
 ## `[realtime_llm]`
 

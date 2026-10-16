@@ -35,6 +35,9 @@ members = []
 [server]
 host = "0.0.0.0"
 port = 7860
+# 浏览器访问本服务用的地址，例如 "https://meet.example.org"。单点登录的回调地址由它生成
+# （<public_url>/api/auth/oidc/<id>/callback）；留空时按请求推断。
+public_url = ""
 # 其他电脑的浏览器要访问，必须走 HTTPS（否则浏览器不允许采集麦克风/屏幕）。
 # 用 mkcert 生成证书后填在这里；只在本机用 http://localhost 访问可留空。
 tls_cert = ""
@@ -50,6 +53,21 @@ ice_servers = []
 # 留空 = 不需要登录，只适合本机或可信的局域网。
 password_env = ""
 auth_session_days = 7   # 登录一次的有效天数
+# 单点登录（OpenID Connect）：每个身份提供方一项，登录页上各有一个按钮。可以和访问口令同时开：
+# 身份提供方连不上时仍能用口令登录。客户端密钥写在 .env 里，这里只写变量名。见 docs/configuration.md。
+# oidc = [
+#   { id = "lab", display_name = "实验室账号", issuer = "https://id.example.org/realms/lab", client_id = "agentic-meeting", client_secret_env = "AGENTIC_MEETING_OIDC_SECRET", allowed_groups = ["lab-members"] },
+# ]
+oidc = []
+
+# 反向代理传来的身份头：只认 trusted_proxies 里的地址直接发来的请求。trusted_proxies 留空 = 不启用。
+[server.proxy_auth]
+trusted_proxies = []
+user_header = "X-Forwarded-User"
+name_header = ""
+groups_header = ""      # 逗号分隔的用户组
+allowed_users = []      # 两张名单都空 = 代理认证过的人都能进
+allowed_groups = []
 
 # ----------------------------------------------------------------------------
 # 实时应答模型

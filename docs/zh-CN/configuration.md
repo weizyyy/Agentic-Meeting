@@ -43,14 +43,17 @@
 
 ## `[server]`
 
-| 配置项                | 默认值      | 说明                                                                                    |
-| --------------------- | ----------- | --------------------------------------------------------------------------------------- |
-| `host`                | `"0.0.0.0"` | 监听地址                                                                                |
-| `port`                | `7860`      | HTTP(S) 端口                                                                            |
-| `tls_cert`、`tls_key` | `""`        | 证书与私钥文件。其他设备访问时必需，见[入门指南](getting-started.md#从其他设备访问)     |
-| `ice_servers`         | `[]`        | STUN/TURN 服务器，服务端和浏览器都用。同一局域网内留空；见下文                          |
-| `password_env`        | `""`        | 存放访问口令的环境变量名。留空表示不需要登录。见[访问口令](getting-started.md#访问口令) |
-| `auth_session_days`   | `7`         | 登录一次的有效天数（大于 0，最多 365）。到期即需重新登录，即使页面一直开着              |
+| 配置项                | 默认值      | 说明                                                                                                        |
+| --------------------- | ----------- | ----------------------------------------------------------------------------------------------------------- |
+| `host`                | `"0.0.0.0"` | 监听地址                                                                                                    |
+| `port`                | `7860`      | HTTP(S) 端口                                                                                                |
+| `public_url`          | `""`        | 浏览器访问本服务用的地址，如 `"https://meet.example.org"`。单点登录的回调地址由它生成；留空时按每个请求推断 |
+| `tls_cert`、`tls_key` | `""`        | 证书与私钥文件。其他设备访问时必需，见[入门指南](getting-started.md#从其他设备访问)                         |
+| `ice_servers`         | `[]`        | STUN/TURN 服务器，服务端和浏览器都用。同一局域网内留空；见下文                                              |
+| `password_env`        | `""`        | 存放访问口令的环境变量名。留空表示不需要登录。见[访问口令](getting-started.md#访问口令)                     |
+| `auth_session_days`   | `7`         | 登录一次的有效天数（大于 0，最多 365）。到期即需重新登录，即使页面一直开着                                  |
+| `oidc`                | `[]`        | 单点登录用的 OpenID Connect 身份提供方，见下文[单点登录](#单点登录)                                         |
+| `proxy_auth`          | —           | 受信任反向代理传来的身份头，见下文[单点登录](#单点登录)                                                     |
 
 `ice_servers` 的每一项可以是一个地址字符串（`"stun:host:3478"`），也可以是一张表：`urls`（字符串或列表）、`username`
 和 `credential_env`（存放 TURN 密码的环境变量名）。地址以 `stun:`、`stuns:`、`turn:` 或 `turns:` 开头；TURN 必须填
@@ -67,7 +70,56 @@ ice_servers = [
 没有设置时 `check` 和 `serve` 会给出提醒。
 
 口令本身写在 `.env` 里，不写进 `config.toml`，至少 8 个字符。修改口令后所有设备都要重新登录。
-`host` 不是回环地址又没有设置口令时，`agentic-meeting check` 和 `serve` 会给出提醒。
+`host` 不是回环地址又没有配置任何登录方式时，`agentic-meeting check` 和 `serve` 会给出提醒。
+
+### 单点登录
+
+大家可以用单位里已有的账号登录，而不必共用一个口令。两者可以同时开：登录页在口令框上方为每个身份提供方显示一个按钮，
+身份提供方连不上时口令照常可用。已经登录的设备在登录到期（`auth_session_days`）之前不再需要身份提供方。
+协议细节见[接口](interfaces.md#57-访问口令与单点登录)。
+
+**OpenID Connect。** 在身份提供方（Keycloak、Authentik、Microsoft Entra ID、Google 等）登记本应用，类型选 Web
+应用、授权码流程，回调地址填 `<public_url>/api/auth/oidc/<id>/callback`。然后每个身份提供方写一项：
+
+```toml
+[server]
+public_url = "https://meet.example.org"
+oidc = [
+  { id = "lab", display_name = "实验室账号", issuer = "https://id.example.org/realms/lab", client_id = "agentic-meeting", client_secret_env = "AGENTIC_MEETING_OIDC_SECRET", allowed_groups = ["lab-members"] },
+]
+```
+
+| 配置项              | 默认值                           | 说明                                                                                 |
+| ------------------- | -------------------------------- | ------------------------------------------------------------------------------------ |
+| `id`                | —                                | 小写字母、数字、`-`、`_`，最多 32 个字符；是回调地址的一部分                         |
+| `display_name`      | —                                | 按钮上的文字：「用 … 登录」                                                          |
+| `issuer`            | —                                | 与身份提供方发现文档里的写法逐字相同（包括末尾的斜杠）。除本机回环地址外必须是 HTTPS |
+| `client_id`         | —                                | 在身份提供方登记的客户端 id                                                          |
+| `client_secret_env` | `""`                             | 存放客户端密钥的环境变量名。公开客户端留空                                           |
+| `scopes`            | `["openid", "profile", "email"]` | 申请的权限范围，必须含 `openid`。身份提供方要单独的范围才给用户组时加上它            |
+| `username_claim`    | `"preferred_username"`           | 作为用户名的声明（例如 `email`）；缺失时用 `sub`                                     |
+| `groups_claim`      | `"groups"`                       | 列出用户组的声明                                                                     |
+| `allowed_users`     | `[]`                             | 允许登录的用户名                                                                     |
+| `allowed_groups`    | `[]`                             | 允许登录的用户组。两张名单都空时，身份提供方认可的人都能登录                         |
+
+`client_secret_env` 填了变量名却没设置时，`agentic-meeting check` 会列为缺项。只有有人登录时才连身份提供方，启动时不连，
+所以它离线时应用照常启动。
+
+**反向代理传来的身份头。** 应用前面的反向代理已经负责认证（oauth2-proxy、Authelia、Web 服务器的模块）时，
+可以把用户名放在请求头里传过来：
+
+```toml
+[server.proxy_auth]
+trusted_proxies = ["127.0.0.1"]     # 代理自己的地址或网段
+user_header = "X-Forwarded-User"
+name_header = ""                    # 可选：显示名
+groups_header = ""                  # 可选：逗号分隔的用户组
+allowed_users = []
+allowed_groups = []
+```
+
+只有直接从 `trusted_proxies` 连过来的请求才认这些头，其他地址带的一律忽略。代理必须对转发的每个请求都做认证，
+并去掉客户端自己带来的这些头。`trusted_proxies` 留空即关闭。
 
 ## `[realtime_llm]`
 

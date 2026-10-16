@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { App } from "../App.tsx";
-import { authSession, fetchAuthStatus, logout, type AuthStatus } from "../auth.ts";
+import { NO_METHODS, authSession, fetchAuthStatus, logout, type AuthStatus } from "../auth.ts";
 import { LoginPage } from "./LoginPage.tsx";
 
 /** 没有启用口令时的状态；读不到登录状态时也按它处理，交给页面自己的请求去报错。 */
-const OPEN: AuthStatus = { enabled: false, authenticated: true, csrf_token: null };
+const OPEN: AuthStatus = {
+  enabled: false,
+  authenticated: true,
+  csrf_token: null,
+  methods: NO_METHODS,
+};
+
+/** 只靠反向代理登录时退出没有意义：代理下一个请求又会带上身份。 */
+function canLogOut(status: AuthStatus): boolean {
+  return status.enabled && (status.methods.password || status.methods.oidc.length > 0);
+}
 
 /**
  * 页面入口：先问服务端要不要登录（docs/interfaces.md §5.7）。
@@ -40,14 +50,15 @@ export function AuthGate() {
 
   if (status === null) return null; // 只等一个很快的请求，不闪加载提示
   if (status.enabled && !status.authenticated) {
-    return <LoginPage onLoggedIn={setStatus} />;
+    return <LoginPage methods={status.methods} onLoggedIn={setStatus} />;
   }
   return (
     <>
-      <App onLogout={status.enabled ? () => void onLogout() : undefined} />
+      <App onLogout={canLogOut(status) ? () => void onLogout() : undefined} />
       {expired && (
         <LoginPage
           overlay
+          methods={status.methods}
           onLoggedIn={(value) => {
             setStatus(value);
             setExpired(false);

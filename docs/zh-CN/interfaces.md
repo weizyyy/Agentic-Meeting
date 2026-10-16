@@ -24,7 +24,7 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
 | 配置段         | 内容                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `session`      | 助理名字（即唤醒词，必须是英文单词）、别名（`wake_aliases`：识别把名字写成的其他拼写，或听成的至少两个汉字；只用来唤醒，不作为识别热词）、识别热词、成员名单、数据目录                                                                                                                                                                                                                                                    |
-| `server`       | 监听地址与端口、HTTPS 证书、ICE 服务器、访问口令与登录有效期                                                                                                                                                                                                                                                                                                                                                              |
+| `server`       | 监听地址与端口、对外地址、HTTPS 证书、ICE 服务器、访问口令、单点登录与登录有效期                                                                                                                                                                                                                                                                                                                                          |
 | `realtime_llm` | 接入方式 `mode`，以及两种方式各自的一整套设置：`[realtime_llm.llama_server]`（地址、模型名字段、是否识图、思考开关、采样参数、槽位分工、启动参数）和 `[realtime_llm.openai_api]`（地址、密钥变量名、模型名、是否识图、是否认识 developer 角色、是否预热、附加请求字段、采样参数）                                                                                                                                         |
 | `asr`          | 识别后端、提示词格式档案、步长与窗口、每步不定稿的 token 数、句首回补时长（`preroll_ms`，默认 1500 毫秒）、启动参数                                                                                                                                                                                                                                                                                                       |
 | `diarization`  | 后端、动态库路径、权重路径、显卡序号、分段阈值                                                                                                                                                                                                                                                                                                                                                                            |
@@ -513,7 +513,7 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 除信令外，全部是 JSON；业务错误返回 `{"error": "<中文说明>", "code", "params"}` 和合适的状态码，`code` 标明是哪一条错误（§5.9）。
 开发时前端跑在 5173 端口并把 `/api` 代理到应用（见 `client/vite.config.ts`）。
-就绪检查的 503 响应保留 §5.8 定义的状态快照。配置了访问口令时，中间件保护 `/api`
+就绪检查的 503 响应保留 §5.8 定义的状态快照。需要登录时，中间件保护 `/api`
 及其下路径，§5.7 的公开认证接口除外。§5.8 的三个运维 GET 位于 `/api` 之外，保持匿名。
 
 ### 5.1 会话与对时
@@ -776,18 +776,25 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 
 生成中的报告页面每 2 秒轮询一次 `GET /api/sessions/{id}/report`，不依赖音频连接。页面上，字幕区上方有「字幕 / 报告」两个页签。
 
-### 5.7 访问口令
+### 5.7 访问口令与单点登录
 
-需要显式开启。`server.password_env` 留空（默认）时以下内容都不生效：`/api` 不设限，
-`GET /api/auth` 返回 `enabled: false`。填写后，启动时从这个环境变量读取口令，`web/auth.py` 里的中间件
-拦住 `/api/` 下除 `GET /api/auth` 和 `POST /api/auth/login` 以外的全部路径。静态页面（`/`、`/assets/…`）
-不拦截，里面没有会议数据。
+需要显式开启。三种登录方式配了任一种就需要登录：共享的访问口令（`server.password_env`）、一个或多个
+OpenID Connect 身份提供方（`server.oidc`）、受信任反向代理传来的身份头（`server.proxy_auth.trusted_proxies`）。
+都没配（默认）时以下内容都不生效：`/api` 不设限，`GET /api/auth` 返回 `enabled: false`。配了任一种时，
+`web/auth.py` 里的中间件拦住 `/api/` 下除 `GET /api/auth`、`POST /api/auth/login` 和两个 `GET /api/auth/oidc/…`
+以外的全部路径。静态页面（`/`、`/assets/…`）不拦截，里面没有会议数据。几种方式可以同时开；无论用哪种登录，
+得到的都是下面同一种会话 Cookie 和 CSRF 令牌，其余接口不知道设备是怎么登录的。
 
-| 方法与路径              | 请求                  | 响应                                                                                                                                                                   |
-| ----------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/auth`         | —                     | `{"enabled", "authenticated", "csrf_token"}`；未登录或未启用口令时 `csrf_token` 为 `null`                                                                              |
-| `POST /api/auth/login`  | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}`，并下发会话 Cookie。口令不对 401；尝试过多 429，`Retry-After` 给出秒数；请求体超过 16 KiB 413；未启用口令 404 |
-| `POST /api/auth/logout` | —                     | `{"enabled": true, "authenticated": false, "csrf_token": null}`，并清除 Cookie                                                                                         |
+| 方法与路径                               | 请求                                | 响应                                                                                                                                                                   |
+| ---------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/auth`                          | —                                   | `{"enabled", "authenticated", "csrf_token", "methods"}`；未登录或不需要登录时 `csrf_token` 为 `null`                                                                   |
+| `POST /api/auth/login`                   | `{"password": "..."}`               | 同一个对象，`"authenticated": true`，并下发会话 Cookie。口令不对 401；尝试过多 429，`Retry-After` 给出秒数；请求体超过 16 KiB 413；没配访问口令 404 `auth.not_enabled` |
+| `POST /api/auth/logout`                  | —                                   | 同一个对象，`"authenticated": false`、`"csrf_token": null`，并清除 Cookie                                                                                              |
+| `GET /api/auth/oidc/{provider}/start`    | 查询参数 `next`（可选）             | 302 跳到身份提供方的授权地址；`provider` 不存在 404 `auth.provider_not_found`。连不上身份提供方时 303 回到页面，带 `#login_error=sso.unavailable`                      |
+| `GET /api/auth/oidc/{provider}/callback` | 查询参数 `code`、`state` 或 `error` | 303 跳到 `next` 并下发会话 Cookie；失败时 303 跳到 `next` 并带 `#login_error=<代码>`，不下发会话                                                                       |
+
+`methods` 为 `{"password": bool, "oidc": [{"id", "display_name"}, …], "proxy": bool}`，列出登录页能提供的方式；
+无论是否已登录都会给出，不需要登录时为 `false`、`[]`、`false`。
 
 **受保护的请求。** 没有有效的会话 Cookie 时返回 401 `{"error": "请先登录"}`。`POST`、`PUT`、`PATCH`、
 `DELETE` 还要求请求头 `X-CSRF-Token` 等于当前会话的令牌，否则 403。`POST`/`PATCH /api/offer` 也不例外：
@@ -815,6 +822,59 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 （凭据可以经 `GET /api/ice` 读到）再返回一条。它们由 `check` 和 `serve` 打印，不发给浏览器。
 
 已经建立的 WebRTC 连接不会因为 Cookie 到期或在别处退出登录而中断；之后的 HTTP 请求会被拒绝。
+
+#### OpenID Connect 单点登录
+
+`server.oidc` 的每一项是一个身份提供方，用上面地址里的 `id` 区分。流程是带 PKCE（`S256`）和 `nonce` 的授权码流程；
+`client_secret_env` 指向密钥时作为机密客户端，否则作为公开客户端：
+
+1. `start` 读取 `<issuer>/.well-known/openid-configuration`（缓存一小时；超时 10 秒），要求其中的 `issuer`
+   与配置逐字相同。生成随机的 `state`、`nonce` 和 code verifier，连同身份提供方、回调地址和 `next` 在内存里保留
+   10 分钟（最多 1000 个进行中的登录，满了丢最早的）。下发 Cookie `am_sso`（`HttpOnly; SameSite=Lax;
+Path=/api/auth/oidc/; Max-Age=600`，HTTPS 时加 `Secure`），值是一个随机数，它的 SHA-256 和进行中的登录存在一起；
+   然后带 `response_type=code`、`client_id`、`redirect_uri`、`scope`、`state`、`nonce`、`code_challenge`、
+   `code_challenge_method=S256` 跳到授权地址。
+2. `callback` 取出并删除 `state` 对应的进行中登录（每个 `state` 只能用一次）；它不存在、已过期、不属于这个身份提供方，
+   或者与同一浏览器的 `am_sso` Cookie 对不上，都算失败。然后用 code verifier 和同一个回调地址在令牌接口换取令牌，
+   客户端认证用 HTTP Basic（`client_secret_basic`），身份提供方只声明支持 `client_secret_post` 时改用表单。
+3. ID 令牌必须用非对称算法（`RS*`、`PS*`、`ES*`、`EdDSA`）签名，算法须在身份提供方的
+   `id_token_signing_alg_values_supported` 里（没有这一项时按 `RS256`），公钥取自它的 `jwks_uri`（遇到未知的 key id
+   时重新获取，最多每 30 秒一次）。`iss` 须等于 issuer，`aud` 须包含 client id（有 `azp` 或有多个受众时 `azp` 须等于
+   client id），`exp`、`iat`、`sub` 必须有，`nonce` 须对上，时钟允许相差 60 秒。不签名的令牌和 HMAC 算法一律拒收。
+4. 用户名取 `username_claim` 指定的声明（默认 `preferred_username`，缺失时用 `sub`），显示名取 `name`（缺失时用
+   用户名），用户组取 `groups_claim` 指定的声明（字符串列表或单个字符串）。ID 令牌里缺用户名或用户组声明、而身份提供方
+   有 `userinfo_endpoint` 时，用 access token 从那里补全；其中的 `sub` 必须与 ID 令牌相同。
+5. `allowed_users` 或 `allowed_groups` 不为空时，用户名须在前者里，或者属于后者中的某个组；都为空时身份提供方认证过的人
+   都可以登录。
+
+回调地址是 `<public_url>/api/auth/oidc/<id>/callback`，`public_url` 取 `server.public_url`，留空时取请求的协议和主机
+（与上面的客户端地址一样，只有 uvicorn 信任代理时才采用 `X-Forwarded-Proto` 和 `Host`）。在身份提供方那边登记的
+必须正是这个地址。身份提供方的所有接口都必须是 HTTPS，issuer 是本机回环地址时除外。ID 令牌、access token 和声明
+都不保存，只签发会话 Cookie。
+
+`next` 必须是本站的路径（以一个 `/` 开头，最多 2000 个字符），否则换成 `/`。失败原因放在地址的片段里交给页面，
+服务端不会再看到它，页面读完就去掉：
+
+| `login_error`     | 原因                                                                  |
+| ----------------- | --------------------------------------------------------------------- |
+| `sso.unavailable` | 连不上发现文档、公钥、令牌或 userinfo 接口                            |
+| `sso.cancelled`   | 身份提供方返回 `error=access_denied`（用户拒绝或取消）                |
+| `sso.expired`     | `state` 未知或已过期，或 `am_sso` Cookie 缺失、对不上                 |
+| `sso.denied`      | 在身份提供方那边登录成功，但不在 `allowed_users`、`allowed_groups` 里 |
+| `sso.failed`      | 其他错误：令牌被拒收、身份提供方返回错误                              |
+
+具体原因记在服务端日志里。只有登录那一下需要身份提供方：它离线时已经登录的设备照常可用，访问口令也始终可用。
+
+#### 反向代理传来的身份头
+
+`server.proxy_auth.trusted_proxies` 列了地址或网段时，直连对端是其中之一、并带有非空 `user_header`
+（默认 `X-Forwarded-User`）的请求，不需要 Cookie 就以该用户身份登录。直连对端是 uvicorn 按 `X-Forwarded-For`
+改写之前的 TCP 对端，所以客户端没法借这个头冒充代理地址。其他地址发来的同名头一律忽略。可选的 `name_header` 和
+`groups_header` 给出显示名和用户组（逗号分隔）；头的值按 UTF-8 读取。`allowed_users`、`allowed_groups` 与
+OpenID Connect 一样限定谁能进；被拒绝的用户按未登录处理。
+
+`GET /api/auth` 对这样的请求报告已登录，CSRF 令牌由用户名在会话令牌的同一密钥下派生；改动性的请求照常需要它。
+只要代理还在发这个头，退出登录就不起作用。代理必须把它自己没有认证的请求里的这个头去掉。
 
 ### 5.8 健康检查与基础指标
 
@@ -1150,6 +1210,12 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 | `auth.wrong_password`       | 401           | —                | 口令不对                                                           |
 | `auth.too_many`             | 429           | —                | 尝试次数过多，请稍后再试                                           |
 | `auth.not_enabled`          | 404           | —                | 没有启用访问口令                                                   |
+| `auth.provider_not_found`   | 404           | —                | 没有这个登录方式                                                   |
+| `sso.unavailable`           | —（§5.7）     | —                | 暂时连不上身份提供方，请稍后再试或改用其他登录方式                 |
+| `sso.cancelled`             | —（§5.7）     | —                | 登录已取消                                                         |
+| `sso.expired`               | —（§5.7）     | —                | 登录请求已过期，请重新登录                                         |
+| `sso.denied`                | —（§5.7）     | —                | 这个账号没有被允许登录                                             |
+| `sso.failed`                | —（§5.7）     | —                | 单点登录没有完成，请重试                                           |
 | `storage.not_ready`         | 503           | —                | 存储尚未就绪                                                       |
 | `cleanup.not_ready`         | 503           | —                | 清理尚未就绪                                                       |
 | `session.not_found`         | 404           | —                | 找不到这场会议                                                     |

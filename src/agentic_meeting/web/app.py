@@ -30,6 +30,7 @@ from pipecat.transports.smallwebrtc.request_handler import (
     SmallWebRTCRequestHandler,
 )
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from agentic_meeting.agent.runner import build_runner
 from agentic_meeting.agent.tasks import RESTART_REASON, Runner, TaskManager
@@ -59,6 +60,7 @@ from agentic_meeting.web import (
     health_api,
     reports_api,
     sessions_api,
+    sso,
     tasks_api,
 )
 from agentic_meeting.web.errors import ApiError, error_response, invalid
@@ -354,9 +356,9 @@ def create_app(
     async def invalid_request(_request: Request, exc: RequestValidationError) -> JSONResponse:
         return JSONResponse(invalid(str(exc.errors()[:1]), 422).message.error(), status_code=422)
 
-    # ---- 访问口令（interfaces.md §5.7）：启用时拦住除登录以外的全部 /api ----
+    # ---- 访问口令与单点登录（interfaces.md §5.7）：启用时拦住除登录以外的全部 /api ----
 
-    auth.register(app, auth.AuthGuard.from_config(cfg))
+    auth.register(app, auth.AuthGuard.from_config(cfg), sso.SingleSignOn.from_config(cfg))
 
     # ---- 会话、发言、说话人（interfaces.md §5.1、§5.4） ----
 
@@ -524,5 +526,11 @@ def make_server(
         ssl_certfile=str(cfg.resolve(cfg.server.tls_cert)) if cfg.server.tls_cert else None,
         ssl_keyfile=str(cfg.resolve(cfg.server.tls_key)) if cfg.server.tls_key else None,
         log_level="info",
+        # 转发头由下面自己套的 ProxyHeadersMiddleware 处理（信任的地址照旧取 FORWARDED_ALLOW_IPS）：
+        # 在它外面先记下 TCP 直连对端，反向代理身份头只认受信任代理直接发来的（interfaces.md §5.7）
+        proxy_headers=False,
+    )
+    config.app = sso.record_peer(
+        ProxyHeadersMiddleware(app, trusted_hosts=config.forwarded_allow_ips)
     )
     return MeetingServer(config, app, on_force_quit)
