@@ -8,9 +8,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- A device following a live meeting on another device shows "Connected" in the header while its
+  event stream is open, instead of "Not connected"; it still says this device is not transcribing.
 - Following devices keep their read-only event stream during an interruption and automatically
   receive new captions when the host resumes. Typed questions stay disabled until the host returns;
   a deleted meeting is cleared when the event stream's detail refresh reports it missing ([#21]).
+- Dragging over speaker names to select several captions now scrolls the caption list when the
+  pointer reaches its top or bottom edge, so the selection can extend to captions that were out of
+  view.
 
 ### Changed
 
@@ -26,6 +31,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   "running on another device" notice is shorter, and the speakers stay on one line that scrolls
   sideways. In a browser tab the page no longer leaves an empty strip the height of the status bar
   at the top on browsers that report it as a safe area.
+- When no text box, menu or tab has focus, `↑` `↓` scroll the captions or the report, and `←` `→`
+  pick the previous or next screenshot (framed, with its summary next to the panel's title)
+  instead of scrolling the thumbnail strip.
 
 ### Fixed
 
