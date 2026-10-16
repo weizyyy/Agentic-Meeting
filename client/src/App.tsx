@@ -126,7 +126,7 @@ export function App({ onLogout }: Props = {}) {
           {!state.viewing?.deletion_pending && (
             // 宽屏两列：左边字幕（报告）在上、屏幕在下，右边助理和后台任务；
             // 手机上只显示当前分页的那一块
-            <main className="flex min-h-0 flex-1 flex-col gap-4 md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,360px)] md:grid-rows-[minmax(0,1fr)_auto] md:[grid-template-areas:'captions_side'_'screen_side']">
+            <main className="flex min-h-0 flex-1 flex-col gap-4 max-md:gap-2 md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,360px)] md:grid-rows-[minmax(0,1fr)_auto] md:[grid-template-areas:'captions_side'_'screen_side']">
               {/* 手机上分页：字幕、助理、任务、画面，一次一块占满下面的高度 */}
               <Tabs
                 value={section}
@@ -161,10 +161,10 @@ export function App({ onLogout }: Props = {}) {
               {state.connection === "connected" && (
                 // 手机上录音的限制（docs/user-guide.md「手机上」）；宽屏的电脑没有这个问题
                 <p
-                  className="flex items-start gap-2 rounded-lg bg-warning px-3 py-2 text-sm text-warning-foreground md:hidden"
+                  className="flex items-start gap-2 rounded-lg bg-warning px-2.5 py-1.5 text-xs text-warning-foreground md:hidden"
                   role="note"
                 >
-                  <TriangleAlertIcon aria-hidden className="mt-0.5 size-4 shrink-0" />
+                  <TriangleAlertIcon aria-hidden className="mt-px size-3.5 shrink-0" />
                   {meeting.keepAwake === "held"
                     ? t.session.phoneRecording.held
                     : t.session.phoneRecording.notHeld}
@@ -175,7 +175,7 @@ export function App({ onLogout }: Props = {}) {
                 onValueChange={(value: "captions" | "report") => setTab(value)}
                 className={`min-h-0 min-w-0 flex-1 gap-0 overflow-hidden rounded-xl border bg-card [grid-area:captions] ${shownOn("captions", section)}`}
               >
-                <div className="flex items-center gap-2 border-b px-4 py-2">
+                <div className="flex items-center gap-2 border-b px-4 py-2 max-md:px-3 max-md:py-1.5">
                   <TabsList aria-label={t.session.tabs.label}>
                     <TabsTrigger value="captions" className="px-3">
                       {t.session.tabs.captions}

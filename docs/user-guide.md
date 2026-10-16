@@ -105,7 +105,9 @@ does not allow full screen, the view fills the window instead.
 
 **On a phone.** On a narrow screen the meeting is split into tabs: **字幕** (Captions, with the
 report), **助理** (Assistant), **任务** (Tasks) and **画面** (Screen). A dot on the assistant tab
-means there are notices, and the number on the tasks tab counts unfinished tasks. The browser's
+means there are notices, and the number on the tasks tab counts unfinished tasks. To leave the
+captions as much room as possible, **保留** (Keep) and **导出** (Export) show only their icons, and
+the speakers above the captions stay on one line that scrolls sideways. The browser's
 **Add to Home Screen** (Safari) or **Install app** (Chrome) puts the page on the home screen, where
 it opens without the browser's address bar.
 

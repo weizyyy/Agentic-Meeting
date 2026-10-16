@@ -58,7 +58,7 @@ function Hint({ tone, children }: { tone: "info" | "warn" | "error"; children: R
   };
   return (
     <p
-      className={`flex basis-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-3 py-2 text-sm ${tones[tone]}`}
+      className={`flex basis-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-3 py-2 text-sm max-md:px-2.5 max-md:py-1.5 max-md:text-xs ${tones[tone]}`}
     >
       {children}
     </p>
@@ -68,6 +68,7 @@ function Hint({ tone, children }: { tone: "info" | "warn" | "error"; children: R
 /**
  * 字幕区上方：正在看的是哪一场会议（标题可以点笔改）、什么状态、开始于何时；
  * 右边是「保留记录」和「导出」；没在开的会议可以继续。
+ * 手机上整块压矮：标题小一号，「保留」和「导出」只剩图标、和标题同一行，提示条字也小一号。
  */
 export function SessionBanner({
   session,
@@ -101,17 +102,23 @@ export function SessionBanner({
   const idle = !session.deletion_pending && canResume(connection) && reconnectAttempt === 0;
   const interrupted = session.state === "interrupted" && idle;
   const pending = session.deletion_pending;
+  // 手机上开始时间不和其他几项挤一行（折行时会留下孤零零的分隔点）：没起名的会议标题里已经有，
+  // 不再重复；起了名的单独放到这一行的末尾
+  const startedClass = session.title.trim()
+    ? "max-md:order-last max-md:basis-full"
+    : "max-md:hidden";
 
   return (
     <section
-      className="mb-4 flex flex-wrap items-start gap-x-4 gap-y-3"
+      className="mb-4 flex flex-wrap items-start gap-x-4 gap-y-3 max-md:mb-2 max-md:gap-x-2 max-md:gap-y-2"
       aria-label={t.session.current}
     >
-      <div className="min-w-64 flex-1">
-        <div className="flex min-h-9 items-center gap-1">
+      {/* 手机上右边只有「保留」「导出」两个图标时和标题同一行；多了「继续这场会议」就换到下一行 */}
+      <div className="min-w-64 flex-1 max-md:min-w-0 max-md:basis-[calc(100%-5.5rem)]">
+        <div className="flex min-h-9 items-center gap-1 max-md:min-h-8">
           {editing === null ? (
             <>
-              <h2 className="truncate text-2xl font-semibold tracking-tight">
+              <h2 className="truncate text-2xl font-semibold tracking-tight max-md:text-lg">
                 {sessionTitle(t, language, session)}
               </h2>
               <Button
@@ -141,7 +148,7 @@ export function SessionBanner({
             />
           )}
         </div>
-        <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+        <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground max-md:mt-0">
           <span
             className={`inline-flex items-center gap-1.5 font-medium ${
               pending ? "text-destructive" : STATE_TONES[session.state]
@@ -150,8 +157,12 @@ export function SessionBanner({
             <span aria-hidden className="size-1.5 rounded-full bg-current" />
             {pending ? t.session.deletionPending : t.session.states[session.state]}
           </span>
-          <span>{t.session.startedAt(formatDateTime(language, session.started_at))}</span>
-          <span aria-hidden>·</span>
+          <span className={startedClass}>
+            {t.session.startedAt(formatDateTime(language, session.started_at))}
+          </span>
+          <span aria-hidden className="max-md:hidden">
+            ·
+          </span>
           <span className="tabular-nums">{formatDuration(t, session.duration_secs)}</span>
           <span aria-hidden>·</span>
           <span>{t.session.utterances(formatNumber(language, session.utterance_count))}</span>
@@ -206,14 +217,16 @@ export function SessionBanner({
           ) : (
             <BookmarkIcon data-icon="inline-start" />
           )}
-          {keepPending ? t.common.saving : session.keep ? t.common.kept : t.common.keep}
+          <span className="max-md:sr-only">
+            {keepPending ? t.common.saving : session.keep ? t.common.kept : t.common.keep}
+          </span>
         </Button>
         {!pending && (
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="outline" />}>
               <DownloadIcon data-icon="inline-start" />
-              {t.session.export}
-              <ChevronDownIcon data-icon="inline-end" />
+              <span className="max-md:sr-only">{t.session.export}</span>
+              <ChevronDownIcon data-icon="inline-end" className="max-md:hidden" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem render={<a href={exportUrl(session.id)} download />}>
@@ -240,8 +253,14 @@ export function SessionBanner({
       {reconnectAttempt > 0 && <Hint tone="warn">{t.session.reconnecting(reconnectAttempt)}</Hint>}
       {watching && !pending && (
         <Hint tone="info">
-          {t.session.watching}
-          <Button variant="outline" size="sm" onClick={() => onResume(session.id)}>
+          {/* 手机上按钮放到文字右边，不单占一行 */}
+          <span className="max-md:min-w-0 max-md:flex-1 max-md:basis-40">{t.session.watching}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="max-md:h-6 max-md:px-2 max-md:text-xs"
+            onClick={() => onResume(session.id)}
+          >
             {t.session.takeOverHere}
           </Button>
         </Hint>
