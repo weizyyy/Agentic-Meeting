@@ -21,6 +21,11 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The screen panel under the captions takes about a third less height: the latest screenshot's
   summary sits next to the panel's title, and each thumbnail's time is shown on the thumbnail.
   On a small laptop screen this leaves more room for the captions.
+- On a phone the area above the captions takes about 40% less height: the top bar fits on one
+  line, the meeting title is smaller with **Keep** and **Export** shown as icons beside it, the
+  "running on another device" notice is shorter, and the speakers stay on one line that scrolls
+  sideways. In a browser tab the page no longer leaves an empty strip the height of the status bar
+  at the top on browsers that report it as a safe area.
 
 ### Fixed
 

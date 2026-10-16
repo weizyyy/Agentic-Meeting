@@ -73,9 +73,10 @@ export function ControlBar({
   const micControl = connection === "connected" || reconnectAttempt > 0;
   const status = connectionStatus(t, connection, reconnectAttempt);
   return (
-    <header className="mb-3 flex flex-wrap items-center gap-2 border-b py-3">
-      <MicIcon className="size-4" aria-hidden="true" />
-      {/* 手机上一行放不下产品名，只留图标 */}
+    // 手机上压低这一栏（上下留白和间距都小一些），给字幕多留几行
+    <header className="mb-3 flex flex-wrap items-center gap-2 border-b py-3 max-md:mb-2 max-md:gap-1 max-md:py-1.5">
+      {/* 手机上一行放不下产品名和图标：图标挨着会议列表按钮，还容易被当成麦克风开关 */}
+      <MicIcon className="size-4 max-md:hidden" aria-hidden="true" />
       <h1 className="text-sm font-medium max-md:sr-only">{t.common.appName}</h1>
       <Button
         variant="ghost"
@@ -93,8 +94,14 @@ export function ControlBar({
           {t.header.present}
         </Button>
       )}
-      <div className="flex-1" />
-      <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", status.tone)}>
+      {/* 手机上这个空白也占两份间距：改由连接状态自己撑满、靠右，一行才放得下 */}
+      <div className="flex-1 max-md:hidden" />
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5 text-xs font-medium max-md:flex-1 max-md:justify-end",
+          status.tone,
+        )}
+      >
         <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
         <span role="status">{status.label}</span>
       </span>
@@ -114,8 +121,8 @@ export function ControlBar({
           <span className="max-md:sr-only">{t.header.logout}</span>
         </Button>
       )}
-      {/* 手机上麦克风和开始 / 结束会议另起一行，按钮够大好点 */}
-      <div className="flex items-center gap-2 max-md:w-full max-md:justify-end">
+      {/* 手机上放得下就和左边同一行；会议进行中多了麦克风按钮放不下，才另起一行靠右 */}
+      <div className="flex items-center gap-2 max-md:ml-auto">
         {micControl && (
           <UserAudioControl
             variant="secondary"

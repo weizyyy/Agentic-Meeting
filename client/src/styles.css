@@ -18,9 +18,17 @@ body {
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 16px 16px;
-  /* 装到手机主屏幕后页面铺满整个屏幕（index.html 的 viewport-fit=cover），避开刘海和底部横条 */
-  padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right))
-    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  /* 页面铺到刘海和底部横条底下时（index.html 的 viewport-fit=cover）留出位置 */
+  padding: 0 max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+}
+
+/* 顶部只在装到主屏幕后才让开状态栏。在浏览器标签页里，上面已经是浏览器自己的地址栏，
+   有的手机浏览器仍然报告状态栏的高度，页面顶上就会平白多出一截空白 */
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  .app {
+    padding-top: env(safe-area-inset-top);
+  }
 }
 
 /* index.html 的兜底提示：页面没能启动 */

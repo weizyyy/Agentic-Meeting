@@ -13,7 +13,9 @@ import { mergeTargets, nameSuggestions, renamableSpeakers } from "../sessionView
 export type AssignTarget = { speakerIdx: number } | { newSpeaker: string };
 
 /** 这一排的布局；字幕卡片里，标题下面一行 */
-const ROW = "flex flex-wrap items-center gap-1.5 border-b px-4 py-2.5";
+const ROW = "flex flex-wrap items-center gap-1.5 border-b px-4 py-2.5 max-md:px-3 max-md:py-1.5";
+/** 手机上说话人只排一行、左右滑动，不折成好几行挤掉字幕；改名、新建时照常折行，输入框和候选都看得见 */
+const ONE_LINE = "max-md:flex-nowrap max-md:overflow-x-auto max-md:[&>*]:shrink-0";
 /** 说话人小圆角按钮 */
 const CHIP = "rounded-full px-2.5 font-normal";
 /** 改名 / 新建时那一组：输入框、成员名单、合并到… */
@@ -66,7 +68,11 @@ export function SpeakerBar({
       if (name) onAssign({ newSpeaker: name });
     };
     return (
-      <div className={ROW} role="group" aria-label={t.captions.speakers.assignLabel}>
+      <div
+        className={`${ROW} ${adding === null ? ONE_LINE : ""}`}
+        role="group"
+        aria-label={t.captions.speakers.assignLabel}
+      >
         <span className="text-xs font-medium text-client-foreground">
           {t.captions.speakers.selected(selectedCount)}
         </span>
@@ -154,7 +160,11 @@ export function SpeakerBar({
   };
 
   return (
-    <div className={ROW} role="group" aria-label={t.captions.speakers.label}>
+    <div
+      className={`${ROW} ${editing === null ? ONE_LINE : ""}`}
+      role="group"
+      aria-label={t.captions.speakers.label}
+    >
       <span className="text-xs text-muted-foreground">{t.captions.speakers.label}</span>
       {people.map((p) =>
         editing?.idx === p.idx ? (
