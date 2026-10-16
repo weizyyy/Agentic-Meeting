@@ -4,7 +4,8 @@
 通用接口方式下是不和实时应答抢同一个接口的并发额度。所以这里统一做三件事：
 
 * **串行**：同一时刻只有一个后台请求（后台只有一个槽位）。
-* **可暂停**：``pause()`` 之后新的请求排队等着，``resume()`` 之后才发。
+* **可暂停**：``pause()`` 之后新的请求排队等着，``resume()`` 之后才发。同时进行好几场会议时各场分别暂停、
+  恢复（``pause(owner)`` / ``resume(owner)``），全部恢复了才发。
 * **可抢占**：``pause()`` 同时取消在途的请求；发起它的调用方收到 ``Preempted``，自己决定稍后重做还是放弃。
 
 谁来暂停：``AssistantActivity``（``pipeline/activity.py``）在助理被叫到名字、收到文字请求、生成、朗读时判为忙，
@@ -41,6 +42,7 @@ class BackgroundModel:
         self._lock = asyncio.Lock()
         self._resumed = asyncio.Event()
         self._resumed.set()
+        self._holders: set[object] = set()  # 要求暂停、还没恢复的各方
         self._inflight: asyncio.Task | None = None
         self._preempting = False
 
@@ -48,16 +50,20 @@ class BackgroundModel:
     def paused(self) -> bool:
         return not self._resumed.is_set()
 
-    def pause(self) -> None:
-        """暂停，并取消在途的请求（它的调用方会收到 ``Preempted``）。重复调用无害。"""
+    def pause(self, owner: object = None) -> None:
+        """``owner`` 要求暂停，并取消在途的请求（它的调用方会收到 ``Preempted``）。重复调用无害。"""
+        self._holders.add(owner)
         self._resumed.clear()
         task = self._inflight
         if task is not None and not task.done():
             self._preempting = True
             task.cancel()
 
-    def resume(self) -> None:
-        self._resumed.set()
+    def resume(self, owner: object = None) -> None:
+        """``owner`` 不再要求暂停；没有别人要求暂停了才真的恢复。"""
+        self._holders.discard(owner)
+        if not self._holders:
+            self._resumed.set()
 
     async def wait_resumed(self) -> None:
         """等到不在暂停中。调用方可以先等它，再决定这次要做什么（比如挑最新的一张截图）。"""

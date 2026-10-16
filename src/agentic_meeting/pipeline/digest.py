@@ -68,7 +68,7 @@ class DigestWorker:
         model: DigestModel | None,
         render: Callable[[str, str], str],
         interval_secs: float,
-        current_session: Callable[[], str | None],
+        live_sessions: Callable[[], list[str]],
         attacher: Any = None,
         max_tokens: int = DIGEST_MAX_TOKENS,
         max_new_utterances: int = MAX_NEW_UTTERANCES,
@@ -76,14 +76,14 @@ class DigestWorker:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         """``render(此前的纪要, 新增的转录)`` 给出完整的提示词（``config/prompts/digest.md``）；
-        ``current_session()`` 返回正在进行的会议编号，没有返回 ``None``。
+        ``live_sessions()`` 返回正在进行的会议编号（可能好几场，也可能一场都没有）；每个周期挨个做一遍。
         ``attacher``（``screen/attach.py`` 的 ``FrameAttacher``）给了就把这一轮时间段里的截图原图附在请求里。
         """
         self._store = store
         self._model = model
         self._render = render
         self._interval = interval_secs
-        self._current_session = current_session
+        self._live_sessions = live_sessions
         self._attacher = attacher
         self._max_tokens = max_tokens
         self._max_new = max_new_utterances
@@ -185,14 +185,17 @@ class DigestWorker:
         while True:
             await self._sleep(delay)
             delay = self._interval
-            session_id = self._current_session()
-            if session_id is None:
-                continue
-            try:
-                await self.catch_up(session_id)
-            except Preempted:
-                delay = min(self._interval, self._retry)  # 助理在应答：过一会儿再做
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                logger.warning(f"滚动纪要生成失败，下个周期再试：{type(e).__name__}: {e}")
+            # 好几场会议同时进行时轮流来，每场一次做一份：积压多的那一场不会让别的场一直等着
+            waiting = list(self._live_sessions())
+            while waiting:
+                session_id = waiting.pop(0)
+                try:
+                    if await self.run_once(session_id) is not None:
+                        waiting.append(session_id)
+                except Preempted:
+                    delay = min(self._interval, self._retry)  # 助理在应答：过一会儿再做
+                    break
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.warning(f"滚动纪要生成失败，下个周期再试：{type(e).__name__}: {e}")

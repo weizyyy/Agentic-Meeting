@@ -132,7 +132,7 @@ export function SessionList({
                       <button
                         type="button"
                         className="flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors outline-none enabled:hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={locked && s.state !== "live"}
+                        disabled={locked && s.id !== viewingId}
                         onClick={() => onSelect(s.id)}
                       >
                         <span className="font-medium [overflow-wrap:anywhere]">{title}</span>

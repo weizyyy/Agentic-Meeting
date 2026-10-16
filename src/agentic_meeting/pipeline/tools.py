@@ -6,7 +6,7 @@
 后台任务关掉时（``agent.enabled = false``）不给任务工具。
 
 工具通过 ``params.app_resources``（应用共享的 ``AppResources``）拿到存储、嵌入客户端、配置；
-「现在是哪场会议、会议进行到第几秒」来自正在进行的那路连接（``resources.sessions.live``）。
+「现在是哪场会议、会议进行到第几秒」来自这条管线所在的那路连接（``resources.live``，由 ``run_bot`` 填上）。
 
 约定：
 
@@ -71,8 +71,8 @@ class _Env:
         resources = params.app_resources
         if resources is None or resources.store is None or resources.sessions is None:
             raise LookupError(NO_MEETING)
-        live = resources.sessions.live
-        if live is None:
+        live = resources.live
+        if live is None or resources.sessions.live_for(live.session.id) is not live:
             raise LookupError(NO_MEETING)
         self.resources = resources
         self.cfg = resources.cfg

@@ -33,6 +33,8 @@ interface Options {
   api: Api;
   /** 已连接：只有会议进行中才采集和上传 */
   connected: boolean;
+  /** 这个页面连着的会议；截图上传到它 */
+  sessionId: string | null;
   config: ScreenConfig;
   dispatch: Dispatch<Action>;
   /** 告诉服务端共享开始 / 停止（screen_state 消息，仅用于界面状态与日志） */
@@ -66,6 +68,7 @@ async function encode(canvas: HTMLCanvasElement): Promise<Blob> {
 export function useScreenShare({
   api,
   connected,
+  sessionId,
   config,
   dispatch,
   sendState,
@@ -74,6 +77,8 @@ export function useScreenShare({
   const pending = useRef<object | null>(null);
   const latestConnected = useRef(connected);
   latestConnected.current = connected;
+  const latestSessionId = useRef(sessionId);
+  latestSessionId.current = sessionId;
   const offset = useRef(0);
   const latestConfig = useRef(config);
   latestConfig.current = config;
@@ -186,7 +191,7 @@ export function useScreenShare({
         fullCanvas.height = size.height;
         fullContext.drawImage(video, 0, 0, size.width, size.height);
         const blob = await encode(fullCanvas);
-        await api.uploadFrame(blob, now + offset.current);
+        await api.uploadFrame(blob, now + offset.current, latestSessionId.current);
         lastThumb = gray;
         lastUploadSecs = now;
         failures = 0;

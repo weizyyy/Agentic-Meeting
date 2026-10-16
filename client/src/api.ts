@@ -73,7 +73,8 @@ export interface UtteranceQuery {
 
 export interface Api {
   listSessions(limit?: number, before?: number): Promise<SessionSummary[]>;
-  /** 当前会话：活动连接所在的会话，否则最近一个未结束的；没有返回 null */
+  /** 当前会话：最近连上的进行中的会议，否则最近一个未结束的；没有返回 null。
+   * 同时进行好几场会议时这只是个默认值：已经知道是哪一场时用 getSession */
   currentSession(): Promise<SessionDetail | null>;
   getSession(id: string): Promise<SessionDetail>;
   renameSession(id: string, title: string): Promise<SessionSummary>;
@@ -96,8 +97,13 @@ export interface Api {
   /** 建立 WebRTC 连接时用的 ICE 服务器（docs/interfaces.md §5.2），原样交给 SDK */
   iceServers(): Promise<RTCIceServer[]>;
   listFrames(sessionId: string): Promise<FrameItem[]>;
-  /** 上传一张截图；capturedAt 是已经换算成服务端时钟的采集时刻（Unix 秒） */
-  uploadFrame(image: Blob, capturedAt: number): Promise<{ id: number; t: number }>;
+  /** 上传一张截图；capturedAt 是已经换算成服务端时钟的采集时刻（Unix 秒），
+   * sessionId 是这个页面连着的会议（同时进行好几场时服务端靠它分辨） */
+  uploadFrame(
+    image: Blob,
+    capturedAt: number,
+    sessionId: string | null,
+  ): Promise<{ id: number; t: number }>;
   listTasks(sessionId: string): Promise<TaskItem[]>;
   /** 旁观一场会议的事件流地址（interfaces.md §5.1），给 EventSource 用 */
   eventsUrl(sessionId: string): string;
@@ -237,9 +243,10 @@ export function createApi(
         caption: caption ?? null,
       }));
     },
-    uploadFrame(image, capturedAt) {
+    uploadFrame(image, capturedAt, sessionId) {
       const form = new FormData();
       form.set("captured_at", String(capturedAt));
+      if (sessionId) form.set("session_id", sessionId);
       form.set("image", image, image.type === "image/jpeg" ? "frame.jpg" : "frame.webp");
       return request<{ id: number; t: number }>("/api/frames", { method: "POST", body: form });
     },

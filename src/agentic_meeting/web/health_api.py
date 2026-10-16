@@ -229,31 +229,45 @@ class HealthState:
         if self.lifecycle != "running" or resources is None:
             return values, True
         partial = False
+        registered: list[Any] = []
+        slots = 1
         try:
             assert resources.sessions is not None
-            live = resources.sessions.live
-            active = live is not None and not live.stop_requested and not live.done.is_set()
-            registered = active and live.worker is not None and live.recorder is not None
-            values["live_connections"] = int(registered)
-            if not registered:
-                if active and live.worker is not None:
+            slots = resources.sessions.max_live
+            retry_known = True
+            for live in resources.sessions.connections:
+                active = not live.stop_requested and not live.done.is_set()
+                if active and live.worker is not None and live.recorder is not None:
+                    registered.append(live)
+                elif active and live.worker is not None:
                     partial = True
-                else:
-                    values["queues"]["transcript_retry"] = 0
+                    retry_known = False
+            values["live_connections"] = len(registered)
+            if not registered and retry_known:
+                values["queues"]["transcript_retry"] = 0
         except Exception:
-            registered = False
+            registered = []
             partial = True
         if registered:
+            # 同时进行好几场时：字幕延迟取最大的那一场，待重试的发言各场相加
+            samples: list[tuple[float, float]] = []
             try:
-                lag = _seconds(live.recorder.caption_lag_seconds)
-                age = _seconds(live.recorder.caption_sample_age_seconds)
-                if (lag is None) != (age is None):
-                    raise ValueError("字幕样本不完整")
-                values["caption_lag_seconds"], values["caption_sample_age_seconds"] = lag, age
+                for live in registered:
+                    lag = _seconds(live.recorder.caption_lag_seconds)
+                    age = _seconds(live.recorder.caption_sample_age_seconds)
+                    if (lag is None) != (age is None):
+                        raise ValueError("字幕样本不完整")
+                    if lag is not None and age is not None:
+                        samples.append((lag, age))
+                if samples:
+                    lag, age = max(samples)
+                    values["caption_lag_seconds"], values["caption_sample_age_seconds"] = lag, age
             except Exception:
                 partial = True
             try:
-                values["queues"]["transcript_retry"] = _count(live.recorder.unsaved_utterance_count)
+                values["queues"]["transcript_retry"] = sum(
+                    _count(live.recorder.unsaved_utterance_count) for live in registered
+                )
             except Exception:
                 partial = True
         try:
@@ -265,7 +279,7 @@ class HealthState:
                 screen["depth"] = 0 if not enabled else None
                 if enabled:
                     depth = _count(resources.captions.pending_count)
-                    if depth > 1:
+                    if depth > slots:
                         raise ValueError("画面摘要槽位无效")
                     screen["depth"] = depth
             elif screen["enabled"]:

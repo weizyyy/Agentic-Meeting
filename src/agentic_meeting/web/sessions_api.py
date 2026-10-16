@@ -309,18 +309,19 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
                 raise ApiError(404, "speaker.not_found")
         changed = await store.set_utterances_speaker(session.id, ids, idx)
         name = await store.speaker_name(session.id, idx)
-        if manager.is_live(session.id):
-            live = manager.live
-            if live is not None and live.recorder is not None:
+        live = manager.live_for(session.id)
+        if live is not None:
+            if live.recorder is not None:
                 live.recorder.set_speaker_name(idx, name)
             for utterance_id in changed:
-                await manager.push(
+                await manager.push_to(
+                    session.id,
                     {
                         "type": "utterance_update",
                         "id": utterance_id,
                         "speaker_idx": idx,
                         "speaker_name": name,
-                    }
+                    },
                 )
         return {"speaker": {"idx": idx, "display_name": name}, "ids": changed}
 
@@ -353,11 +354,11 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         session = await resolve(request, given)
         if not await store.rename_speaker(session.id, idx, name):
             raise ApiError(404, "speaker.not_found")
-        live = manager.live
-        if live is not None and live.session.id == session.id:
+        live = manager.live_for(session.id)
+        if live is not None:
             if live.recorder is not None:
                 live.recorder.set_speaker_name(idx, name)
-            await manager.push({"type": "speaker", "idx": idx, "display_name": name})
+            await manager.push_to(session.id, {"type": "speaker", "idx": idx, "display_name": name})
         return {"idx": idx, "display_name": name}
 
     @app.post("/api/speakers/{idx}/merge")

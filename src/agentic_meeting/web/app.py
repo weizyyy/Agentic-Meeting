@@ -156,7 +156,7 @@ def create_app(
         assert the_store is not None
         # 上次崩溃或被强杀时没来得及关闭的连接记录，补关。
         await the_store.close_dangling_connections()
-        sessions = SessionManager(the_store)
+        sessions = SessionManager(the_store, max_live=cfg.session.max_live_meetings)
         frames = FrameIngestor(
             the_store,
             cfg.resolve(cfg.session.data_dir),
@@ -218,10 +218,6 @@ def create_app(
         )
         captions.start()
 
-        def live_session_id() -> str | None:
-            live = sessions.live
-            return live.session.id if live is not None else None
-
         # 交给后台 agent 那个模型的请求要不要带截图原图（agent.attach_frames）
         attacher = (
             FrameAttacher(frames.path_of, cfg.agent.max_attached_frames)
@@ -238,7 +234,7 @@ def create_app(
                 "digest", previous_digest=previous, new_transcript=new
             ),
             interval_secs=cfg.realtime.digest_interval_minutes * 60.0,
-            current_session=live_session_id,
+            live_sessions=sessions.live_session_ids,
         )
         digests.start()
         sessions.on_finished.append(digests.finalize)  # 断开或结束时把纪要补到最后
@@ -294,6 +290,7 @@ def create_app(
             background_models=models,
             digests=digests,
             retention=retention,
+            tts_slots=asyncio.Semaphore(cfg.tts.max_concurrent),
         )
         retention.start()
         app.state.bot = bot
@@ -394,16 +391,23 @@ def create_app(
             request = SmallWebRTCRequest.from_dict(payload)
         except (ValueError, TypeError) as e:
             raise invalid(f"WebRTC 请求格式有误：{e}") from e
+        wanted: str | None = None
         if isinstance(request.request_data, dict) and "session_id" in request.request_data:
             # 继续一场会议：协商之前就校验，找不到直接 404，而不是悄悄新建一场（interfaces.md §5.2）。
-            wanted = request.request_data["session_id"]
-            if wanted is not None:
+            given = request.request_data["session_id"]
+            if given is not None:
                 store_ = http_request.app.state.resources.store
-                if not isinstance(wanted, str) or not wanted.strip():
+                if not isinstance(given, str) or not given.strip():
                     raise invalid("session_id 必须是非空的字符串")
-                if store_ is None or await store_.get_session(wanted.strip()) is None:
+                wanted = given.strip()
+                if store_ is None or await store_.get_session(wanted) is None:
                     raise ApiError(404, "session.not_found")
-                await store_.require_available(wanted.strip())
+                await store_.require_available(wanted)
+        # 同时进行的会议满了：协商之前就拒绝，页面能显示原因（architecture.md §3.2）。
+        # 带着 pc_id 的是已有连接的重新协商，不占新位置。
+        manager = http_request.app.state.resources.sessions
+        if manager is not None and not request.pc_id and not manager.has_room(wanted):
+            raise ApiError(409, "session.capacity", max=manager.max_live)
 
         async def on_connection(connection: Any) -> None:
             state = http_request.app.state
