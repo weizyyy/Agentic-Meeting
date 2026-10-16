@@ -17,12 +17,17 @@ const TONES: Record<ConnectionState, string> = {
   error: "text-destructive",
 };
 
-/** 顶部的连接状态：文字和颜色。自动重连的间隙里显示第几次重连。演示模式也用它。 */
+/**
+ * 顶部的连接状态：文字和颜色。自动重连的间隙里显示第几次重连。演示模式也用它。
+ * 本机没在转录、只是旁观别的设备上的会议时，显示旁观用的事件流连没连上（watchConnection）。
+ */
 export function connectionStatus(
   t: Messages,
-  connection: ConnectionState,
+  localConnection: ConnectionState,
   reconnectAttempt: number,
+  watchConnection: ConnectionState | null,
 ): { label: string; tone: string } {
+  const connection = watchConnection ?? localConnection;
   const reconnecting = reconnectAttempt > 0 && connection !== "connected";
   return {
     label: reconnecting
@@ -36,6 +41,8 @@ interface Props {
   connection: ConnectionState;
   /** 连接意外断开后正在自动重连：第几次；0 表示没有 */
   reconnectAttempt: number;
+  /** 旁观别的设备上的会议时事件流的连接状态；不在旁观是 null */
+  watchConnection: ConnectionState | null;
   closedReason: string | null;
   listOpen: boolean;
   onToggleList: () => void;
@@ -56,6 +63,7 @@ interface Props {
 export function ControlBar({
   connection,
   reconnectAttempt,
+  watchConnection,
   closedReason,
   listOpen,
   onToggleList,
@@ -71,7 +79,7 @@ export function ControlBar({
   // 麦克风按钮等接通（或接通过、正在重连）再出现：它一挂上就列设备，列设备会再要一次麦克风权限，
   // 连接还在请求权限时挂上，拒绝授权就会多出一次请求和一条重复的「麦克风不可用」
   const micControl = connection === "connected" || reconnectAttempt > 0;
-  const status = connectionStatus(t, connection, reconnectAttempt);
+  const status = connectionStatus(t, connection, reconnectAttempt, watchConnection);
   return (
     <header className="mb-3 flex flex-wrap items-center gap-2 border-b py-3">
       <MicIcon className="size-4" aria-hidden="true" />

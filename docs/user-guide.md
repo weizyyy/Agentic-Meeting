@@ -148,7 +148,7 @@ Speakers appear as chips above the captions.
   applies to the whole meeting, including what the assistant sees.
 - **Merge** — **合并到…** moves all of one speaker's captions to another speaker. This cannot be
   undone.
-- **Reassign individual captions** — click the speaker-and-time line of a caption to select it, or drag across rows to select a range. The speaker chips turn into targets: click one
+- **Reassign individual captions** — click the speaker-and-time line of a caption to select it, or drag across rows to select a range (dragging to the top or bottom edge scrolls the list). The speaker chips turn into targets: click one
   to assign the selected captions to that speaker, or choose **＋ 新说话人** (New speaker) and type
   a name or pick one from `session.members`. Press `Esc` to cancel. The text area of a row is not
   part of the selection, so you can still select and copy text.

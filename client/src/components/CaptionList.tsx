@@ -28,6 +28,12 @@ interface Props {
 
 /** 距离底部多少像素以内算「跟着最新字幕走」；用户往上翻看时不要把他拽回底部。 */
 const STICK_THRESHOLD_PX = 80;
+/** 拖选时指针离字幕区上下边缘多少像素以内开始自动滚动；拖到区域外面也算。 */
+const EDGE_PX = 48;
+/** 自动滚动每帧最多滚多少像素：越靠边（或拖得越远）越快。 */
+const MAX_STEP_PX = 16;
+/** 按下后指针至少上下挪这么多像素才算在拖：点边上那一行时手抖一下不该滚起来。 */
+const DRAG_SLOP_PX = 6;
 
 function lineKey(line: CaptionLine, index: number): string {
   if (line.segmentId !== null) return `s${line.segmentId}`;
@@ -35,11 +41,12 @@ function lineKey(line: CaptionLine, index: number): string {
   return `i${index}`;
 }
 
-/** 一次按住拖动：从哪条发言按下的、按下之前选中了哪些、有没有拖到别的行。 */
+/** 一次按住拖动：从哪条发言按下的、按下之前选中了哪些、有没有拖到别的行、按下时指针的高度。 */
 interface Drag {
   anchorId: number;
   base: ReadonlySet<number>;
   moved: boolean;
+  startY: number;
 }
 
 /**
@@ -62,8 +69,45 @@ export function CaptionList({
   // 拖完松手时浏览器可能还会补一个点击事件：这一下不算「点一下切换」
   const swallowClick = useRef(false);
   const lastPicked = useRef<number | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  useArrowScroll(scroller);
+  // 自动滚动的每一帧要用最新的 dragOver（它读当前的 lines）
+  const dragOverLatest = useRef<(index: number) => void>(() => {});
 
   useEffect(() => {
+    // 拖选时指针停在字幕区上下边缘（或拖出去）就一帧一帧地滚，
+    // 滚过来的发言在指针底下却不会触发 mouseenter，所以每滚一下按指针位置补选一次
+    let pointerY = 0;
+    let frame = 0;
+    const step = () => {
+      frame = 0;
+      const el = scroller.current;
+      const current = drag.current;
+      if (!current || !el) return;
+      if (!current.moved && Math.abs(pointerY - current.startY) < DRAG_SLOP_PX) return;
+      const rect = el.getBoundingClientRect();
+      const over =
+        pointerY < rect.top + EDGE_PX
+          ? pointerY - rect.top - EDGE_PX
+          : pointerY > rect.bottom - EDGE_PX
+            ? pointerY - rect.bottom + EDGE_PX
+            : 0;
+      if (over === 0) return;
+      const from = el.scrollTop;
+      el.scrollTop += Math.sign(over) * Math.min(MAX_STEP_PX, Math.ceil(Math.abs(over) / 3));
+      if (el.scrollTop === from) return; // 已经到头
+      const y = Math.min(Math.max(pointerY, rect.top + 1), rect.bottom - 1);
+      const row = document
+        .elementFromPoint(rect.left + rect.width / 2, y)
+        ?.closest<HTMLElement>("[data-caption-index]");
+      if (row && el.contains(row)) dragOverLatest.current(Number(row.dataset.captionIndex));
+      frame = requestAnimationFrame(step);
+    };
+    const move = (event: MouseEvent) => {
+      if (!drag.current) return;
+      pointerY = event.clientY;
+      if (!frame) frame = requestAnimationFrame(step);
+    };
     const end = () => {
       if (drag.current?.moved) {
         swallowClick.current = true;
@@ -72,13 +116,20 @@ export function CaptionList({
         }, 0);
       }
       drag.current = null;
+      cancelAnimationFrame(frame);
+      frame = 0;
     };
+    window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", end);
-    return () => window.removeEventListener("mouseup", end);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", end);
+      cancelAnimationFrame(frame);
+    };
   }, []);
 
-  const press = (id: number) => {
-    drag.current = { anchorId: id, base: selected, moved: false };
+  const press = (id: number, y: number) => {
+    drag.current = { anchorId: id, base: selected, moved: false, startY: y };
   };
   const dragOver = (index: number) => {
     const current = drag.current;
@@ -89,6 +140,9 @@ export function CaptionList({
     lastPicked.current = current.anchorId;
     onSelect(selectSpan(lines, current.base, anchor, index));
   };
+  useLayoutEffect(() => {
+    dragOverLatest.current = dragOver;
+  });
   const click = (id: number, range: boolean) => {
     if (swallowClick.current) {
       swallowClick.current = false;
@@ -123,8 +177,6 @@ export function CaptionList({
       </p>
     );
   };
-  const scroller = useRef<HTMLDivElement>(null);
-  useArrowScroll(scroller);
   const stuck = useRef(true);
   // 往上翻看时显示「跟随最新」，点一下回到底部
   const [following, setFollowing] = useState(true);
@@ -212,6 +264,7 @@ export function CaptionList({
                         ? "bg-agent"
                         : ""
                   }`}
+                  data-caption-index={index}
                   onMouseEnter={() => dragOver(index)}
                 >
                   {id !== null ? (
@@ -227,7 +280,7 @@ export function CaptionList({
                       onMouseDown={(event) => {
                         if (event.button !== 0) return;
                         event.preventDefault(); // 拖的时候不要划选文字
-                        press(id);
+                        press(id, event.clientY);
                       }}
                       onClick={(event) => click(id, event.shiftKey)}
                     >
