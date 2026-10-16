@@ -45,7 +45,7 @@ same person and low for different people, independent of the meeting.
 | Option                                                                | What it brings                                                                                                                                                                                                                                                                                                                         | Assessment                                                                                                                       |
 | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | **A. `sherpa-onnx`** (Python package, Apache-2.0)                     | Speaker-embedding extractor with feature extraction built in, on ONNX Runtime bundled in the wheel; CPU wheels for CPython 3.12–3.14 on Windows x64, Linux x64/arm64 and macOS arm64 (a 2–4 MB wheel plus a 10–16 MB `sherpa-onnx-core` wheel). Loads 3D-Speaker (CAM++, ERes2Net), WeSpeaker and NeMo TitaNet models exported to ONNX | **Recommended.** One package, no PyTorch, no compiler. Mandarin-trained models (3D-Speaker) are available in the format it loads |
-| B. `onnxruntime` + `kaldi-native-fbank`                               | The same models, with our own feature extraction and model metadata handling                                                                                                                                                                                                                                                           | Two packages and more code that must match each model's training front end exactly                                               |
+| B. `onnxruntime` + `kaldi-native-fbank`                               | The same models, with our own feature extraction and model metadata handling (`onnxruntime` already comes in through Pipecat)                                                                                                                                                                                                          | Two packages and more code that must match each model's training front end exactly                                               |
 | C. PyTorch stacks (SpeechBrain, pyannote, WeSpeaker's Python package) | Reference implementations                                                                                                                                                                                                                                                                                                              | Rejected: gigabytes of dependencies for a model of a few tens of megabytes                                                       |
 | D. Wait for a speaker-embedding API in NeMo-Speech.cpp                | Same runtime as diarization                                                                                                                                                                                                                                                                                                            | Not available in the pinned release; can replace A later behind the same service interface (§5)                                  |
 
@@ -62,7 +62,7 @@ default threshold (§7) is calibrated on the model that is chosen and recorded i
 ```text
 microphone audio ──► recorder ──► diarizer (slots) ──┐
         │                                            │ stable single-speaker spans
-        └──► 30 s ring buffer ──────────────────────► clip cutter ──► speaker service ──► clip vectors
+        └──► 60 s ring buffer ──────────────────────► clip cutter ──► speaker service ──► clip vectors
                                                                     (127.0.0.1 only)        │
 captions (speaker_idx after host corrections) ─────────────────────────────────────────────┤
                                                                                             ▼
@@ -74,32 +74,35 @@ captions (speaker_idx after host corrections) ───────────�
 
 ## 5. Voice clips
 
-**Speaker service.** A small process `agentic-meeting speaker-service` wraps the extractor and is
-supervised like the other inference services (`launch.*`, health check, restart with backoff). It
+**Speaker service.** A small process `python -m agentic_meeting.voice.service`, started with the
+application's own interpreter, wraps the extractor and is supervised like the other inference
+services (`launch.*`, health check). It
 accepts 16 kHz mono PCM and returns one L2-normalized vector. Running it out of process keeps a
 native crash or a long computation away from the event loop and from transcription (hard rule 7),
 and lets end-to-end tests replace it with a fake in `tests/e2e/inference.py`. Its address must be a
 loopback address; configuration validation rejects anything else (§8).
 
-**Cutting clips.** The recorder already feeds all audio to the diarizer in order. Alongside it, a
-ring buffer keeps the last 30 seconds (about 1 MB). Every 2 seconds:
+**Cutting clips.** Clips are cut per caption. Alongside the diarizer, a ring buffer keeps the last
+60 seconds of audio (about 2 MB). A caption is processed once it has stopped growing and 6 more
+seconds of audio have arrived, by which time the streaming diarizer and late correction have
+settled:
 
-1. Take diarization segments up to `labeled_secs − 2 s`; the streaming model still revises the most
-   recent seconds.
-2. Keep the parts where exactly one slot is active, removing overlaps with other slots and the
-   assistant's speaking periods (the same echo window as [interfaces.md §4.3](../interfaces.md)).
-3. Trim 0.2 s at both ends, split into windows of at most 6 s and keep windows of at least 1.5 s.
-4. Send each window to the speaker service (timeout 5 s, bounded queue; when the queue is full the
-   oldest window is dropped).
+1. Take the caption's speech spans and remove the assistant's speaking periods (the same echo
+   window as [interfaces.md §4.3](../interfaces.md)).
+2. Keep the parts where exactly one slot is active, and only the slot of the caption's speaker.
+3. Trim 0.1 s at both ends, drop parts under 0.3 s, pack the rest into windows of at most 6 s of
+   speech and keep windows of at least 1 s.
+4. Send each window to the speaker service (timeout 5 s; at most 32 captions wait, the oldest is
+   dropped beyond that).
 
-Without diarization (`diarization.backend = "none"` or after it degraded) the windows are cut from
-caption spans instead. That still lets the host enroll speakers they assigned by hand.
+Without diarization (`diarization.backend = "none"` or after it degraded) the whole caption span is
+used. That still lets the host enroll speakers they assigned by hand.
 
-**Storage.** Each vector is stored as a voice clip of the session with its time span and slot. A
-clip has no speaker of its own: its speaker is the `speaker_idx` of the ASR caption that covers more
-than half of it, read at the time of use. Reassigning captions, merging speakers and late correction
-therefore move clips along with the text, and the host's corrections are the ground truth. Clips
-not covered by any caption (coughs, noise) are ignored.
+**Storage.** Each vector is stored as a voice clip with its time span and slot, linked to the
+caption it was cut from. A clip has no speaker of its own: its speaker is that caption's current
+`speaker_idx`. Reassigning captions, merging speakers and late correction therefore move clips
+along with the text, the host's corrections are the ground truth, and deleting captions deletes
+their clips. Speech outside any caption (coughs, noise) is never cut.
 
 **A speaker's voiceprint in a meeting** is the duration-weighted mean of its clips, normalized, and
 its _clean speech_ is the total clip duration.
@@ -204,8 +207,8 @@ These go into the reference documents before the code (hard rule 9). Names are p
 
 `[retention] voice_profiles_days`, default `0` (kept until deleted).
 
-**Database** (additive migration): `voice_clips` (session, time span, slot, duration, vector, write
-token; cascades with the session), `voice_profiles` (name, optional account, timestamps, model
+**Database** (additive migration): `voice_clips` (session, caption, time span, slot, duration, vector,
+model fingerprint; cascades with the session and the caption), `voice_profiles` (name, optional account, timestamps, model
 fingerprint), `voice_profile_samples` (profile, source meeting set to null when that meeting is
 deleted, duration, vector), `speakers.voice_profile_id`, and dismissed pairs per meeting.
 
@@ -247,7 +250,8 @@ diarization on the user's machine.
 
 1. This design.
 2. Dependency, configuration, speaker service, clip capture and storage, erasure and retention of
-   clips, data-governance documentation.
+   clips, data-governance documentation. `store_session_voice` and the page's outage notice come
+   with step 3, where the page first shows anything about voices.
 3. Profiles, enrollment, matching, suggestions, the page's controls and the user guide.
 4. Profile retention, the command line, the container image and threshold calibration in
    benchmarks.md.
