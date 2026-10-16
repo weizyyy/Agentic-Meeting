@@ -223,7 +223,7 @@ async def recall(
 
 @_tool
 async def get_digest(params: FunctionCallParams, scope: str = "all"):
-    """取会议纪要，用来回答「整理一下」「总结一下」这类要求。
+    """读取会议纪要，用于当场概括或回顾讨论。不会创建后台任务；明确要求交给后台整理文档时不要用本工具代替交办。
 
     Args:
         scope: "all" 取到目前为止的整场纪要，外加纪要之后的发言；"recent" 只取最近几分钟的发言原文。
@@ -529,7 +529,7 @@ def delegate_tool(task_timeout_secs: float) -> Callable[..., Awaitable[None]]:
         minutes_of_context: float = DEFAULT_CONTEXT_MINUTES,
         include_screen: bool = False,
     ):
-        """把需要联网检索、核实事实、读图分析、计算或画图的事交给后台去做。会立刻返回「已受理」，做完后你会再收到结果。
+        """把工作交给后台 agent，包括根据会议内容整理文档，以及联网检索、核实事实、读图分析、计算或画图。对方明确要求交给后台时必须调用，不能只口头答应或用 get_digest 代替。只有收到任务编号和 accepted 状态后才能确认交办，做完后你会再收到结果。
 
         Args:
             goal: 要做的事。写成一段完整、独立可读的描述：查什么、为什么查、结果要回答什么问题。

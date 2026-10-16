@@ -1413,6 +1413,10 @@ timeout_secs=<agent.task_timeout_secs + 余量>)` 声明；创建任务后立刻
 - Pipecat 在有异步工具时会往系统提示词后面自动加一段英文（要求「把晚到的结果附在下一次回复末尾，不要单独成一次回复」），
   与本项目的流程相反，已在 `RealtimeLLMService` 中去掉；怎么对待晚到的结果由 `realtime_tasks.md` 说明。
 
+明确要求把工作交给后台 agent 时，使用 `delegate_task`，包括只根据会议内容整理文档的任务。
+这条规则优先于用于当场概括的 `get_digest`。只有工具返回任务编号和 `status: "accepted"` 后，
+助理才能确认已经交办；进度和失败原因必须来自 `task_status` 或任务结果。
+
 配置里 `realtime.direct_mcp_tools` 非空时，另把这些 MCP 工具直接挂给实时模型（见 pipecat-notes.md §7）。
 
 ## 8. 后台任务

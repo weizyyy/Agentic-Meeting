@@ -87,9 +87,9 @@ export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
   }, [openId, openStatus, onLoad]);
 
   if (tasks.length === 0) {
-    // 宽屏上没有交办过任务时不占地方；手机上任务单独一页，留一句说明
+    // 没有任务时也保留入口和说明，让用户能确认任务是否真的创建。
     return (
-      <section className="rounded-xl border bg-card md:hidden" aria-label={t.tasks.title}>
+      <section className="shrink-0 rounded-xl border bg-card" aria-label={t.tasks.title}>
         <h2 className="px-4 pt-3 pb-2 text-sm font-medium">{t.tasks.title}</h2>
         <p className="px-4 pb-4 text-sm text-subtle-foreground">{t.tasks.empty}</p>
       </section>

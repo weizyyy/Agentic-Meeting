@@ -6,6 +6,7 @@ import io
 import json
 import time
 
+import pytest
 from PIL import Image
 
 from .inference import Reply
@@ -69,8 +70,9 @@ async def test_screenshots_need_a_live_meeting(app, http):
     assert response.status_code == 404 and response.json()["code"] == "frames.no_live_session"
 
 
+@pytest.mark.parametrize("modality", ["text", "voice"])
 async def test_delegated_task_runs_in_the_background_and_reports_back(
-    app, http, meeting, inference
+    app, http, meeting, inference, modality
 ):
     client = meeting()
     session = await client.connect()
@@ -93,10 +95,17 @@ async def test_delegated_task_runs_in_the_background_and_reports_back(
             )
         ),
     )
-    client.type_text("Jarvis 帮我整理一下基线的超参数")
+    request = "Jarvis 把基线的超参数交给后台整理一下"
+    if modality == "voice":
+        inference.asr.say(request)
+        await client.speak()
+    else:
+        client.type_text(request)
 
+    queued = await client.next_message("task", status="queued")
     done = await client.next_message("task", status="succeeded", timeout_secs=60)
-    assert done["brief"] == "学习率千分之三" and done["modality"] == "text"
+    assert queued["id"] == done["id"] and queued["modality"] == modality
+    assert done["brief"] == "学习率千分之三" and done["modality"] == modality
     # 交给后台模型的输入里带着会议原文
     sent = json.dumps(inference.agent.requests[0]["messages"], ensure_ascii=False)
     assert "基线的学习率是千分之三" in sent and "整理基线的超参数" in sent
@@ -108,7 +117,18 @@ async def test_delegated_task_runs_in_the_background_and_reports_back(
     assert detail["outbound"]["goal"] == "整理基线的超参数"
     assert detail["events"]
     # 结果回到实时模型，助理据此回答
-    await until_sync(lambda: "已经处理" in client.bot_text(), "任务结果交回实时模型")
+    await until_sync(
+        lambda: any(
+            "[任务 t1 完成] 学习率千分之三" in json.dumps(r["messages"], ensure_ascii=False)
+            for r in inference.llm.requests
+        ),
+        "任务结果交回实时模型",
+    )
+    await until_sync(lambda: "已经处理" in client.bot_text(), "收到任务汇报")
+    if modality == "voice":
+        await until_sync(lambda: client.bot_audio_frames > 10, "收到语音汇报")
+    else:
+        assert inference.tts.count() == 0
 
 
 async def test_a_failing_task_is_reported_as_failed(app, http, meeting, inference):

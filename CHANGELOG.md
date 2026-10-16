@@ -18,6 +18,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Explicit requests to hand document preparation to the background agent take priority over an
+  immediate meeting summary. The assistant is instructed to confirm delegation only after the
+  task is accepted and to check task status before reporting progress. The desktop task panel
+  now stays visible when empty, making it clear when no task has been created.
 - `←` and `→` step through an enlarged screenshot again; the dialog had stopped them from reaching
   the page since the client moved to the new components in 0.4.0.
 
