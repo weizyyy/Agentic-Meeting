@@ -12,9 +12,12 @@ import {
   type HistoryItem,
 } from "./captions.ts";
 import { messages } from "./i18n/index.ts";
+import type { MeetingSnapshot } from "./meetingEvents.ts";
 import type { NoticeParams } from "./i18n/serverNotices.ts";
 import type {
   AssistantStateName,
+  AssistantAnswerMessage,
+  FrameCaptionStatusMessage,
   CaptionMessage,
   NoticeLevel,
   SessionClosedMessage,
@@ -89,6 +92,7 @@ export interface MeetingState {
   report: ReportInfo | null;
   /** 连接期间：正在别的设备上旁观这场会议的设备 */
   watchers: Watcher[];
+  watcherDisconnected: boolean;
 }
 
 export type ReplyMode = "text" | "voice";
@@ -121,9 +125,15 @@ export const initialState: MeetingState = {
   reconnectAttempt: 0,
   report: null,
   watchers: [],
+  watcherDisconnected: false,
 };
 
 export type Action =
+  | { type: "watchedSnapshot"; snapshot: MeetingSnapshot }
+  | { type: "watchedState"; sessionId: string; state: "live" | "interrupted" | "ended" }
+  | { type: "watcherDisconnected"; disconnected: boolean }
+  | { type: "assistantAnswer"; message: AssistantAnswerMessage }
+  | { type: "frameCaptionStatus"; message: FrameCaptionStatusMessage }
   | { type: "connecting" }
   | { type: "viewRequested"; requestId: number }
   | { type: "transport"; transport: string }
@@ -212,6 +222,72 @@ function isPending(state: MeetingState, id: string): boolean {
 
 export function reduce(state: MeetingState, action: Action): MeetingState {
   switch (action.type) {
+    case "watcherDisconnected":
+      return { ...state, watcherDisconnected: action.disconnected };
+    case "watchedState":
+      if (state.viewing?.id !== action.sessionId) return state;
+      return {
+        ...state,
+        viewing: { ...state.viewing, state: action.state },
+        ...(action.state === "live"
+          ? {}
+          : { captions: state.captions.filter((c) => c.final), assistantState: "idle" as const }),
+      };
+    case "watchedSnapshot": {
+      const s = action.snapshot;
+      if (
+        state.viewing?.id !== s.session.id ||
+        state.connection !== "disconnected" ||
+        (!s.session.deletion_pending && isPending(state, s.session.id))
+      )
+        return state;
+      let captions = replaceWithHistory(s.utterances);
+      for (const caption of s.transient.captions) captions = applyCaption(captions, caption);
+      return {
+        ...state,
+        viewing: s.session,
+        captions,
+        speakers: s.speakers,
+        members: s.session.members,
+        frames: replaceFrames(s.frames),
+        tasks: replaceTasks(
+          [],
+          s.tasks.map((task) => ({ ...task, lastStep: task.events.at(-1)?.summary })),
+        ),
+        connections: s.session.connections,
+        screen: parseScreenConfig(s.session.screen),
+        assistantText: s.transient.answer?.text ?? "",
+        assistantState: s.transient.assistant_state,
+        hasOlder: s.utterances.length >= PAGE_SIZE,
+        sessions: state.sessions.map((session) =>
+          session.id === s.session.id ? s.session : session,
+        ),
+      };
+    }
+    case "assistantAnswer":
+      return {
+        ...state,
+        assistantText: action.message.text,
+        assistantState:
+          state.assistantState === "speaking"
+            ? "speaking"
+            : action.message.phase === "started" || action.message.phase === "text"
+              ? "thinking"
+              : "idle",
+      };
+    case "frameCaptionStatus":
+      return {
+        ...state,
+        frames: state.frames.map((frame) =>
+          frame.id === action.message.id
+            ? {
+                ...frame,
+                caption_status: action.message.caption_status,
+                caption: action.message.caption ?? frame.caption,
+              }
+            : frame,
+        ),
+      };
     case "viewRequested":
       return { ...state, viewRequest: action.requestId };
     case "connecting":
@@ -381,7 +457,9 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
         viewing: action.detail,
         captions: replaceWithHistory(action.items),
         speakers: action.speakers,
-        members: action.detail?.members ?? state.members,
+        members: action.detail?.members ?? [],
+        assistantText: action.detail?.id === state.viewing?.id ? state.assistantText : "",
+        assistantState: action.detail?.id === state.viewing?.id ? state.assistantState : "idle",
         hasOlder: action.items.length >= PAGE_SIZE,
         // 换了一场会议：时间线先清空，随后由 framesLoaded 填上
         frames:

@@ -26,7 +26,7 @@ The source of truth is the pydantic model in
 | Section        | Contents                                                                                                                          |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `session`      | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory, number of meetings live at the same time      |
-| `server`       | Bind address and port, TLS certificate, ICE servers, access password and login duration                                           |
+| `server`       | Bind address and port, TLS certificate, ICE servers, access password, login duration, `meeting_access` and `local_users` (§5.11)  |
 | `realtime_llm` | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`            |
 | `asr`          | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings                              |
 | `diarization`  | Backend, library path, model path, GPU index, segmentation thresholds                                                             |
@@ -649,45 +649,64 @@ synthesis settings: the room's loudspeaker belongs to the device holding the con
 watcher can be anywhere. Watchers share the typed-input queue with the live page, so together they
 can have at most five questions waiting (§6.3).
 
-**Following a meeting live.** A page that shows a meeting without holding its connection opens
-`GET /api/sessions/{id}/events`, a `text/event-stream` response. Each event is one `data:` line
-holding a JSON object with a `type`, followed by a blank line; while nothing else is sent, a comment
-line `: ping` follows every 15 s. The stream carries:
+Typed-input validation and queue notices (`text.empty`, `text.too_long`, `text.malformed`,
+`text.queued`, `text.queue_full`) belong only to their requester: the recording page's RTC data
+channel or the submitting HTTP response. They never enter the meeting event history or other
+pages' event streams. Meeting-wide service failures and recovery notices remain shared.
 
-- `{"type": "state", "state": "live" | "interrupted" | "ended"}` first, and again whenever the
-  meeting's state changes: when a live connection is ready, when it drops, and when the meeting is
-  ended. When another device takes over the same meeting, `live` follows without an `interrupted`
-  in between.
-- These messages of §6.1, exactly as the live page receives them: `caption`, `utterance`,
-  `utterance_update`, `speaker`, `speakers_merged`, `frame`, `frame_caption`, `task` and
-  `task_event`. Notices, `assistant_state`, `session`, `session_closed` and `watchers` are for the
-  live page only. The assistant's answers, spoken or typed, arrive as their stored `utterance`
-  (`speaker_idx = -1`); the text streamed while an answer is generated does not.
+**Following a meeting live.** A read-only page opens `GET /api/sessions/{id}/events` without
+creating an offer, requesting a microphone, or becoming the recording owner. This is one process's
+event history, not a durable message broker. The shared-password gate of §5.7 applies, and in
+meeting-access mode the stream follows the rules of §5.11.
 
-While a stream is open, its device is listed as a watcher of the meeting. The device is described
-by `device`, made on the server from the request's `User-Agent` header: platform and browser, such
-as `iPhone · Safari` or `Windows · Edge`, either part alone when only one is recognized, or an empty
-string. Nothing else about the device is kept, and the list exists in memory only. The live page
-receives the list as `watchers` (§6.1).
+The stream uses named SSE events. `snapshot` and `meeting` have an `id: <epoch>:<seq>` and a JSON
+envelope `{session_id, epoch, seq, data}`. The per-meeting epoch contains a random process identifier
+and the meeting id; the sequence increases for every published event. `Last-Event-ID` takes precedence
+over the optional `after` query cursor. Up to 256 events are retained, and each subscription queues
+at most 256. A valid cursor replays only later events. Missing cursors receive a full snapshot;
+expired, malformed, future, cross-meeting or previous-process cursors first receive `reset` with
+`{reason: "cursor_unavailable"}`, then a full snapshot. Reset has no id. Queue overflow sends
+`reset` with `{reason: "slow_consumer"}` and closes the request if sending remains possible.
 
-The page keeps its read-only stream open while the selected meeting is `live` or `interrupted`,
-so a host resuming an interrupted meeting is detected without reloading the page. Typed questions
-remain enabled only while the meeting is `live`. The page closes the stream when the meeting ends,
-is deleted or pending deletion, another meeting is selected, this device starts recording, or the
-meeting view unmounts. A detail refresh returning 404 clears the deleted meeting from the page.
-Opening or retaining this stream does not request microphone access or send a WebRTC offer.
+Subscription registration, replay selection, sequence and transient-state capture have no await
+between them. The following database snapshot holds the existing session work lease; concurrent
+events remain queued. Snapshot `data` contains `session` (the detail response), all `utterances`,
+`speakers`, `frames` (including caption status), `tasks` (including progress events with stable `id`),
+and `transient: {captions, answer, assistant_state, speaking}`. It replaces the page's durable panels;
+queued events then upsert stable object ids. Replayed revisions and full snapshots restore edits to
+older utterances, screenshots and task state, not just captions after the last id. The page rejects
+other-meeting events and duplicate sequence numbers; resets clear the cursor before the next snapshot.
 
-A stream holds at most 500 undelivered messages; a device that falls further behind is disconnected
-and catches up when it reconnects. The browser's `EventSource` reconnects on its own. Every time the
-stream opens, the page reloads the meeting detail, the captions after its last caption id (§5.4)
-and the tasks (§5.5), so nothing sent while it was away is lost. The server closes the stream when
-the meeting is deleted or the application stops. 404 `session.not_found` for an unknown meeting;
-409 `session.busy` while it waits for deletion. The route is under `/api`, so with an access
-password the device has to be logged in (§5.7); `EventSource` sends the session cookie.
+`meeting.data` carries the existing caption, utterance/revision, speaker/merge, screenshot/caption,
+task and progress messages, plus `session_updated`, `session_state`, `session_deleted`,
+`frame_caption_status`, meeting-wide `notice`, `assistant_state`, `assistant_speaking`, and
+`assistant_answer: {response_id, phase, text}`. Answer phases are `started`, `text`, `ended`,
+`interrupted`; `text` is cumulative, never an append-only delta, and is published at most every
+0.25 seconds while the answer streams; `ended` and `interrupted` always carry the full text. Caption messages with empty stable
+and unstable text remove the temporary segment, including from new snapshots; no empty utterance
+is persisted. Recorder, ASR status, answer frames and background work publish against their source
+meeting even after the current recording has changed. Requester-only rejection notices stay on the
+HTTP response or recording channel. Typed watcher questions remain text-only, never room TTS.
 
-Clock synchronization: the browser records its local time before and after the request, `t0` and
-`t1`; the offset "server time − local time" is approximately `server_time − (t0 + t1) / 2`. Three
-measurements are taken on connection and the one with the shortest round trip is used.
+The page retains its subscription in `live` and `interrupted`, with typed questions enabled only in
+`live`. Ended/deleted/pending-deletion meetings, selection changes, starting a recording connection,
+and view unmount close the old subscription. A 404 detail refresh clears a removed meeting. The
+browser reconnects with its last cursor; a reconnecting hint identifies an interrupted event feed.
+
+A healthy stream stays open; when no event arrives for 5 seconds the server sends a `: heartbeat`
+comment line. Each network send may wait at most 15 seconds: a peer that stops reading has its
+request closed and the generator closed in `finally`, releasing its subscription. Uvicorn's
+`timeout_graceful_shutdown=5` bounds its request/task shutdown wait before application cleanup.
+These are application/request limits, not a promise of immediate physical TCP closure: buffered
+bytes can remain until the peer reads or closes. A reset blocked by the socket is not delivered;
+the next request recovers through its cursor or snapshot.
+
+Each open subscription appears once in the recording page's `watchers` list. Labels derived from
+User-Agent describe connections, not authenticated people or distinct devices. Two tabs count as
+two connections; a reconnection after a network error gets a new connection id and start time. Closing, terminal state,
+overflow or the send deadline removes the connection. No presence or replay state survives a process
+restart. 404 `session.not_found` identifies unknown meetings; 409 `session.busy` identifies pending
+deletion. The session cookie is sent by EventSource when the shared password is enabled (§5.7).
 
 ### 5.2 WebRTC signaling
 
@@ -711,7 +730,9 @@ The client may include `{"session_id": "<session to resume>"}` in `requestData`:
 - otherwise, if `session.max_live_meetings` meetings are already live: with a limit of 1 the live
   meeting is taken over; with a higher limit the request is refused before negotiation with 409
   `session.capacity` (`params.max` is the limit). A request carrying the `pc_id` of an existing
-  connection is a renegotiation and is not counted (architecture.md §3.2).
+  connection is a renegotiation and is not counted (architecture.md §3.2). With
+  `server.meeting_access`, the access checks of §5.11 come first, so a caller who may not record
+  gets 401, 403 or 404 rather than 409.
 
 `POST /api/offer` reads the raw JSON and passes it to `SmallWebRTCRequest.from_dict`, because the
 client SDK sends connection parameters in camel-case `requestData`. After negotiation
@@ -741,22 +762,23 @@ are stopped without starting capture or uploading a screenshot.
 
 `POST /api/frames`, `multipart/form-data`:
 
-| Field         | Type             | Description                                                                                                                   |
-| ------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `captured_at` | float as string  | Capture time in Unix seconds, **already converted to server time**                                                            |
-| `image`       | file             | `image/webp` or `image/jpeg`, longest side at most `screen.max_side_px`                                                       |
-| `session_id`  | string, optional | The live meeting the screenshot belongs to. Required when several meetings are live; without it the only live meeting is used |
+| Field         | Type             | Description                                                                                                                                                   |
+| ------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `captured_at` | float as string  | Capture time in Unix seconds, **already converted to server time**                                                                                            |
+| `image`       | file             | `image/webp` or `image/jpeg`, longest side at most `screen.max_side_px`                                                                                       |
+| `session_id`  | string, optional | The live meeting the screenshot belongs to. Required when several meetings are live or with `server.meeting_access`; without it the only live meeting is used |
 
 Response: `{"id": <screenshot id>, "t": <session timeline seconds>}`.
 
-| Status | Condition                                                                                                                                                             |
-| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400    | Not an image, not WebP/JPEG, too large in pixels, `captured_at` not a number or more than 60 s from server time; `session_id` missing while several meetings are live |
-| 403    | `screen.enabled = false`                                                                                                                                              |
-| 404    | No live meeting, or the meeting named by `session_id` is not live                                                                                                     |
-| 413    | Larger than 4 MB                                                                                                                                                      |
-| 422    | Missing field                                                                                                                                                         |
-| 500    | The file could not be written (the database row is rolled back)                                                                                                       |
+| Status | Condition                                                                                                                                                                                             |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | Not an image, not WebP/JPEG, too large in pixels, `captured_at` not a number or more than 60 s from server time; `session_id` missing while several meetings are live or with `server.meeting_access` |
+| 403    | `screen.enabled = false`                                                                                                                                                                              |
+| 404    | `frames.no_live_session`: no `session_id` and no live meeting                                                                                                                                         |
+| 409    | `session.not_live`: the meeting named by `session_id` is not live                                                                                                                                     |
+| 413    | Larger than 4 MB                                                                                                                                                                                      |
+| 422    | Missing field                                                                                                                                                                                         |
+| 500    | The file could not be written (the database row is rolled back)                                                                                                                                       |
 
 `GET /api/frames/{id}/image` returns the image with `Cache-Control: private, no-cache`.
 `GET /api/frames?session_id=` returns
@@ -1314,11 +1336,22 @@ translated. `request.failed` covers errors raised outside this application's han
 | `request.too_large`         | 413           | —                | 请求体太大                                                         |
 | `request.failed`            | any           | `status`: number | 请求失败（{status}）                                               |
 | `route.not_found`           | 404           | —                | 没有这个接口或页面                                                 |
+| `share.invalid`             | 404           | —                | 分享无效或已到期／撤销                                             |
+| `share.limit`               | 409           | —                | 本会议最多8个有效链接                                              |
 | `auth.required`             | 401           | —                | 请先登录                                                           |
 | `auth.csrf`                 | 403           | —                | 请求缺少有效的安全令牌，请刷新页面后重试                           |
 | `auth.wrong_password`       | 401           | —                | 口令不对                                                           |
 | `auth.too_many`             | 429           | —                | 尝试次数过多，请稍后再试                                           |
 | `auth.not_enabled`          | 404           | —                | 没有启用访问口令                                                   |
+| `access.denied`             | 403           | —                | 无权执行此操作                                                     |
+| `access.invalid_member`     | 400           | —                | 成员不存在或不能主持会议                                           |
+| `access.last_host`          | 409           | —                | 会议必须保留一位主持人                                             |
+| `access.busy`               | 409           | —                | 录音服务正忙                                                       |
+| `text.context_too_large`    | 413           | —                | 问题和提示超出上下文预算                                           |
+| `text.interrupted`          | 409           | —                | 只读问答被实时应答打断，请稍后重新提问                             |
+| `text.busy`                 | 429           | —                | 只读问答队列已满或已有问题处理中                                   |
+| `text.timeout`              | 504           | —                | 只读问答等待超时                                                   |
+| `text.failed`               | 502           | —                | 只读问答没有完成                                                   |
 | `storage.not_ready`         | 503           | —                | 存储尚未就绪                                                       |
 | `cleanup.not_ready`         | 503           | —                | 清理尚未就绪                                                       |
 | `session.not_found`         | 404           | —                | 找不到这场会议                                                     |
@@ -1388,6 +1421,189 @@ and the repository test checks the three agree.
 `detail` the exception text of a failed report, at most 200 characters plus an ellipsis; these are
 not translated.
 
+### 5.11 Meeting access
+
+Meeting access gives each person a local account and limits every meeting to the people granted
+it. It needs no identity provider and works offline. It is off by default
+(`server.meeting_access = false`), in which case §5.7 applies unchanged: one optional shared
+password, and everyone who passes it sees every meeting.
+
+**Accounts.** Each `[[server.local_users]]` entry has a stable `id`, a `display_name`, a
+`password_env` and `can_host` (default `false`); at least one account must be able to host. A
+missing password variable or an invalid entry stops startup instead of turning the checks off.
+There is no registration or e-mail recovery: an operator adds the account and hands over the
+password. The server identifies a person by the principal `local:<id>`, never by display name. An
+id is never reassigned; changing its password keeps its meetings and logs out its old logins.
+
+**Login.** In access mode `POST /api/auth/login` takes `{user_id, password, site_password?}`.
+`site_password` is required when `server.password_env` is set; the shared password alone grants
+nothing. `GET /api/auth` adds `meeting_access` and, when logged in, the caller's
+`principal: {id, display_name, can_host}`. The rate limits, body limits, scrypt hashing and CSRF of
+§5.7 still apply. Logins are stored in `login_sessions` as a digest of the cookie secret with the
+principal and expiry, never as the raw cookie or password. `POST /api/auth/logout` ends one login,
+and `POST /api/auth/logout-all` ends every login of the caller.
+
+**Roles.** `meeting_members(session_id, principal_id, role, allow_questions)` holds the grants.
+Creating a meeting grants its creator `host` in the same transaction; only accounts with
+`can_host` may create meetings. A `watcher` reads the meeting and may ask questions only when
+`allow_questions` is true (default false). A host may also record and resume, rename, keep, end
+and delete the meeting, edit speakers, generate reports, cancel tasks, and manage members and
+shares. A meeting always keeps at least one host, and only `can_host` accounts can be made hosts.
+Roles are never taken from request data. Session responses carry the caller's
+`access: {role, allow_questions, tool_enabled, share_expires_at}` so the page can show the right
+controls; the server enforces them regardless.
+
+| Method and path                                    | Access | Result                                                           |
+| -------------------------------------------------- | ------ | ---------------------------------------------------------------- |
+| `GET /api/sessions/{id}/members`                   | Host   | `{items: [{principal_id, display_name, role, allow_questions}]}` |
+| `PUT /api/sessions/{id}/members/{principal_id}`    | Host   | Set `{role, allow_questions}` for a configured account           |
+| `DELETE /api/sessions/{id}/members/{principal_id}` | Host   | Remove the grant; the last host cannot be removed                |
+| `GET /api/sessions/{id}/access-log`                | Host   | Access log (§5.13)                                               |
+
+The page shows the caller's own principal id; a host types the exact id to grant access. There is
+no user directory.
+
+**Meetings from before access mode.** Meetings without an owner are invisible in access mode and
+are never given to the first visitor. With the server stopped, an operator runs
+`agentic-meeting access list-unclaimed` and then
+`agentic-meeting access claim <session-id> --owner <user-id>` for a hosting account. Repeating a
+claim is harmless; claiming a meeting someone else owns fails, and a mistyped meeting or account
+id is reported without a traceback. Both commands refuse to run while a server holds the data
+directory: `serve` locks it, so a second server on the same directory also refuses to start.
+Turning access mode off again reopens every meeting to the shared password and keeps the grants
+for a later re-enable.
+
+**What is checked.** Without a login the API returns 401. A meeting the caller has no grant for
+returns the same 404 as an unknown meeting; a readable meeting with too little permission returns
+403 `access.denied`. Lists are filtered before pagination, and the current-session routes only
+resolve a meeting the caller may read. The check covers session ids in paths, queries and bodies
+and the parent meeting of a screenshot, task, export file or report. Screenshot upload names its
+`session_id` and needs host access to that recording meeting. `/api/time` and `/api/ice` need a
+login; the §5.8 health routes stay anonymous and carry no meeting content.
+
+**Connections and revocation.** Every event stream and WebRTC connection is bound to one login,
+principal and meeting. Offers, resumes and ICE PATCH verify that binding; a `pc_id` or role sent by
+the client is never enough. Starting a new recording cannot interrupt a meeting the caller cannot
+host, and the busy answer (409 `access.busy`) does not reveal which meeting is recording. This
+takeover only happens when `session.max_live_meetings` is 1; with a higher limit a new recording
+never interrupts another meeting, and when every place is taken the offer gets 409
+`session.capacity` after the checks above (§5.2). Removing a member, logging
+out (one login or all) and login expiry are noticed within one second, even on an idle stream:
+affected event streams end and drop their queued events, recording connections close, and
+streaming downloads stop before their next chunk. Bytes already sent cannot be recalled.
+
+The event stream of §5.1 keeps its cursor, snapshot and replay rules in access mode. A cursor is
+only a position, never a permission: access is checked before subscribing, before the snapshot or
+replay is sent and before every chunk. A cursor from another meeting yields a reset and a snapshot
+of the requested meeting only. After access is lost the page clears the meeting, closes the stream
+and forgets its cursor; a later login starts a new subscription.
+
+**Who can use the tools.** Only the exact login that owns the current recording connection uses
+the tool-enabled pipeline, through the data channel or `POST /api/sessions/{id}/text`. Every other
+login, including other hosts and a second login of the same account, asks read-only questions as
+described below; other hosts keep their HTTP management rights. Tool calls remember the login,
+principal, meeting and connection they started from. Logging out, expiry, revocation or the
+connection ending cancels that login's queued input and unfinished tool calls, and a late result is
+neither stored nor published. Side effects that already finished are not undone. Legacy mode is
+unchanged.
+
+**Read-only questions.** These go to the background entrance of the configured realtime model
+(`cfg.realtime_llm.active`) with no tools and no MCP; a tool call in the answer is never executed.
+That endpoint can be local, on the LAN or remote, so the page keeps the outbound-data notice.
+Access is rechecked before sending and before storing the answer. A meeting that is not live
+returns 409 `session.not_live`.
+
+The input is limited to the meeting's latest summary (first 4096 characters), its latest 100
+utterances (2048 characters each) and its latest 10 screenshot captions (1024 characters each);
+task rows, artifacts, images and other meetings are never included. Let
+`B = realtime.context_budget_tokens` and `R = min(512, sampling.max_tokens or 512)`, which is also
+sent as `max_tokens`. The complete messages must satisfy both `estimate_messages(messages) + R <= B`
+and a compact UTF-8 JSON size of at most `min(32768, 4 * (B - R))` bytes. The summary takes at most
+a quarter of the material budget; utterances and captions are chosen newest first, shortened with a
+marker when too long, presented oldest first, and the oldest are dropped until both limits hold.
+The question (at most 2000 characters) is never shortened: if the system prompt and the question
+alone do not fit, the answer is 413 `text.context_too_large` and nothing is recorded or sent.
+
+At most five questions wait, each principal has at most one in progress, and each has 60 seconds
+in total including waiting (429 `text.busy`, 504 `text.timeout`). A host's speech takes priority: a
+question it pre-empts ends with 409 `text.interrupted` and is not retried. Waiting or cancelling a
+question never resumes a pause the host's pipeline set. The question is recorded only after it fits
+the budget; a successful answer is stored once as an assistant utterance and published as a normal
+utterance event. Failures return 502 `text.failed` and never stop transcription.
+
+### 5.12 Meeting shares
+
+In access mode a host can give temporary watcher access without creating an account: one meeting
+password (12–128 characters) or up to eight links per meeting. A share grants the watcher role on
+that meeting only; questions are off unless the host allows them. Shares last 24 hours by default
+and at most seven days (`expires_in` takes 1–604800 seconds). Passwords are stored as salted scrypt
+hashes and links as SHA-256 hashes of 32 random bytes; the password or link itself is shown only
+once and never stored or logged. Legacy mode has none of these endpoints.
+
+| Method and path                                    | Access | Body                                        | Result                                   |
+| -------------------------------------------------- | ------ | ------------------------------------------- | ---------------------------------------- |
+| `GET /api/sessions/{id}/shares`                    | Host   | —                                           | Active shares, without secrets           |
+| `PUT /api/sessions/{id}/shares/password`           | Host   | `{password, expires_in?, allow_questions?}` | Creates or replaces the meeting password |
+| `POST /api/sessions/{id}/shares/links`             | Host   | `{expires_in?, allow_questions?}`           | New link, shown once                     |
+| `POST /api/sessions/{id}/shares/{share_id}/rotate` | Host   | `{expires_in?, allow_questions?}`           | Replaces a link, shown once              |
+| `DELETE /api/sessions/{id}/shares/{share_id}`      | Host   | —                                           | Revokes; repeating is harmless           |
+| `POST /api/shares/exchange`                        | Anyone | See below                                   | Watcher access for the current login     |
+
+`POST /api/shares/exchange` takes `{session_id, kind, share_id, token}` for a link or
+`{session_id, kind, password}` for the meeting password, plus `site_password` when
+`server.password_env` is set. It needs a JSON body and an `Origin` header whose host matches the
+request's `Host` header, so it also works behind a proxy that terminates TLS; a logged-in caller
+also sends its CSRF token. A wrong, expired, revoked or foreign share returns 404 `share.invalid`;
+a ninth link returns 409 `share.limit`. Malformed input is 400, oversized input 413, and too many
+attempts 429 with `Retry-After`. A caller without a login gets a guest login of its own, valid for
+at most 24 hours and never longer than `server.auth_session_days`; at most 20 guest logins are
+created per address per hour. Guests cannot record, use tools or be granted a role.
+
+Share access belongs to the exact login that redeemed it. It does not move to a personal login,
+and revoking a share removes only the access that came from it, never a member's own grant or
+another login. `meeting_shares` stores the share id, meeting, kind, hash and salt, creation and
+expiry time and the question flag; `share_access` links logins to shares with a capped expiry; and
+`guest_logins` marks guest principals. Deleting a login, share or meeting removes the access with
+it, and a meeting pending deletion denies share access at once. Expired rows are pruned at startup,
+on every change and every 60 seconds. Downgrading to an older version requires stopping the server
+and backing up the whole data directory.
+
+Access is checked when a request starts, before each response chunk and before a late answer is
+stored; open responses recheck every 0.5 seconds. A revoked stream or download gets at most
+0.25 seconds to send its final empty chunk. Links carry their token in the URL fragment, which the
+page clears before calling the API; pages use `no-referrer` and `private, no-store`. Copies in a
+browser history, the clipboard or a forwarded message cannot be erased remotely.
+
+### 5.13 Access log
+
+The server keeps a per-meeting log of who opened, exported and changed access to a meeting. Hosts
+read it with `GET /api/sessions/{id}/access-log?limit=&before_id=` (`limit` 1–500, default 100).
+The response is `{items: [{id, at, principal_id, display_name, action, detail}]}`, newest first;
+`before_id` continues below an earlier page. `at` is a UNIX timestamp and `display_name` is the
+name at the time of the entry (`Guest` for guests). Reading the log is not itself logged.
+
+| `action`           | When                                                | `detail`                                            |
+| ------------------ | --------------------------------------------------- | --------------------------------------------------- |
+| `meeting.view`     | A login reads the meeting's content                 | `role`, `sources` (where the access came from)      |
+| `meeting.export`   | A host or watcher downloads an export or the report | `format`                                            |
+| `meeting.end`      | A host ends the meeting                             | —                                                   |
+| `recording.start`  | A recording connection starts the meeting           | —                                                   |
+| `recording.resume` | A recording connection resumes the meeting          | —                                                   |
+| `member.set`       | A host grants or changes a role                     | `principal_id`, `role`, `allow_questions`           |
+| `member.remove`    | A host removes a grant                              | `principal_id`                                      |
+| `share.create`     | A host creates a share                              | `kind`, `share_id`, `expires_at`, `allow_questions` |
+| `share.rotate`     | A host replaces a share                             | as `share.create`, plus `replaced_id`               |
+| `share.revoke`     | A host revokes a share                              | `share_id`                                          |
+| `share.redeem`     | Someone enters through a share                      | `kind`, `share_id`, `guest`                         |
+| `task.artifact`    | Someone downloads a task's file                     | `task_id`, `name`                                   |
+
+`meeting.view` is written at most once per login and meeting every 30 minutes, so following a
+meeting does not flood the log. The table is
+`access_log(id, session_id, at, principal_id, display_name, action, detail)`, with `detail` as
+JSON. Each meeting keeps its newest 2000 entries, and deleting the meeting deletes its log. Writing
+the log never fails the request it records; an error is only logged. Legacy mode writes no
+entries.
+
 ## 6. Data-channel messages
 
 ### 6.1 Server → browser
@@ -1410,7 +1626,7 @@ The server pushes `RTVIServerMessageFrame(data=<object>)`; the browser receives 
 | `notice`           | `level`: `info` / `warn` / `error`, `code`, `params`, `text`                            | Something the user should know, such as a degraded service. `code` and `params` identify the message so the page can show it in its own language (§6.1.1); `text` is the same message in Chinese for logs and older pages. Errors of the realtime LLM and TTS are translated into notices by `pipeline/errors.py`; of Pipecat's own RTVI `error` messages the page shows only fatal ones |
 | `session`          | `id, title, keep, started_at, resumed, base_secs, state`                                | Sent once after connecting: which session the connection belongs to, its current keep flag, whether it is a resume, and the timeline origin of this connection                                                                                                                                                                                                                           |
 | `session_closed`   | `reason`: `taken_over` / `ended` / `server_stopping`                                    | Why the server is about to close the connection (best effort)                                                                                                                                                                                                                                                                                                                            |
-| `watchers`         | `items`: `[{id, device, since}]`                                                        | The devices following this meeting through `GET /api/sessions/{id}/events` (§5.1): `id` is a number unique while the application runs, `device` is described there, `since` is when the stream opened, in Unix seconds. Sent after `session` and whenever the list changes                                                                                                               |
+| `watchers`         | `items`: `[{id, device, since}]`                                                        | The connections following this meeting through `GET /api/sessions/{id}/events` (§5.1): `id` is a number unique while the application runs, `device` is described there, `since` is when the stream opened, in Unix seconds. Sent after `session` and whenever the list changes                                                                                                           |
 
 The `session.keep` flag is read from current persisted state when the ready message is sent.
 With `session.recording_notice=true`, send one existing `notice` with `level="info"` and

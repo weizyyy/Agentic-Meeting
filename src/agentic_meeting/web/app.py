@@ -13,7 +13,8 @@ import asyncio
 import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -45,13 +46,14 @@ from agentic_meeting.pipeline.services import (
     build_realtime_llm,
     caption_provider,
 )
-from agentic_meeting.pipeline.session import SessionManager
+from agentic_meeting.pipeline.session import MeetingsFull, SessionManager
 from agentic_meeting.screen.attach import FrameAttacher
 from agentic_meeting.screen.caption import CaptionWorker
 from agentic_meeting.screen.ingest import FrameIngestor
 from agentic_meeting.store.db import CleanupPlan, SessionBusy, Store
 from agentic_meeting.store.embeddings import EmbeddingClient, EmbeddingWorker
 from agentic_meeting.store.retention import RetentionWorker
+from agentic_meeting.web import access as meeting_access
 from agentic_meeting.web import (
     auth,
     export,
@@ -142,9 +144,10 @@ def create_app(
     """
 
     browser_ice_servers = ice_servers_for_browser(cfg)
+    access = meeting_access.MeetingAccess(cfg) if cfg.server.meeting_access else None
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def run_lifespan(app: FastAPI) -> AsyncIterator[None]:
         opened: Store | None = None
         if store is None:
             opened = await Store.open(
@@ -157,6 +160,8 @@ def create_app(
         # 上次崩溃或被强杀时没来得及关闭的连接记录，补关。
         await the_store.close_dangling_connections()
         sessions = SessionManager(the_store, max_live=cfg.session.max_live_meetings)
+        if access is not None:
+            await access.start(the_store)
         frames = FrameIngestor(
             the_store,
             cfg.resolve(cfg.session.data_dir),
@@ -205,7 +210,10 @@ def create_app(
             await sessions.append_context(session_id, line)
 
         async def notify_page(session_id: str, data: dict) -> None:
-            await sessions.push_to(session_id, data)
+            if data["type"] == "frame_caption_status":
+                sessions.publish(session_id, data)
+            else:
+                await sessions.push_to(session_id, data)
 
         captions = CaptionWorker(
             store=the_store,
@@ -291,7 +299,12 @@ def create_app(
             digests=digests,
             retention=retention,
             tts_slots=asyncio.Semaphore(cfg.tts.max_concurrent),
+            access=access,
         )
+        if access is not None:
+            from agentic_meeting.pipeline.questions import Questions
+
+            app.state.resources.questions = Questions(app.state.resources)
         retention.start()
         app.state.bot = bot
         # 会议管线由应用自己持有，不挂在 /api/offer 的请求上：uvicorn 关闭时会先等请求任务全部结束，
@@ -305,6 +318,8 @@ def create_app(
         try:
             yield
         finally:
+            if access is not None:
+                await access.stop()
             await app.state.health.close()
             await retention.stop()
             # 先告诉页面「服务正在停止」（它据此不自动重连），再断开全部连接
@@ -324,6 +339,14 @@ def create_app(
                 await the_embedder.close()
             if opened is not None:
                 await opened.close()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        from agentic_meeting.store.instance import instance_lock
+
+        with instance_lock(cfg.resolve(cfg.session.data_dir)) if store is None else nullcontext():
+            async with run_lifespan(app):
+                yield
 
     app = FastAPI(title="组会助理", lifespan=lifespan)
     health_api.register(app, cfg)
@@ -353,7 +376,22 @@ def create_app(
 
     # ---- 访问口令（interfaces.md §5.7）：启用时拦住除登录以外的全部 /api ----
 
-    auth.register(app, auth.AuthGuard.from_config(cfg))
+    if access is None:
+        auth.register(app, auth.AuthGuard.from_config(cfg))
+
+        @app.api_route("/api/shares/{path:path}", methods=["GET", "HEAD", "POST", "PUT", "DELETE"])
+        @app.api_route(
+            "/api/sessions/{session_id}/shares", methods=["GET", "HEAD", "POST", "PUT", "DELETE"]
+        )
+        @app.api_route(
+            "/api/sessions/{session_id}/shares/{path:path}",
+            methods=["GET", "HEAD", "POST", "PUT", "DELETE"],
+        )
+        async def sharing_unavailable(request: Request) -> None:
+            # 静态站点的POST兜底会返回405；禁用的分享接口固定为404。
+            raise ApiError(404, "session.not_found")
+    else:
+        meeting_access.register(app, access)
 
     # ---- 会话、发言、说话人（interfaces.md §5.1、§5.4） ----
 
@@ -400,30 +438,118 @@ def create_app(
                 if not isinstance(given, str) or not given.strip():
                     raise invalid("session_id 必须是非空的字符串")
                 wanted = given.strip()
+                if access is not None:
+                    await access.require(http_request.state.identity, wanted, "host")
                 if store_ is None or await store_.get_session(wanted) is None:
                     raise ApiError(404, "session.not_found")
                 await store_.require_available(wanted)
-        # 同时进行的会议满了：协商之前就拒绝，页面能显示原因（architecture.md §3.2）。
-        # 带着 pc_id 的是已有连接的重新协商，不占新位置。
         manager = http_request.app.state.resources.sessions
-        if manager is not None and not request.pc_id and not manager.has_room(wanted):
-            raise ApiError(409, "session.capacity", max=manager.max_live)
+
+        def check_capacity() -> None:
+            # 同时进行的会议满了：协商之前就拒绝，页面能显示原因（architecture.md §3.2）。
+            # 带着 pc_id 的是已有连接的重新协商，不占新位置。
+            if manager is not None and not request.pc_id and not manager.has_room(wanted):
+                raise ApiError(409, "session.capacity", max=manager.max_live)
 
         async def on_connection(connection: Any) -> None:
             state = http_request.app.state
+            resources = state.resources
+            lease = None
+            if access is not None:
+                identity = http_request.state.identity
+                wanted = (
+                    request.request_data.get("session_id")
+                    if isinstance(request.request_data, dict)
+                    else None
+                )
+                async with access.lock:
+                    if wanted:
+                        try:
+                            await access.require(identity, wanted.strip(), "host")
+                        except ApiError:
+                            await connection.disconnect()
+                            raise
+                    elif await access.authenticate(identity.cookie) is None:
+                        await connection.disconnect()
+                        raise ApiError(401, "auth.required")
+                    try:
+                        live = await (
+                            resources.sessions.attach(wanted.strip())
+                            if wanted
+                            else resources.sessions.begin(owner=identity.principal)
+                        )
+                    except MeetingsFull:
+                        # 协商之前查过，走到这里说明这一瞬间别的会议占了最后一个位置
+                        logger.warning("同时进行的会议已满，断开这次连接")
+                        await connection.disconnect()
+                        return
+                live.identity = identity
+                await access.audit(
+                    identity, live.session.id, "recording.resume" if wanted else "recording.start"
+                )
+                resources = replace(resources, live=live, identity=identity)
+                access.peers[connection.pc_id] = (identity, live)
+
+                async def close() -> None:
+                    live.stop_requested = True
+                    for pending in list(live.tool_tasks):
+                        pending.cancel()
+                    await connection.disconnect()
+                    if live.worker is not None:
+                        await live.worker.cancel()
+
+                lease = access.track(identity, live.session.id, "host", close)
+
+            async def run() -> None:
+                try:
+                    await state.bot(connection, request.request_data, resources)
+                finally:
+                    if access is not None:
+                        access.leases.discard(lease)
+                        access.peers.pop(connection.pc_id, None)
+
             task = asyncio.create_task(
-                state.bot(connection, request.request_data, state.resources),
+                run(),
                 name=f"bot-{getattr(connection, 'pc_id', '')}",
             )
             state.bots.add(task)
             task.add_done_callback(_bot_done(state.bots))
 
-        return await http_request.app.state.handler.handle_web_request(
-            request=request, webrtc_connection_callback=on_connection
-        )
+        if access is None:
+            check_capacity()
+            return await http_request.app.state.handler.handle_web_request(
+                request=request, webrtc_connection_callback=on_connection
+            )
+        async with access.offer_lock:
+            identity = http_request.state.identity
+            wanted = (
+                request.request_data.get("session_id")
+                if isinstance(request.request_data, dict)
+                else None
+            )
+            if request.pc_id:
+                peer = await access.peer(identity, request.pc_id)
+                if wanted is not None and wanted.strip() != peer.session.id:
+                    raise ApiError(404, "session.not_found")
+            elif wanted:
+                await access.require(identity, wanted.strip(), "host")
+            elif not access.can_host(identity):
+                raise ApiError(403, "access.denied")
+            check_capacity()
+            # 只能顶替自己主持的会议：上限是 1 时新连接会顶替正在进行的那一场
+            displaced = [] if request.pc_id or manager is None else manager.displaced_by(wanted)
+            for live in displaced:
+                membership = await access.store.membership(live.session.id, identity.principal)
+                if membership is None or membership["role"] != "host":
+                    raise ApiError(409, "access.busy")
+            return await http_request.app.state.handler.handle_web_request(
+                request=request, webrtc_connection_callback=on_connection
+            )
 
     @app.patch("/api/offer")
     async def ice_candidate(request: SmallWebRTCPatchRequest, http_request: Request):
+        if access is not None:
+            await access.peer(http_request.state.identity, request.pc_id)
         await http_request.app.state.handler.handle_patch_request(request)
         return {"status": "success"}
 
@@ -528,5 +654,6 @@ def make_server(
         ssl_certfile=str(cfg.resolve(cfg.server.tls_cert)) if cfg.server.tls_cert else None,
         ssl_keyfile=str(cfg.resolve(cfg.server.tls_key)) if cfg.server.tls_key else None,
         log_level="info",
+        timeout_graceful_shutdown=5,
     )
     return MeetingServer(config, app, on_force_quit)

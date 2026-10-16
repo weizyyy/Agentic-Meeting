@@ -16,6 +16,7 @@ from agentic_meeting.config import AppConfig
 from agentic_meeting.pipeline.bot import AppResources
 from agentic_meeting.screen.ingest import IngestError, media_type_of
 from agentic_meeting.types import ScreenFrame
+from agentic_meeting.web.access import authorize, current_session, host_write
 from agentic_meeting.web.errors import ApiError, invalid
 
 
@@ -38,6 +39,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         return res
 
     @app.post("/api/frames")
+    @host_write
     async def upload_frame(
         request: Request,
         captured_at: Annotated[str, Form()],
@@ -47,16 +49,23 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         res = resources(request)
         if not cfg.screen.enabled:
             raise ApiError(403, "frames.disabled")
+        if res.access is not None:
+            # 会议权限模式：必须说是哪一场，且只有主持人能往里放截图
+            if not session_id:
+                raise invalid("需要 session_id")
+            await authorize(request, session_id, "host")
         if session_id:
             live = res.sessions.live_for(session_id)
+            if live is None:
+                raise ApiError(409, "session.not_live")
         else:
             # 没说是哪一场：只有一场在进行时就是它（旧的页面不带 session_id）
             connections = res.sessions.connections
             if len(connections) > 1:
                 raise invalid("同时有好几场会议在进行，session_id 必须给")
             live = connections[0] if connections else None
-        if live is None:
-            raise ApiError(404, "frames.no_live_session")
+            if live is None:
+                raise ApiError(404, "frames.no_live_session")
         async with res.store.session_work(live.session.id):
             try:
                 at = float(captured_at)
@@ -92,9 +101,10 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         if session_id:
             session = await res.store.get_session(session_id)
         else:
-            session = await res.sessions.current_session()
+            session = await current_session(request)
         if session is None:
             raise ApiError(404, "session.not_found" if session_id else "session.none")
+        await authorize(request, session.id)
         await res.store.require_available(session.id)
         return {"items": [frame_json(f) for f in await res.store.list_frames(session.id)]}
 
@@ -103,6 +113,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         res = resources(request)
         frame = await res.store.get_frame(frame_id)
         if frame is not None:
+            await authorize(request, frame.session_id, missing="frame.not_found")
             await res.store.require_available(frame.session_id)
         path = res.frames.path_of(frame) if frame is not None else None
         if frame is None or path is None or not path.is_file():

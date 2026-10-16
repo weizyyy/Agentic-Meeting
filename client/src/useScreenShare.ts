@@ -75,10 +75,10 @@ export function useScreenShare({
 }: Options): ScreenShare {
   const capture = useRef<Capture | null>(null);
   const pending = useRef<object | null>(null);
+  const latestSession = useRef(sessionId);
+  latestSession.current = sessionId;
   const latestConnected = useRef(connected);
   latestConnected.current = connected;
-  const latestSessionId = useRef(sessionId);
-  latestSessionId.current = sessionId;
   const offset = useRef(0);
   const latestConfig = useRef(config);
   latestConfig.current = config;
@@ -191,7 +191,7 @@ export function useScreenShare({
         fullCanvas.height = size.height;
         fullContext.drawImage(video, 0, 0, size.width, size.height);
         const blob = await encode(fullCanvas);
-        await api.uploadFrame(blob, now + offset.current, latestSessionId.current);
+        await api.uploadFrame(blob, now + offset.current, latestSession.current);
         lastThumb = gray;
         lastUploadSecs = now;
         failures = 0;

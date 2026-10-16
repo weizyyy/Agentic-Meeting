@@ -121,6 +121,7 @@ class MeetingClient:
         response = await self._http.post("/api/offer", json=request)
         response.raise_for_status()
         answer = response.json()
+        self.pc_id = answer["pc_id"]
         await self.pc.setRemoteDescription(RTCSessionDescription(answer["sdp"], answer["type"]))
         await self._wait(lambda: self._channel.readyState == "open", "数据通道打开")
         self._channel_send("client-ready", {"version": "1.0.0", "about": {"library": "e2e-test"}})
@@ -275,18 +276,45 @@ class WatchingDevice:
 
     async def _read(self) -> None:
         headers = {"User-Agent": self._user_agent, "Accept": "text/event-stream"}
-        timeout = httpx.Timeout(30, read=None)  # 没有消息时只有每 15 秒一行注释
+        timeout = httpx.Timeout(30, read=None)
+        cursor = None
         try:
-            async with self._http.stream("GET", self._url, headers=headers, timeout=timeout) as r:
-                self.status_code = r.status_code
-                self._changed.set()
-                if r.status_code != 200:
-                    await r.aread()
-                    return
-                async for line in r.aiter_lines():
-                    if line.startswith("data: "):
-                        self.messages.append(json.loads(line[len("data: ") :]))
-                        self._changed.set()
+            while True:
+                if cursor:
+                    headers["Last-Event-ID"] = cursor
+                else:
+                    headers.pop("Last-Event-ID", None)
+                async with self._http.stream(
+                    "GET", self._url, headers=headers, timeout=timeout
+                ) as r:
+                    self.status_code = r.status_code
+                    self._changed.set()
+                    if r.status_code != 200:
+                        await r.aread()
+                        return
+                    kind = None
+                    async for line in r.aiter_lines():
+                        if line.startswith("id: "):
+                            cursor = line[4:]
+                        elif line.startswith("event: "):
+                            kind = line[7:]
+                        elif line.startswith("data: "):
+                            payload = json.loads(line[6:])
+                            if kind == "reset":
+                                cursor = None
+                                continue
+                            data = payload["data"]
+                            if kind == "snapshot":
+                                data = {"type": "state", "state": data["session"]["state"]}
+                            elif data.get("type") == "session_state":
+                                data = {**data, "type": "state"}
+                            self.messages.append(data)
+                            self._changed.set()
+                            if data.get("type") == "session_deleted" or data == {
+                                "type": "state",
+                                "state": "ended",
+                            }:
+                                return
         except httpx.HTTPError:
             pass  # 应用退出时连接直接断开，同样算流结束了
         finally:

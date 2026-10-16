@@ -179,6 +179,13 @@ class IceServerConfig(_Model):
         return any(url.lower().startswith("turn") for url in self.urls)
 
 
+class LocalUserConfig(_Model):
+    id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    display_name: str = Field(min_length=1, max_length=100)
+    password_env: str = Field(min_length=1)
+    can_host: bool = False
+
+
 class ServerConfig(_Model):
     host: str = "0.0.0.0"
     port: int = Field(default=7860, ge=1, le=65535)
@@ -193,6 +200,17 @@ class ServerConfig(_Model):
     password_env: str = ""
     # 登录一次的有效天数，到期需要重新输入口令。
     auth_session_days: float = Field(default=7.0, gt=0, le=365)
+    meeting_access: bool = False
+    local_users: list[LocalUserConfig] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _local_identities(self) -> ServerConfig:
+        ids = [user.id for user in self.local_users]
+        if len(ids) != len(set(ids)):
+            raise ValueError("server.local_users 的 id 不能重复")
+        if self.meeting_access and not any(user.can_host for user in self.local_users):
+            raise ValueError("会议权限模式至少需要一个 can_host 的本地账号")
+        return self
 
     @field_validator("ice_servers", mode="before")
     @classmethod

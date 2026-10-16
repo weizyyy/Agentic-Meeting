@@ -168,7 +168,11 @@ export function SessionList({
                         size="xs"
                         aria-pressed={s.keep}
                         aria-label={t.session.list.keepLabel(title)}
-                        disabled={s.deletion_pending || keepPending.has(s.id)}
+                        disabled={
+                          s.deletion_pending ||
+                          keepPending.has(s.id) ||
+                          s.access?.role === "watcher"
+                        }
                         title={t.common.keepHint}
                         onClick={() => onKeep(s.id, !s.keep)}
                       >
@@ -189,6 +193,7 @@ export function SessionList({
                           size="xs"
                           aria-label={t.session.list.resumeLabel(title)}
                           title={s.state === "live" ? t.session.list.takeOverHint : undefined}
+                          disabled={s.access?.role === "watcher"}
                           onClick={() => onResume(s.id)}
                         >
                           <PlayIcon data-icon="inline-start" />
@@ -198,7 +203,7 @@ export function SessionList({
                       <Button
                         variant="ghost"
                         size="xs"
-                        disabled={s.deletion_pending}
+                        disabled={s.deletion_pending || s.access?.role === "watcher"}
                         aria-label={t.session.list.renameLabel(title)}
                         onClick={() => setEditing({ id: s.id, title: s.title })}
                       >
@@ -210,7 +215,7 @@ export function SessionList({
                         size="xs"
                         className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                         aria-label={t.session.list.deleteLabel(title)}
-                        disabled={!canDelete(s)}
+                        disabled={!canDelete(s) || s.access?.role === "watcher"}
                         title={canDelete(s) ? undefined : t.session.list.deleteBlocked}
                         onClick={() => setDeleting(s)}
                       >

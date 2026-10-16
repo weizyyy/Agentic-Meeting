@@ -20,6 +20,7 @@ import {
 import { errorText as serverErrorText, messages, type Messages } from "./i18n/index.ts";
 import { backfillAfterId, firstUtteranceId } from "./captions.ts";
 import { MeetingTransport } from "./meetingTransport.ts";
+import { parseMeetingEnvelope, parseMeetingSnapshot } from "./meetingEvents.ts";
 import { sendLocalAudio } from "./localAudio.ts";
 import { describeTrackSettings } from "./micLevel.ts";
 import {
@@ -90,6 +91,15 @@ async function offerRefusal(error: unknown): Promise<string | null> {
 /** 服务端消息 → 界面状态。会议连接的数据通道和旁观的事件流（interfaces.md §5.1）共用。 */
 export function dispatchServerMessage(dispatch: Dispatch<Action>, message: ServerMessage): void {
   switch (message.type) {
+    case "assistant_answer":
+      dispatch({ type: "assistantAnswer", message });
+      break;
+    case "assistant_speaking":
+      dispatch({ type: "assistantState", state: message.speaking ? "speaking" : "idle" });
+      break;
+    case "frame_caption_status":
+      dispatch({ type: "frameCaptionStatus", message });
+      break;
     case "caption":
       dispatch({ type: "caption", message });
       break;
@@ -246,7 +256,7 @@ export interface MeetingClient {
   cancelTask: (id: string) => Promise<void>;
 }
 
-export function useMeetingClient(): MeetingClient {
+export function useMeetingClient(initialSessionId: string | null = null): MeetingClient {
   const [state, dispatch] = useReducer(reduce, initialState);
   const [keepPending, setKeepPending] = useState<ReadonlySet<string>>(new Set());
   const keepInFlight = useRef(new Set<string>());
@@ -340,20 +350,34 @@ export function useMeetingClient(): MeetingClient {
         ]);
         if (requestId !== viewRequest.current) return;
         dispatch({ type: "viewLoaded", requestId, detail, items, speakers });
-        // 截图时间线单独取：取不到不影响字幕
-        void api
-          .listFrames(detail.id)
-          .then((frames) =>
-            dispatch({ type: "framesLoaded", sessionId: detail.id, items: frames, merge: false }),
-          )
-          .catch(() => undefined);
-        void api
-          .listTasks(detail.id)
-          .then((tasks) => dispatch({ type: "tasksLoaded", sessionId: detail.id, items: tasks }))
-          .catch(() => undefined);
+        // 旁听快照会带完整截图/任务，避免旧 HTTP 列表晚到后覆盖新快照。
+        if (detail.state === "ended" || latest.current.connection !== "disconnected") {
+          void api
+            .listFrames(detail.id)
+            .then((frames) => {
+              if (requestId === viewRequest.current)
+                dispatch({
+                  type: "framesLoaded",
+                  sessionId: detail.id,
+                  items: frames,
+                  merge: false,
+                });
+            })
+            .catch(() => undefined);
+          void api
+            .listTasks(detail.id)
+            .then((tasks) => {
+              if (requestId === viewRequest.current)
+                dispatch({ type: "tasksLoaded", sessionId: detail.id, items: tasks });
+            })
+            .catch(() => undefined);
+        }
         void api
           .getReport(detail.id)
-          .then((report) => dispatch({ type: "reportLoaded", sessionId: detail.id, report }))
+          .then((report) => {
+            if (requestId === viewRequest.current)
+              dispatch({ type: "reportLoaded", sessionId: detail.id, report });
+          })
           .catch(() => undefined);
       } catch (error) {
         if (requestId !== viewRequest.current) return;
@@ -413,8 +437,8 @@ export function useMeetingClient(): MeetingClient {
   // 页面一打开（包括刷新、换设备）：不需要点「开始」，先看到会议列表和最近的对话。
   useEffect(() => {
     void refreshSessions();
-    void loadView(null);
-  }, [refreshSessions, loadView]);
+    void loadView(initialSessionId);
+  }, [refreshSessions, loadView, initialSessionId]);
 
   // 连接断开之后：列表里的状态和字幕区的内容以服务端为准重新取一遍。
   const wasConnected = useRef(false);
@@ -564,81 +588,138 @@ export function useMeetingClient(): MeetingClient {
     }, delay);
   }, [state.connection, connectTo]);
 
-  // 只读地看一场正在别的设备上进行的会议：服务端推送的事件流（interfaces.md §5.1）。
-  // 每次流打开（包括 EventSource 自己重连）和会议状态变化时，用 HTTP 补齐会议信息、新发言和任务。
+  // 唯一旁听事件通道：完整快照、按游标重放和共享消息 reducer（interfaces.md §5.1）。
   const watchingId = watchingSessionId(state);
   const refreshWatched = useCallback(
-    (id: string) => {
-      const after = backfillAfterId(latest.current.captions);
+    (id: string, close: () => void) => {
+      const requestId = viewRequest.current;
       const stillWatching = () =>
-        latest.current.viewing?.id === id && !latest.current.viewing.deletion_pending;
+        requestId === viewRequest.current && latest.current.viewing?.id === id;
       void api
         .getSession(id)
-        .then(async (detail) => {
-          dispatch({ type: "detailRefreshed", detail });
-          if (detail.deletion_pending || !stillWatching()) return;
-          const items = await api.listUtterances(
-            id,
-            after === null ? { tail: PAGE_SIZE } : { afterId: after },
-          );
-          if (stillWatching() && items.length > 0) dispatch({ type: "backfilled", items });
-          const tasks = await api.listTasks(id);
-          if (stillWatching()) dispatch({ type: "tasksLoaded", sessionId: id, items: tasks });
+        .then((detail) => {
+          if (
+            stillWatching() &&
+            (detail.deletion_pending || detail.state === latest.current.viewing?.state)
+          )
+            dispatch({ type: "detailRefreshed", detail });
         })
         .catch((error: unknown) => {
-          if (error instanceof ApiError && error.status === 404)
+          if (!stillWatching()) return;
+          if (error instanceof ApiError && error.status === 404) {
+            close();
+            const cleared = ++viewRequest.current;
+            dispatch({ type: "viewRequested", requestId: cleared });
+            dispatch({
+              type: "viewLoaded",
+              requestId: cleared,
+              detail: null,
+              items: [],
+              speakers: [],
+            });
             dispatch({ type: "sessionRemoved", id });
-          else fail("loadSession", error);
+            void refreshSessions();
+          } else fail("loadSession", error);
         });
     },
-    [api, fail],
+    [api, fail, refreshSessions],
   );
   const watching = watchingId !== null && state.viewing?.state === "live";
   const [watchStream, setWatchStream] = useState<ConnectionState>("connecting");
   useEffect(() => {
     if (watchingId === null) return;
     const events = new EventSource(api.eventsUrl(watchingId));
-    let shownState: string | null = null;
+    let epoch: string | null = null;
+    let seq = -1;
+    let disposed = false;
+    const requestId = viewRequest.current;
     let detailAt = 0;
+    const close = () => {
+      disposed = true;
+      epoch = null;
+      seq = -1;
+      events.close();
+    };
+    const current = () =>
+      !disposed &&
+      requestId === viewRequest.current &&
+      watchingSessionId(latest.current) === watchingId;
     setWatchStream("connecting");
     events.onopen = () => {
+      if (!current()) return;
       setWatchStream("connected");
-      refreshWatched(watchingId);
+      dispatch({ type: "watcherDisconnected", disconnected: false });
     };
-    events.onmessage = (event: MessageEvent<string>) => {
-      let data: unknown;
-      try {
-        data = JSON.parse(event.data);
-      } catch {
+    events.addEventListener("reset", () => {
+      if (!current()) return;
+      epoch = null;
+      seq = -1;
+      dispatch({ type: "watcherDisconnected", disconnected: true });
+    });
+    events.addEventListener("snapshot", (raw) => {
+      if (!current()) return;
+      const event = parseMeetingEnvelope((raw as MessageEvent<string>).data, watchingId);
+      if (!event || (event.epoch === epoch && event.seq < seq)) return;
+      const snapshot = parseMeetingSnapshot(event);
+      if (!snapshot) return;
+      epoch = event.epoch;
+      seq = event.seq;
+      dispatch({ type: "watchedSnapshot", snapshot });
+      dispatch({ type: "watcherDisconnected", disconnected: false });
+    });
+    events.addEventListener("meeting", (raw) => {
+      if (!current()) return;
+      const event = parseMeetingEnvelope((raw as MessageEvent<string>).data, watchingId);
+      if (!event || event.epoch !== epoch || event.seq <= seq) return;
+      seq = event.seq;
+      const data = event.data;
+      if (data.type === "session_deleted") {
+        close();
+        dispatch({ type: "sessionRemoved", id: watchingId });
+        return;
+      }
+      if (
+        data.type === "session_state" &&
+        (data.state === "live" || data.state === "interrupted" || data.state === "ended")
+      ) {
+        dispatch({ type: "watchedState", sessionId: watchingId, state: data.state });
+        refreshWatched(watchingId, close);
+        return;
+      }
+      if (
+        data.type === "session_updated" &&
+        typeof data.title === "string" &&
+        typeof data.keep === "boolean"
+      ) {
+        const viewing = latest.current.viewing;
+        if (viewing?.id === watchingId)
+          dispatch({
+            type: "sessionUpdated",
+            summary: { ...viewing, title: data.title, keep: data.keep },
+          });
         return;
       }
       const message = parseServerMessage(data);
       if (!message) return;
-      if (message.type === "state") {
-        // 开流后的第一条是此刻的状态，onopen 已经刷新过；之后状态变了再刷新
-        if (shownState !== null && shownState !== message.state) refreshWatched(watchingId);
-        shownState = message.state;
-        return;
-      }
       dispatchServerMessage(dispatch, message);
       if (message.type === "utterance" && Date.now() - detailAt > WATCH_DETAIL_MS) {
         detailAt = Date.now();
-        void api
-          .getSession(watchingId)
-          .then((detail) => dispatch({ type: "detailRefreshed", detail }))
-          .catch(() => undefined); // 只是时长和发言数，取不到等下一条发言
+        refreshWatched(watchingId, close);
       }
-    };
-    // 服务端拒绝了（会议被删、口令过期）就不会再自动重连：刷新一次会议信息，页面据此不再旁观
-    // 还会自动重连时显示「连接中」，不再重连了显示「连接出错」
+    });
+    // 还会自动重连时显示「连接中」，服务端拒绝了（会议被删、权限没了）不再重连，显示「连接出错」
     events.onerror = () => {
-      if (events.readyState === EventSource.CLOSED) {
-        setWatchStream("error");
-        refreshWatched(watchingId);
-      } else setWatchStream("connecting");
+      if (!current()) return;
+      dispatch({ type: "watcherDisconnected", disconnected: true });
+      setWatchStream(events.readyState === EventSource.CLOSED ? "error" : "connecting");
+      // 撤权或会议被删时服务端会断开：立即确认授权，不等浏览器下一轮重连。
+      refreshWatched(watchingId, close);
     };
-    return () => events.close();
-  }, [watchingId, refreshWatched, api]);
+    return () => {
+      close();
+      dispatch({ type: "watcherDisconnected", disconnected: false });
+    };
+  }, [watchingId, state.viewRequest, refreshWatched, api]);
 
   const stop = useCallback(async () => {
     inMeeting.current = false;
@@ -666,11 +747,13 @@ export function useMeetingClient(): MeetingClient {
   );
 
   const loadOlder = useCallback(async () => {
+    const requestId = viewRequest.current;
     const viewing = latest.current.viewing;
     const before = firstUtteranceId(latest.current.captions);
     if (!viewing || before === null) return;
     try {
       const items = await api.listUtterances(viewing.id, { beforeId: before, limit: PAGE_SIZE });
+      if (requestId !== viewRequest.current) return;
       dispatch({ type: "olderLoaded", items });
     } catch (error) {
       fail("loadOlder", error);

@@ -26,6 +26,7 @@ import uuid
 import wave
 from collections import deque
 from collections.abc import Callable
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -44,6 +45,7 @@ class Reply:
     """模型的一次回答：一段文字，或一次工具调用。"""
 
     text: str = ""
+    delay_secs: float = 0
     tool: str = ""
     arguments: dict[str, Any] = field(default_factory=dict)
 
@@ -64,6 +66,7 @@ class FakeService:
         self.name = name
         self.app = FastAPI()
         self.port = 0
+        self.host = "127.0.0.1"
         self.down = False
         self.requests: list[dict[str, Any]] = []
         self._lock = threading.Lock()
@@ -80,7 +83,7 @@ class FakeService:
 
     @property
     def origin(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
+        return f"http://{self.host}:{self.port}"
 
     def record(self, body: dict[str, Any]) -> None:
         with self._lock:
@@ -157,6 +160,8 @@ class FakeModel(FakeService):
             body = await request.json()
             self.record(body)
             reply = self._reply(body)
+            if reply.delay_secs:
+                await asyncio.sleep(reply.delay_secs)
             if body.get("stream"):
                 return StreamingResponse(_stream(reply), media_type="text/event-stream")
             return _completion(reply.text, reply)
@@ -227,7 +232,7 @@ class FakeEmbedding(FakeService):
 class Inference:
     """全部假服务，跑在后台线程自己的事件循环里，不受测试的事件循环阻塞影响。"""
 
-    def __init__(self) -> None:
+    def __init__(self, host: str = "127.0.0.1") -> None:
         self.asr = FakeASR()
         self.llm = FakeModel("实时模型", "好的。")
         self.agent = FakeModel(
@@ -236,8 +241,12 @@ class Inference:
         )
         self.tts = FakeTTS()
         self.embedding = FakeEmbedding()
+        for service in self.services:
+            service.host = host
         self._servers: list[uvicorn.Server] = []
-        self._loop = asyncio.new_event_loop()
+        self._serving: list[Future[None]] = []
+        # 假服务只用 TCP；避开 Windows Proactor 在 reset 后可能漏 detach 的关闭路径。
+        self._loop = asyncio.SelectorEventLoop()
         self._thread = threading.Thread(target=self._loop.run_forever, daemon=True)
 
     @property
@@ -248,11 +257,13 @@ class Inference:
         self._thread.start()
         for service in self.services:
             sock = socket.socket()
-            sock.bind(("127.0.0.1", 0))
+            sock.bind((service.host, 0))
             service.port = sock.getsockname()[1]
             server = uvicorn.Server(uvicorn.Config(service.app, log_level="warning"))
             self._servers.append(server)
-            asyncio.run_coroutine_threadsafe(server.serve(sockets=[sock]), self._loop)
+            self._serving.append(
+                asyncio.run_coroutine_threadsafe(server.serve(sockets=[sock]), self._loop)
+            )
         deadline = time.monotonic() + 10
         while not all(server.started for server in self._servers):
             if time.monotonic() > deadline:
@@ -262,11 +273,12 @@ class Inference:
     def stop(self) -> None:
         for server in self._servers:
             server.should_exit = True
-        deadline = time.monotonic() + 5
-        while any(server.started for server in self._servers) and time.monotonic() < deadline:
-            time.sleep(0.01)
+        # started 不代表仍在运行；必须等 serve/lifespan 真正结束，才能关闭事件循环。
+        for serving in self._serving:
+            serving.result(timeout=10)
         self._loop.call_soon_threadsafe(self._loop.stop)
         self._thread.join(timeout=5)
+        self._loop.close()
 
     def reset(self) -> None:
         """每个测试开始前：清掉规则、台词、请求记录，全部恢复在线。"""

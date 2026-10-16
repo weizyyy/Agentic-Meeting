@@ -87,7 +87,7 @@ class CaptionWorker:
         """``model`` 为 ``None`` 表示不生成摘要（配置关了，或模型不识图）。
 
         ``notify(session_id, data)`` 向页面推一条消息；``append_context(session_id, t, line)`` 向实时模型的上下文
-        追加一行（``t`` 是这张截图在会话时间轴上的时刻）。两者都只在那场会议正在进行时才真的发出去，由调用方保证。
+        追加一行（``t`` 是这张截图在会话时间轴上的时刻）。状态更新也通知观察事件源；媒体及上下文仍由调用方限定在活动会议。
         """
         self._store = store
         self._model = model
@@ -148,13 +148,19 @@ class CaptionWorker:
 
     async def _save(self, frame: ScreenFrame, status: str, caption: str | None = None) -> bool:
         assert frame.id is not None
-        return await self._store.set_frame_caption(
+        saved = await self._store.set_frame_caption(
             frame.id,
             status=status,
             caption=caption,
             session_id=frame.session_id,
             write_token=frame.write_token,
         )
+        if saved:
+            update = {"type": "frame_caption_status", "id": frame.id, "caption_status": status}
+            if caption is not None:
+                update["caption"] = caption
+            await self._notify(frame.session_id, update)
+        return saved
 
     # ------------------------------------------------------------------ #
     # 入口

@@ -10,12 +10,15 @@ import { useI18n } from "../i18n/index.ts";
 interface Props {
   /** 登录已失效、浮在会议页面上方重新登录（会议连接不受影响） */
   overlay?: boolean;
+  status?: AuthStatus;
   onLoggedIn: (status: AuthStatus) => void;
 }
 
 /** 访问口令的登录页（docs/interfaces.md §5.7）。 */
-export function LoginPage({ overlay = false, onLoggedIn }: Props) {
+export function LoginPage({ overlay = false, status, onLoggedIn }: Props) {
   const { t } = useI18n();
+  const [userId, setUserId] = useState("");
+  const [sitePassword, setSitePassword] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -25,7 +28,11 @@ export function LoginPage({ overlay = false, onLoggedIn }: Props) {
     if (!password || busy) return;
     setBusy(true);
     setError(null);
-    const result = await login(password);
+    const result = await login(
+      status?.meeting_access
+        ? { password, user_id: userId, site_password: sitePassword }
+        : password,
+    );
     setBusy(false);
     if (result.ok) {
       setPassword("");
@@ -60,6 +67,28 @@ export function LoginPage({ overlay = false, onLoggedIn }: Props) {
             {overlay ? t.login.expiredHint : t.login.prompt}
           </p>
         </div>
+        {status?.meeting_access && (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="login-user">{t.login.userId}</Label>
+            <Input
+              id="login-user"
+              autoComplete="username"
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+            />
+          </div>
+        )}
+        {status?.site_password_required && (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="site-password">{t.login.sitePassword}</Label>
+            <Input
+              id="site-password"
+              type="password"
+              value={sitePassword}
+              onChange={(e) => setSitePassword(e.target.value)}
+            />
+          </div>
+        )}
         <div className="flex flex-col gap-2">
           <Label htmlFor="login-password">{t.login.password}</Label>
           <Input

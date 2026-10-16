@@ -25,6 +25,8 @@ import base64
 import functools
 import re
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
+from dataclasses import replace
 from typing import Any
 
 from loguru import logger
@@ -72,7 +74,7 @@ class _Env:
         if resources is None or resources.store is None or resources.sessions is None:
             raise LookupError(NO_MEETING)
         live = resources.live
-        if live is None or resources.sessions.live_for(live.session.id) is not live:
+        if live is None:
             raise LookupError(NO_MEETING)
         self.resources = resources
         self.cfg = resources.cfg
@@ -82,6 +84,25 @@ class _Env:
         # 会议进行到第几秒（按已收到的音频算）
         self.now_secs = float(getattr(live.recorder, "elapsed_secs", 0.0) or 0.0)
         self._wake_phrases = [p.lower() for p in self.cfg.session.wake_phrases]
+
+    async def require(self) -> None:
+        """权限来自原录音登录及原连接，绝不跟随全局当前会议。"""
+        live = self.live
+        if (
+            live.stop_requested
+            or live.done.is_set()
+            or self.resources.sessions.live_for(self.session_id) is not live
+        ):
+            # 这路连接已经停了或被换掉：结果不再写进任何一场会议
+            raise asyncio.CancelledError
+        access = self.resources.access
+        if access is not None:
+            from agentic_meeting.web.errors import ApiError
+
+            try:
+                await access.require(self.resources.identity, self.session_id, "host")
+            except ApiError:
+                raise asyncio.CancelledError from None
 
     def is_request(self, named: NamedUtterance) -> bool:
         """这条发言是不是对助理提的要求（而不是会议内容）。"""
@@ -104,15 +125,36 @@ def _tool(function: Callable[..., Awaitable[None]]) -> Callable[..., Awaitable[N
 
     @functools.wraps(function)
     async def wrapper(params: FunctionCallParams, *args: Any, **kwargs: Any) -> None:
+        env = _Env(params)
+        task = asyncio.current_task()
+        callback = params.result_callback
+
+        async def result(result, *, properties=None):
+            await env.require()
+            if properties is not None and properties.on_context_updated is not None:
+                updated = properties.on_context_updated
+
+                async def guarded_update():
+                    await env.require()
+                    await updated()
+
+                properties = replace(properties, on_context_updated=guarded_update)
+            await callback(result, properties=properties)
+
+        env.live.tool_tasks.add(task)
+        params = replace(params, result_callback=result)
         try:
+            await env.require()
             await function(params, *args, **kwargs)
         except LookupError as e:
-            await params.result_callback({"note": str(e)})
+            await result({"note": str(e)})
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception(f"工具 {function.__name__} 出错")
-            await params.result_callback({"error": "这个工具暂时用不了"})
+            await result({"error": "这个工具暂时用不了"})
+        finally:
+            env.live.tool_tasks.discard(task)
 
     return wrapper
 
@@ -329,6 +371,7 @@ async def _look_back(params: FunctionCallParams, env: _Env, wanted: list[int]) -
         await params.result_callback(result)
         return
     await _wait_for_call_record(params)
+    await env.require()
     for frame, url in readable:
         params.context.add_message(
             LLMContext.create_image_url_message(
@@ -389,6 +432,7 @@ async def look_at_screen(params: FunctionCallParams, frame_ids: str = ""):
         return
     # 图片作为一条用户消息进上下文。尽量排在这次工具调用的记录之后（那条记录由助理侧聚合器写入，稍晚一点到）。
     await _wait_for_call_record(params)
+    await env.require()
     params.context.add_message(
         LLMContext.create_image_url_message(url=url, text=f"[画面 {format_hms(frame.t)}] 屏幕截图")
     )
@@ -478,15 +522,17 @@ async def _delegate(
         if modality == "text"
         else getattr(env.live.recorder, "last_speaker_idx", SPEAKER_UNKNOWN)
     )
-    task = await tasks.submit(
-        session_id=env.session_id,
-        goal=goal[:MAX_GOAL_CHARS],
-        requested_by=requested_by,
-        requested_t=env.now_secs,
-        transcript_window=window,
-        frame_ids=frame_ids,
-        modality=modality,
-    )
+    async with env.resources.access.lock if env.resources.access else nullcontext():
+        await env.require()
+        task = await tasks.submit(
+            session_id=env.session_id,
+            goal=goal[:MAX_GOAL_CHARS],
+            requested_by=requested_by,
+            requested_t=env.now_secs,
+            transcript_window=window,
+            frame_ids=frame_ids,
+            modality=modality,
+        )
     # 先回报「已受理」：对话不等任务做完，助理先口头确认一句
     await params.result_callback(
         {"task_id": task.label, "status": "accepted"},
@@ -505,6 +551,7 @@ async def _delegate(
         if not hasattr(e, "reason"):
             logger.exception(f"等待任务 {task.label} 的结果时出错")
         final = {"task_id": task.label, "status": status, "reason": reason}
+    await env.require()
     await _announce_when_appropriate(params, env, modality)
 
     async def announced() -> None:
@@ -584,7 +631,9 @@ async def cancel_task(params: FunctionCallParams, task_id: str = ""):
             {"task_id": task.label, "status": task.status, "note": "这个任务已经结束了，不用取消"}
         )
         return
-    cancelled = await tasks.cancel(task.id)
+    async with env.resources.access.lock if env.resources.access else nullcontext():
+        await env.require()
+        cancelled = await tasks.cancel(task.id)
     await params.result_callback(
         {"task_id": task.label, "status": cancelled.status if cancelled else "cancelled"}
     )

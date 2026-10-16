@@ -312,6 +312,7 @@ class TaskManager:
                 session_id,
                 {
                     "type": "task_event",
+                    "id": event.id,
                     "task_id": task_id,
                     "at": event.at,
                     "kind": kind,

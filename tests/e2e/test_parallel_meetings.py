@@ -117,3 +117,72 @@ async def test_two_meetings_run_side_by_side(start_app, meeting_factory, inferen
             return ids if ids == {a["id"], c["id"]} else None
 
         await until(live_ids, "进行中的是第一场和新开的一场")
+
+
+PASSWORD = "e2e-local-password"
+USERS = [
+    {
+        "id": name,
+        "display_name": name,
+        "password_env": "E2E_LOCAL_PASSWORD",
+        "can_host": name != "viewer",
+    }
+    for name in ("alpha", "beta", "gamma", "viewer")
+]
+
+
+async def _login(http, user: str) -> None:
+    result = await http.post("/api/auth/login", json={"user_id": user, "password": PASSWORD})
+    assert result.status_code == 200, result.text
+    http.headers["X-CSRF-Token"] = result.json()["csrf_token"]
+
+
+async def test_hosts_record_their_own_meetings_side_by_side(start_app, meeting_factory):
+    """开了会议权限：两位主持人各录各的会，互不顶替也互不可见；满了时有权录音的人得到「满了」，无权的人照旧被拒。"""
+    app = await start_app(
+        {**PARALLEL, "server.meeting_access": True, "server.local_users": USERS},
+        env={"E2E_LOCAL_PASSWORD": PASSWORD},
+    )
+    async with (
+        app.http() as alpha,
+        app.http() as beta,
+        app.http() as gamma,
+        app.http() as viewer,
+    ):
+        for http, name in ((alpha, "alpha"), (beta, "beta"), (gamma, "gamma"), (viewer, "viewer")):
+            await _login(http, name)
+        alpha_meetings, beta_meetings = meeting_factory(alpha), meeting_factory(beta)
+        first = alpha_meetings()
+        a = (await first.connect())["id"]
+        second = beta_meetings()
+        b = (await second.connect())["id"]  # 上限是 1 时这里会是「录音服务正忙」
+        assert not first.of_type("session_closed")
+
+        # 各自只看得到自己的会；「当前会议」是自己正在录的那一场，而不是最近开始的那一场
+        assert [s["id"] for s in (await alpha.get("/api/sessions")).json()["items"]] == [a]
+        assert (await alpha.get("/api/session")).json()["id"] == a
+        assert (await beta.get("/api/session")).json()["id"] == b
+
+        def upload(http, session_id: str | None):
+            data = {"captured_at": str(time.time())}
+            if session_id is not None:
+                data["session_id"] = session_id
+            files = {"image": ("screen.jpg", _screenshot(), "image/jpeg")}
+            return http.post("/api/frames", data=data, files=files)
+
+        assert (await upload(alpha, a)).status_code == 200
+        foreign = await upload(alpha, b)
+        assert foreign.status_code == 404 and foreign.json()["code"] == "session.not_found"
+        assert (await upload(alpha, None)).status_code == 400
+
+        # 位置满了：能主持的人得到 409「满了」；不能主持的人先被权限拦下
+        offer = {"sdp": "x", "type": "offer"}
+        full = await gamma.post("/api/offer", json=offer)
+        assert full.status_code == 409 and full.json()["code"] == "session.capacity"
+        assert (await viewer.post("/api/offer", json=offer)).status_code == 403
+
+        # 主持人换设备继续自己的会：只顶替自己那一路
+        again = alpha_meetings()
+        assert (await again.connect(session_id=a))["id"] == a
+        assert (await first.next_message("session_closed"))["reason"] == "taken_over"
+        assert not second.of_type("session_closed")

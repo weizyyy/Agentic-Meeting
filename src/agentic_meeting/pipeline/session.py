@@ -74,6 +74,8 @@ class LiveConnection:
     finished: asyncio.Event = field(default_factory=asyncio.Event)
     owner: asyncio.Task | None = None
     finishing: bool = False
+    identity: Any = None
+    tool_tasks: set[asyncio.Task] = field(default_factory=set)
     quiet: bool = False  # 由会话管理器停掉的：收尾时不再告诉旁观的设备「已中断」，停它的地方自己说
 
 
@@ -152,7 +154,13 @@ class SessionManager:
         self, session_id: str, *, title: str | None = None, keep: bool | None = None
     ) -> Session | None:
         async with self._lock:
-            return await self._store.update_session(session_id, title=title, keep=keep)
+            updated = await self._store.update_session(session_id, title=title, keep=keep)
+            if updated is not None:
+                self.publish(
+                    session_id,
+                    {"type": "session_updated", "title": updated.title, "keep": updated.keep},
+                )
+            return updated
 
     async def current_session(self) -> Session | None:
         """「当前会话」：有进行中的会议就取最近连上的那一场；没有就取最近一个未结束的；都没有返回 ``None``。
@@ -164,6 +172,9 @@ class SessionManager:
             return await self._store.get_session(connections[-1].session.id)
         return await self._store.latest_unended_session()
 
+    def publish(self, session_id: str, data: dict) -> None:
+        self.watchers.publish(session_id, data)
+
     async def _watchers_changed(self, session_id: str) -> None:
         """旁观名单变了：告诉正在进行的这场会议的页面（interfaces.md §6.1 ``watchers``）。"""
         await self.push_to(session_id, self.watchers_message(session_id))
@@ -172,7 +183,11 @@ class SessionManager:
         return {"type": "watchers", "items": self.watchers.items(session_id)}
 
     async def push_to(self, session_id: str, data: dict) -> bool:
-        """向 ``session_id`` 这场会议的页面推一条数据通道消息；它没有在进行（或管线还没登记好）返回 ``False``。"""
+        """向 ``session_id`` 这场会议的页面推一条数据通道消息，也抄给旁观它的设备。
+
+        它没有在进行（或管线还没登记好）返回 ``False``（后台任务完成时，会议可能已经结束了）。
+        """
+        self.publish(session_id, data)
         live = self._live.get(session_id)
         if live is None or live.worker is None:
             return False
@@ -249,7 +264,7 @@ class SessionManager:
     # 连接的生命周期
     # ------------------------------------------------------------------ #
 
-    async def begin(self) -> LiveConnection:
+    async def begin(self, *, owner: str | None = None) -> LiveConnection:
         """新连接、新会议：建新会话和连接记录，登记为活动连接。
 
         位置满了：上限是 1 时顶替正在进行的那一场；否则抛 ``MeetingsFull``。
@@ -258,7 +273,7 @@ class SessionManager:
         async with self._lock:
             await self._make_room(None)
             now = self._now()
-            session = await self._store.create_session(now=now)
+            session = await self._store.create_session(now=now, owner=owner)
             connection_id = await self._store.open_connection(
                 session.id, connected_at=now, t_from=0.0
             )
@@ -317,6 +332,18 @@ class SessionManager:
         for old in list(self._live.values()):
             await self._stop(old, "taken_over")
             self.watchers.state(old.session.id, "interrupted")
+
+    def displaced_by(self, session_id: str | None) -> list[LiveConnection]:
+        """一路要开始的连接（继续 ``session_id``，``None`` 是新会议）会停掉哪些进行中的连接（不改动什么）。
+
+        和 ``_make_room`` 的规则一致；位置满了而上限大于 1 时返回空表，那种情况会被拒绝而不是顶替。
+        """
+        own = self._live.get(session_id) if session_id is not None else None
+        if own is not None:
+            return [own]
+        if self._max == 1:
+            return list(self._live.values())
+        return []
 
     def _free_lane(self) -> int:
         used = {live.lane for live in self._live.values()}
@@ -378,10 +405,9 @@ class SessionManager:
         if live is not None:
             if live.recorder is not None:
                 live.recorder.set_speaker_name(src, name)  # 已经在路上的字幕也用合并后的名字
-            await self.push_to(
-                session_id,
-                {"type": "speakers_merged", "from": src, "into": dst, "display_name": name},
-            )
+        await self.push_to(
+            session_id, {"type": "speakers_merged", "from": src, "into": dst, "display_name": name}
+        )
         return result
 
     async def forget(self, session_id: str) -> None:
@@ -420,6 +446,9 @@ class SessionManager:
 
     async def finish(self, live: LiveConnection) -> None:
         """连接结束（无论怎么结束）：关闭连接记录，释放位置。不写 ``ended_at``。"""
+        live.stop_requested = True
+        for pending in list(live.tool_tasks):
+            pending.cancel()
         live.finishing = True
         await drain_io(self._finish(live))
 
@@ -486,6 +515,8 @@ class SessionManager:
         """告诉页面原因、取消管线、等它收尾（超时就不等了）。"""
         timeout = self._timeout if wait_secs is None else wait_secs
         live.stop_requested = True
+        for pending in list(live.tool_tasks):
+            pending.cancel()
         live.quiet = True
         if live.worker is not None:
             try:
