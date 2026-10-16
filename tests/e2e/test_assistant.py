@@ -7,7 +7,7 @@ import json
 import time
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from .inference import Reply
 from .waiting import until_sync
@@ -63,6 +63,31 @@ async def test_shared_screen_is_summarized_and_shown_to_the_assistant(
         files={"image": ("x.jpg", b"not an image", "image/jpeg")},
     )
     assert not_an_image.status_code == 400 and not_an_image.json()["code"] == "frame.invalid"
+
+
+async def test_every_new_slide_gets_its_own_summary(app, http, meeting, inference):
+    # 默认阈值 0.5 下，只换了内容的幻灯片由浏览器的兜底截图传上来；它也要有自己的摘要
+    client = meeting()
+    await client.connect()
+    inference.llm.when("屏幕截图", Reply(text="第一页：项目标题。"))
+    inference.llm.when("屏幕截图", Reply(text="第二页：消融实验结果表。"))
+
+    first = (await _upload_frame(http, "#ffffff")).json()
+    assert (await client.next_message("frame_caption", id=first["id"]))["caption"].startswith(
+        "第一页"
+    )
+    second = (await _upload_frame(http, "#ffffff", box="#b4b4b4")).json()
+    assert (await client.next_message("frame_caption", id=second["id"]))["caption"].startswith(
+        "第二页"
+    )
+
+    # 画面真的没变的兜底截图沿用上一张的摘要，不再问模型
+    asked = sum("屏幕截图" in text for text in inference.llm.texts())
+    third = (await _upload_frame(http, "#ffffff", box="#b4b4b4")).json()
+    assert (await client.next_message("frame_caption", id=third["id"]))["caption"].startswith(
+        "第二页"
+    )
+    assert sum("屏幕截图" in text for text in inference.llm.texts()) == asked
 
 
 async def test_screenshots_need_a_live_meeting(app, http):
@@ -178,9 +203,12 @@ async def test_rejected_delegation_creates_no_task_and_transcription_continues(
     )
 
 
-async def _upload_frame(http, color: str):
+async def _upload_frame(http, color: str, *, box: str | None = None):
     buffer = io.BytesIO()
-    Image.new("RGB", (320, 180), color).save(buffer, format="JPEG")
+    image = Image.new("RGB", (320, 180), color)
+    if box is not None:
+        ImageDraw.Draw(image).rectangle((40, 40, 200, 120), fill=box)  # 一块新内容
+    image.save(buffer, format="JPEG")
     return await http.post(
         "/api/frames",
         data={"captured_at": str(time.time())},
