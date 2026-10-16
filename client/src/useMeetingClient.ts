@@ -22,7 +22,14 @@ import { backfillAfterId, firstUtteranceId } from "./captions.ts";
 import { MeetingTransport } from "./meetingTransport.ts";
 import { sendLocalAudio } from "./localAudio.ts";
 import { describeTrackSettings } from "./micLevel.ts";
-import { PAGE_SIZE, initialState, reduce, type Action, type MeetingState } from "./meetingState.ts";
+import {
+  PAGE_SIZE,
+  initialState,
+  reduce,
+  type Action,
+  type ConnectionState,
+  type MeetingState,
+} from "./meetingState.ts";
 import { fatalErrorText, parseServerMessage, type ServerMessage } from "./protocol.ts";
 import { REPORT_POLL_MS } from "./report.ts";
 import { reconnectDelayMs, shouldReconnect } from "./resume.ts";
@@ -190,6 +197,8 @@ export interface MeetingClient {
   resume: (id: string) => Promise<void>;
   /** 正在只读地看一场在别的设备上进行的会议 */
   watching: boolean;
+  /** 旁观时事件流的连接状态，顶部的连接状态显示它；不在旁观是 null */
+  watchConnection: ConnectionState | null;
   /** 录音期间屏幕能不能保持常亮（手机上的提示用） */
   keepAwake: KeepAwake;
   /** 这个浏览器不能开会的原因；能开会是 null。不能开会时开始、继续都不会发起连接 */
@@ -562,12 +571,18 @@ export function useMeetingClient(): MeetingClient {
     },
     [api, fail],
   );
+  const watching = watchingId !== null && state.viewing?.state === "live";
+  const [watchStream, setWatchStream] = useState<ConnectionState>("connecting");
   useEffect(() => {
     if (watchingId === null) return;
     const events = new EventSource(api.eventsUrl(watchingId));
     let shownState: string | null = null;
     let detailAt = 0;
-    events.onopen = () => refreshWatched(watchingId);
+    setWatchStream("connecting");
+    events.onopen = () => {
+      setWatchStream("connected");
+      refreshWatched(watchingId);
+    };
     events.onmessage = (event: MessageEvent<string>) => {
       let data: unknown;
       try {
@@ -593,8 +608,12 @@ export function useMeetingClient(): MeetingClient {
       }
     };
     // 服务端拒绝了（会议被删、口令过期）就不会再自动重连：刷新一次会议信息，页面据此不再旁观
+    // 还会自动重连时显示「连接中」，不再重连了显示「连接出错」
     events.onerror = () => {
-      if (events.readyState === EventSource.CLOSED) refreshWatched(watchingId);
+      if (events.readyState === EventSource.CLOSED) {
+        setWatchStream("error");
+        refreshWatched(watchingId);
+      } else setWatchStream("connecting");
     };
     return () => events.close();
   }, [watchingId, refreshWatched, api]);
@@ -887,7 +906,8 @@ export function useMeetingClient(): MeetingClient {
     state,
     start,
     resume,
-    watching: watchingId !== null && state.viewing?.state === "live",
+    watching,
+    watchConnection: watching ? watchStream : null,
     keepAwake,
     unsupported,
     mergeSpeakers,
