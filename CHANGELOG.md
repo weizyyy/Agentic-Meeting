@@ -11,6 +11,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Following devices keep their read-only event stream during an interruption and automatically
   receive new captions when the host resumes. Typed questions stay disabled until the host returns;
   a deleted meeting is cleared when the event stream's detail refresh reports it missing ([#21]).
+- Dragging over speaker names to select several captions now scrolls the caption list when the
+  pointer reaches its top or bottom edge, so the selection can extend to captions that were out of
+  view.
 
 ### Changed
 
