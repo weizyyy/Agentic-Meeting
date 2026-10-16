@@ -8,6 +8,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- A new slide that the browser uploads only as its periodic screenshot gets its own summary again.
+  Since `screen.change_threshold` became 0.5, the server reused the previous summary for any
+  picture below that threshold; it now reuses a summary only when the picture is practically
+  unchanged.
 - A device following a live meeting on another device shows "Connected" in the header while its
   event stream is open, instead of "Not connected"; it still says this device is not transcribing.
 - Following devices keep their read-only event stream during an interruption and automatically

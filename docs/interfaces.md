@@ -765,9 +765,11 @@ Behavior (`screen/ingest.py`, `screen/caption.py`):
 - **The server decides again whether the picture changed.** The image is reduced to a 64×36
   grayscale thumbnail and compared with the last _changed_ picture of the meeting: the thumbnail is
   divided into 8×6-pixel blocks and the mean absolute difference of the most-changed block, divided
-  by 255, is compared with `screen.change_threshold`. The browser uses the same measure to decide
-  whether to upload. A whole-image average is not used because two slides that differ only in text
-  differ by about 1 % on average. An unchanged picture still enters the timeline and is announced
+  by 255, is compared with a fixed threshold of 0.04, or with `screen.change_threshold` when that is
+  smaller. The browser uses the same measure, with `screen.change_threshold`, to decide whether to
+  upload at once; a picture it only sends as a heartbeat still gets its own summary when it differs.
+  A whole-image average is not used because two slides that differ only in text differ by about 1 %
+  on average. An unchanged picture still enters the timeline and is announced
   with `frame`, but it inherits the previous summary and adds no line to the LLM context. Because
   the comparison is with the last changed picture, slow cumulative drift eventually crosses the
   threshold. The reference picture lives in memory; after a restart the first picture counts as

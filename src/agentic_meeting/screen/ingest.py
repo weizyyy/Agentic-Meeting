@@ -6,6 +6,8 @@
 * **画面有没有变**由服务端自己再判一次（和这场会议里上一张收到的图比缩略图）：浏览器每隔一段时间会上传一张
   「兜底」截图，画面其实没变；这种图照常进时间线，但不必再生成摘要、不必再往实时模型的上下文里追加一行
   （``IngestedFrame.changed`` 为假，由画面摘要那一侧沿用上一张的摘要）。
+  这里的阈值不是 ``screen.change_threshold``，而是固定的 ``SAME_PICTURE_THRESHOLD``（配置更小时取配置）：
+  配置的阈值管的是浏览器要不要**马上**上传，调大了只是少传几张；兜底截图里的新幻灯片仍然要有自己的摘要。
 
 HTTP 状态码由 ``IngestError.status`` 给出，错误带代码（interfaces.md §5.9），接口层原样转成响应。
 """
@@ -33,6 +35,8 @@ MAX_IMAGE_BYTES = 4 * 1024 * 1024
 MAX_CLOCK_SKEW_SECS = 60.0
 THUMB_SIZE = (64, 36)  # 与浏览器端判断画面变化用的缩略图一致
 DIFF_BLOCK = (8, 6)  # 比较时分成的小块（宽、高，像素）：8 列 × 6 行
+# 服务端判「画面没变、沿用上一张的摘要」的阈值：同一张图重新压缩约 0.001，只换了文字的幻灯片约 0.09–0.14
+SAME_PICTURE_THRESHOLD = 0.04
 
 # Pillow 的格式名 → (文件后缀, 响应里的媒体类型)
 FORMATS: dict[str, tuple[str, str]] = {
@@ -134,7 +138,7 @@ class FrameIngestor:
         self._data_dir = Path(data_dir)
         self._files = OwnedFiles(data_dir)
         self._max_side = max_side_px
-        self._threshold = change_threshold
+        self._threshold = min(change_threshold, SAME_PICTURE_THRESHOLD)
         self._now = now
         self._max_bytes = max_bytes
         self._max_skew = max_skew_secs
