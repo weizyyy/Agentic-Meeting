@@ -18,6 +18,8 @@ interface Props {
   title: string;
   connection: ConnectionState;
   reconnectAttempt: number;
+  /** 旁观别的设备上的会议时事件流的连接状态；不在旁观是 null */
+  watchConnection: ConnectionState | null;
   captions: readonly CaptionLine[];
   assistantState: AssistantStateName;
   assistantText: string;
@@ -32,6 +34,7 @@ export function PresentationView({
   title,
   connection,
   reconnectAttempt,
+  watchConnection,
   captions,
   assistantState,
   assistantText,
@@ -70,7 +73,7 @@ export function PresentationView({
     };
   }, []);
 
-  const status = connectionStatus(t, connection, reconnectAttempt);
+  const status = connectionStatus(t, connection, reconnectAttempt, watchConnection);
   const lines = captions.filter((line) => line.stable || line.unstable).slice(-SHOWN_LINES);
   const assistantActive = assistantState !== "idle" || assistantText !== "";
 
