@@ -85,6 +85,7 @@ export function App({ onLogout }: Props = {}) {
           <ControlBar
             connection={state.connection}
             reconnectAttempt={state.reconnectAttempt}
+            watchConnection={meeting.watchConnection}
             closedReason={state.closedReason}
             listOpen={listOpen}
             onToggleList={() => {
@@ -288,6 +289,7 @@ export function App({ onLogout }: Props = {}) {
             title={sessionTitle(t, language, state.viewing)}
             connection={state.connection}
             reconnectAttempt={state.reconnectAttempt}
+            watchConnection={meeting.watchConnection}
             captions={state.captions}
             assistantState={state.assistantState}
             assistantText={state.assistantText}
