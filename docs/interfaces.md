@@ -1588,6 +1588,8 @@ timeout_secs=<agent.task_timeout_secs + 140>)`. It reports acceptance immediatel
   preparation based only on the meeting. This takes priority over `get_digest`, which is for an
   immediate summary. The assistant may confirm delegation only after the tool returns a task id
   with `status: "accepted"`; progress and failure claims must come from `task_status` or a task result.
+  The asynchronous tool's initial placeholder means only that the call is running, not that a
+  task has been accepted; a rejected call must not be presented as successful delegation.
 
 When `realtime.direct_mcp_tools` is non-empty, those MCP tools are attached to the realtime LLM
 directly (pipecat-notes.md §7).

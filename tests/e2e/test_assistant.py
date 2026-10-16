@@ -148,6 +148,36 @@ async def test_a_failing_task_is_reported_as_failed(app, http, meeting, inferenc
     assert (await client.next_message("utterance", source="text"))["text"]
 
 
+async def test_rejected_delegation_creates_no_task_and_transcription_continues(
+    app, http, meeting, inference
+):
+    client = meeting()
+    session = await client.connect()
+    inference.llm.when("空任务", Reply(tool="delegate_task", arguments={"goal": " "}))
+    client.type_text("Jarvis 交办一个空任务")
+
+    await until_sync(
+        lambda: any(
+            "任务没有创建" in json.dumps(r["messages"], ensure_ascii=False)
+            for r in inference.llm.requests
+        ),
+        "模型收到交办未被受理的原因",
+    )
+    assert not client.of_type("task")
+    listed = await http.get("/api/tasks", params={"session_id": session["id"]})
+    assert listed.json()["items"] == []
+    assert all(
+        "后台任务已经开始" not in json.dumps(r["messages"], ensure_ascii=False)
+        for r in inference.llm.requests
+    )
+
+    inference.asr.say("下一组实验保持相同的数据划分")
+    await client.speak()
+    assert (await client.next_message("utterance", source="asr"))["text"] == (
+        "下一组实验保持相同的数据划分"
+    )
+
+
 async def _upload_frame(http, color: str):
     buffer = io.BytesIO()
     Image.new("RGB", (320, 180), color).save(buffer, format="JPEG")
