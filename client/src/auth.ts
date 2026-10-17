@@ -1,21 +1,37 @@
-// 访问口令（docs/interfaces.md §5.7）。服务端没启用口令时这里什么也不做：状态接口报告 enabled=false，
-// 不需要令牌。启用时：页面先问一次登录状态，没登录就显示登录页；登录后拿到的 CSRF 令牌记在 authSession 里，
+// 访问口令与单点登录（docs/interfaces.md §5.7）。服务端不需要登录时这里什么也不做：状态接口报告 enabled=false，
+// 不需要令牌。启用时：页面先问一次登录状态，没登录就显示登录页（口令框和/或单点登录按钮）；登录后拿到的 CSRF 令牌记在 authSession 里，
 // 所有改动数据的请求（包括 WebRTC 的 offer 和 ICE 候选）都带上它。任何接口回 401 时通知页面重新登录。
 
 import { errorText, messages } from "./i18n/index.ts";
 
 export const CSRF_HEADER = "X-CSRF-Token";
 
+export interface SsoProvider {
+  id: string;
+  display_name: string;
+}
+
+/** 登录页能提供的登录方式 */
+export interface LoginMethods {
+  password: boolean;
+  oidc: SsoProvider[];
+  /** 由反向代理认证：页面上没有可点的，重新打开页面即可 */
+  proxy: boolean;
+}
+
 export interface AuthStatus {
-  /** 服务端是否启用了访问口令 */
+  /** 服务端是否需要登录 */
   enabled: boolean;
   meeting_access?: boolean;
   site_password_required?: boolean;
   principal?: { id: string; display_name: string; can_host: boolean; guest?: boolean };
-  /** 当前是否可以访问（没启用口令时总是 true） */
+  /** 当前是否可以访问（不需要登录时总是 true） */
   authenticated: boolean;
   csrf_token: string | null;
+  methods: LoginMethods;
 }
+
+export const NO_METHODS: LoginMethods = { password: false, oidc: [], proxy: false };
 
 /** 当前页面的登录状态：令牌，以及「会话失效了」的监听者。 */
 export class AuthSession {
@@ -65,6 +81,24 @@ export function withCsrf(
   return { ...init, headers };
 }
 
+function parseMethods(value: unknown, enabled: boolean): LoginMethods {
+  // 没有 methods 字段的服务端只有访问口令
+  if (typeof value !== "object" || value === null) return { ...NO_METHODS, password: enabled };
+  const raw = value as Record<string, unknown>;
+  const oidc = Array.isArray(raw.oidc)
+    ? raw.oidc.flatMap((item: unknown) => {
+        const p = (typeof item === "object" && item !== null ? item : {}) as Record<
+          string,
+          unknown
+        >;
+        return typeof p.id === "string" && typeof p.display_name === "string"
+          ? [{ id: p.id, display_name: p.display_name }]
+          : [];
+      })
+    : [];
+  return { password: raw.password === true, oidc, proxy: raw.proxy === true };
+}
+
 export function parseStatus(body: unknown): AuthStatus {
   const value = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
   if (typeof value.enabled !== "boolean" || typeof value.authenticated !== "boolean")
@@ -75,10 +109,35 @@ export function parseStatus(body: unknown): AuthStatus {
     enabled,
     authenticated: !enabled || value.authenticated === true,
     csrf_token: token,
+    methods: parseMethods(value.methods, enabled),
     meeting_access: value.meeting_access === true,
     site_password_required: value.site_password_required === true,
     principal: value.principal as AuthStatus["principal"],
   };
+}
+
+/** 单点登录的起点：登录完回到 ``next``（本站路径，默认当前页面）。 */
+export function ssoStartUrl(provider: string, next: string): string {
+  return `/api/auth/oidc/${encodeURIComponent(provider)}/start?next=${encodeURIComponent(next)}`;
+}
+
+const LOGIN_ERROR_KEY = "login_error";
+
+/**
+ * 单点登录失败时，服务端跳回页面并把代码放在地址的 # 片段里（login_error=sso.denied 等）。
+ * 读出来翻译成提示，并从地址栏去掉，刷新页面不会再出现。没有就返回 null。
+ */
+export function takeLoginError(win: Window = window): string | null {
+  const hash = win.location.hash.replace(/^#/, "");
+  if (!hash) return null;
+  const params = new URLSearchParams(hash);
+  const code = params.get(LOGIN_ERROR_KEY);
+  if (code === null) return null;
+  params.delete(LOGIN_ERROR_KEY);
+  const rest = params.toString();
+  const url = win.location.pathname + win.location.search + (rest ? `#${rest}` : "");
+  win.history.replaceState(win.history.state, "", url);
+  return errorText({ code, params: {} }) ?? messages().login.ssoFailed;
 }
 
 /** 登录失败时给用户看的话。 */

@@ -60,6 +60,12 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Single sign-on: people can log in with their organization account through OpenID Connect
+  (authorization code flow with PKCE, any number of providers in `server.oidc`), or be recognized
+  from the user-name header of a trusted reverse proxy (`server.proxy_auth`). Who may log in can
+  be limited to listed users or groups. The access password keeps working next to it, also while
+  the provider is offline, and the login page shows a button per provider ([#24]). It cannot be
+  combined with `server.meeting_access` yet.
 - Optional meeting access with local accounts ([#22]). With `server.meeting_access = true`, each
   person logs in with an account from `[[server.local_users]]` and sees only the meetings they host
   or were granted; hosts add watchers or other hosts by principal id. It needs no identity provider
@@ -100,6 +106,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 [#21]: https://github.com/weizyyy/Agentic-Meeting/issues/21
 [#22]: https://github.com/weizyyy/Agentic-Meeting/issues/22
 [#23]: https://github.com/weizyyy/Agentic-Meeting/issues/23
+[#24]: https://github.com/weizyyy/Agentic-Meeting/issues/24
 [#80]: https://github.com/weizyyy/Agentic-Meeting/pull/80
 
 ## [0.4.0] - 2026-10-14

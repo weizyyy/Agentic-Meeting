@@ -23,23 +23,23 @@ The source of truth is the pydantic model in
 [`config/config.example.toml`](../config/config.example.toml). Every key is described in
 [configuration.md](configuration.md).
 
-| Section        | Contents                                                                                                                          |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `session`      | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory, number of meetings live at the same time      |
-| `server`       | Bind address and port, TLS certificate, ICE servers, access password, login duration, `meeting_access` and `local_users` (§5.11)  |
-| `realtime_llm` | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`            |
-| `asr`          | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings                              |
-| `diarization`  | Backend, library path, model path, GPU index, segmentation thresholds                                                             |
-| `tts`          | Endpoint, model field, voice, language, concurrent requests, launch settings                                                      |
-| `embedding`    | Endpoint, model field, dimensions, query prefix, similarity floor, launch settings                                                |
-| `audio`        | Input gain: switch, initial gain, limit, target level, noise floor, log interval                                                  |
-| `turn`         | Silence threshold, VAD volume gate, end-of-turn model, wake window, single activation                                             |
-| `realtime`     | Context budget, verbatim window after compaction, summary interval and provider, warm-up interval, direct MCP tools               |
-| `screen`       | Screenshot intervals and threshold, summaries and their provider                                                                  |
-| `transcript`   | Merging of adjacent segments into one caption                                                                                     |
-| `report`       | Report provider and input size per request                                                                                        |
-| `agent`        | Remote model endpoint, extra request fields, output budget, screenshot attachment, MCP servers, sandbox, concurrency and timeouts |
-| `retention`    | Independent retention periods and cleanup interval (§1.1)                                                                         |
+| Section        | Contents                                                                                                                                                     |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `session`      | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory, number of meetings live at the same time                                 |
+| `server`       | Bind address and port, public URL, TLS certificate, ICE servers, access password, single sign-on, login duration, `meeting_access` and `local_users` (§5.11) |
+| `realtime_llm` | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`                                       |
+| `asr`          | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings                                                         |
+| `diarization`  | Backend, library path, model path, GPU index, segmentation thresholds                                                                                        |
+| `tts`          | Endpoint, model field, voice, language, concurrent requests, launch settings                                                                                 |
+| `embedding`    | Endpoint, model field, dimensions, query prefix, similarity floor, launch settings                                                                           |
+| `audio`        | Input gain: switch, initial gain, limit, target level, noise floor, log interval                                                                             |
+| `turn`         | Silence threshold, VAD volume gate, end-of-turn model, wake window, single activation                                                                        |
+| `realtime`     | Context budget, verbatim window after compaction, summary interval and provider, warm-up interval, direct MCP tools                                          |
+| `screen`       | Screenshot intervals and threshold, summaries and their provider                                                                                             |
+| `transcript`   | Merging of adjacent segments into one caption                                                                                                                |
+| `report`       | Report provider and input size per request                                                                                                                   |
+| `agent`        | Remote model endpoint, extra request fields, output budget, screenshot attachment, MCP servers, sandbox, concurrency and timeouts                            |
+| `retention`    | Independent retention periods and cleanup interval (§1.1)                                                                                                    |
 
 Rules:
 
@@ -590,7 +590,7 @@ All endpoints except signaling exchange JSON. Business errors are returned as
 `{"error": "<message>", "code", "params"}` with an appropriate status code; `error` is in Chinese and
 `code` says which error it is (§5.9). During development the client runs on port
 5173 and proxies `/api` to the application (`client/vite.config.ts`). Readiness 503 responses use
-the status snapshot in §5.8. When an access password is configured, the middleware guards `/api`
+the status snapshot in §5.8. When login is enabled, the middleware guards `/api`
 and paths below it, except the public authentication routes in §5.7. The three operational GET
 routes in §5.8 are outside `/api` and remain anonymous.
 
@@ -925,19 +925,29 @@ assistant's name and `-2` the name "文字输入".
   the transcript will be sent to that endpoint.
 - The page polls `GET /api/sessions/{id}/report` every 2 s while a report is running.
 
-### 5.7 Access password
+### 5.7 Access password and single sign-on
 
-Opt-in. With `server.password_env` empty (the default) nothing below applies: `/api` is open and
-`GET /api/auth` reports `enabled: false`. With it set, the password is read from that environment
-variable at startup, and the middleware in `web/auth.py` guards every path under `/api/` except
-`GET /api/auth` and `POST /api/auth/login`. The static site (`/`, `/assets/…`) stays public; it
-contains no meeting data.
+Opt-in. Login is enabled when at least one of three methods is configured: the shared access
+password (`server.password_env`), one or more OpenID Connect providers (`server.oidc`), or identity
+headers from a trusted reverse proxy (`server.proxy_auth.trusted_proxies`). With none of them (the
+default) nothing below applies: `/api` is open and `GET /api/auth` reports `enabled: false`. With
+any of them, the middleware in `web/auth.py` guards every path under `/api/` except `GET /api/auth`,
+`POST /api/auth/login` and the two `GET /api/auth/oidc/…` routes. The static site (`/`,
+`/assets/…`) stays public; it contains no meeting data. The methods can be combined; every method
+leads to the same session cookie and CSRF token described below, so the rest of the API does not
+know how a device logged in.
 
-| Method and path         | Request               | Response                                                                                                                                                                                                                  |
-| ----------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/auth`         | —                     | `{"enabled", "authenticated", "csrf_token"}`; `csrf_token` is `null` when not logged in or when the password is disabled                                                                                                  |
-| `POST /api/auth/login`  | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}` and the session cookie. 401 wrong password; 429 too many attempts, with `Retry-After` in seconds; 413 body larger than 16 KiB; 404 when the password is disabled |
-| `POST /api/auth/logout` | —                     | `{"enabled": true, "authenticated": false, "csrf_token": null}`; the cookie is cleared                                                                                                                                    |
+| Method and path                          | Request                          | Response                                                                                                                                                                                                                                 |
+| ---------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/auth`                          | —                                | `{"enabled", "authenticated", "csrf_token", "methods"}`; `csrf_token` is `null` when not logged in or when login is disabled                                                                                                             |
+| `POST /api/auth/login`                   | `{"password": "..."}`            | The same object with `"authenticated": true` and the session cookie. 401 wrong password; 429 too many attempts, with `Retry-After` in seconds; 413 body larger than 16 KiB; 404 `auth.not_enabled` when no access password is configured |
+| `POST /api/auth/logout`                  | —                                | The same object with `"authenticated": false` and `"csrf_token": null`; the cookie is cleared                                                                                                                                            |
+| `GET /api/auth/oidc/{provider}/start`    | query `next` (optional)          | 302 to the provider's authorization endpoint; 404 `auth.provider_not_found` for an unknown `provider`. When the provider cannot be reached, 303 to the page with `#login_error=sso.unavailable`                                          |
+| `GET /api/auth/oidc/{provider}/callback` | query `code`, `state` or `error` | 303 to `next` with the session cookie; on failure 303 to `next` with `#login_error=<code>` and no session                                                                                                                                |
+
+`methods` is `{"password": bool, "oidc": [{"id", "display_name"}, …], "proxy": bool}` and lists
+what the login page can offer; it is present whether or not the device is logged in, and empty
+(`false`, `[]`, `false`) when login is disabled.
 
 **Guarded requests.** Without a valid session cookie the response is 401 `{"error": "请先登录"}`.
 `POST`, `PUT`, `PATCH` and `DELETE` additionally need the header `X-CSRF-Token` with the token of
@@ -977,6 +987,78 @@ They are not sent to the browser.
 
 A WebRTC connection that is already established is not interrupted when its cookie expires or the
 user logs out elsewhere; the next HTTP request is refused.
+
+#### Single sign-on with OpenID Connect
+
+Each entry of `server.oidc` is one provider, identified by its `id` in the URLs above. The flow is
+the authorization code flow with PKCE (`S256`) and a `nonce`, as a confidential client when
+`client_secret_env` names a secret and as a public client otherwise:
+
+1. `start` fetches `<issuer>/.well-known/openid-configuration` (cached for an hour; 10-second
+   timeout) and checks that its `issuer` equals the configured one exactly. It creates a random
+   `state`, `nonce` and code verifier and keeps them in memory for 10 minutes together with the
+   provider, the redirect URI and `next` (at most 1000 pending logins; the oldest is dropped
+   first). It sets the cookie `am_sso` (`HttpOnly; SameSite=Lax; Path=/api/auth/oidc/; Max-Age=600`,
+   `Secure` over HTTPS) holding a random value whose SHA-256 is stored with the pending login, and
+   redirects to the authorization endpoint with `response_type=code`, `client_id`, `redirect_uri`,
+   `scope`, `state`, `nonce`, `code_challenge` and `code_challenge_method=S256`.
+2. `callback` removes the pending login for `state` (each `state` works once), and fails unless it
+   exists, has not expired, belongs to this provider and matches the `am_sso` cookie of the same
+   browser. It exchanges `code` at the token endpoint with the code verifier and the same
+   redirect URI, authenticating with HTTP Basic (`client_secret_basic`) unless the provider
+   advertises only `client_secret_post`.
+3. The ID token must be signed with an asymmetric algorithm (`RS*`, `PS*`, `ES*`, `EdDSA`) that the
+   provider lists in `id_token_signing_alg_values_supported` (`RS256` when absent), with a key
+   from its `jwks_uri` (refetched at most every 30 seconds when the key id is unknown). `iss` must
+   equal the issuer, `aud` must contain the client id (and `azp` must equal it when present or
+   when there are several audiences), `exp`, `iat` and `sub` must be present, `nonce` must match,
+   and clocks may differ by up to 60 seconds. Unsigned tokens and HMAC algorithms are rejected.
+4. The user name is the claim named by `username_claim` (default `preferred_username`; `sub` when
+   it is missing), the display name is `name` (or the user name), and the groups are the claim
+   named by `groups_claim` (a list of strings or one string). When the ID token lacks the user name
+   or groups claim and the provider has a `userinfo_endpoint`, the claims are completed from it
+   with the access token; its `sub` must equal the ID token's.
+5. When `allowed_users` or `allowed_groups` is not empty, the user name must be in the first list
+   or one of the groups in the second. Otherwise every user the provider authenticates is let in.
+
+The redirect URI is `<public_url>/api/auth/oidc/<id>/callback`, where `public_url` is
+`server.public_url` or, when that is empty, the scheme and host of the request (which include
+`X-Forwarded-Proto` and `Host` only when uvicorn trusts the proxy, as for client addresses above).
+Register exactly that URI with the provider. All provider endpoints must use HTTPS unless the
+issuer is a loopback address. The ID token, access token and claims are not stored; only the
+session cookie is issued.
+
+`next` must be a path on this site (starting with one `/`, at most 2000 characters); anything else
+is replaced by `/`. Failures are reported to the page in the URL fragment, which the server never
+sees again and the page removes after reading:
+
+| `login_error`     | Cause                                                                           |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `sso.unavailable` | The discovery document, keys, token or userinfo endpoint could not be reached   |
+| `sso.cancelled`   | The provider returned `error=access_denied` (the user declined or cancelled)    |
+| `sso.expired`     | Unknown or expired `state`, or the `am_sso` cookie is missing or does not match |
+| `sso.denied`      | Signed in at the provider, but not in `allowed_users` or `allowed_groups`       |
+| `sso.failed`      | Any other error: a rejected token, an error response from the provider          |
+
+The reason is logged on the server. Single sign-on needs the provider only while logging in:
+a device that is already logged in keeps working when the provider is offline, and the access
+password keeps working throughout.
+
+#### Identity headers from a reverse proxy
+
+When `server.proxy_auth.trusted_proxies` lists addresses or networks, a request whose direct peer
+is one of them and that carries a non-empty `user_header` (default `X-Forwarded-User`) is logged in
+as that user, without a cookie. The direct peer is the TCP peer before uvicorn applies
+`X-Forwarded-For`, so a client cannot claim a proxy address through that header. The header is
+ignored on requests from any other address. Optional `name_header` and `groups_header` give the
+display name and the groups (comma-separated); header values are read as UTF-8. `allowed_users` and
+`allowed_groups` restrict who is accepted, as for OpenID Connect; a refused user is treated as not
+logged in.
+
+`GET /api/auth` reports such a request as authenticated, with a CSRF token derived from the user
+name under the same key as session tokens; modifying requests need it as usual. Logging out has no
+effect while the proxy keeps sending the header. The proxy must remove the header from requests
+that it does not authenticate itself.
 
 ### 5.8 Health checks and basic metrics
 
@@ -1343,6 +1425,12 @@ translated. `request.failed` covers errors raised outside this application's han
 | `auth.wrong_password`       | 401           | —                | 口令不对                                                           |
 | `auth.too_many`             | 429           | —                | 尝试次数过多，请稍后再试                                           |
 | `auth.not_enabled`          | 404           | —                | 没有启用访问口令                                                   |
+| `auth.provider_not_found`   | 404           | —                | 没有这个登录方式                                                   |
+| `sso.unavailable`           | — (§5.7)      | —                | 暂时连不上身份提供方，请稍后再试或改用其他登录方式                 |
+| `sso.cancelled`             | — (§5.7)      | —                | 登录已取消                                                         |
+| `sso.expired`               | — (§5.7)      | —                | 登录请求已过期，请重新登录                                         |
+| `sso.denied`                | — (§5.7)      | —                | 这个账号没有被允许登录                                             |
+| `sso.failed`                | — (§5.7)      | —                | 单点登录没有完成，请重试                                           |
 | `access.denied`             | 403           | —                | 无权执行此操作                                                     |
 | `access.invalid_member`     | 400           | —                | 成员不存在或不能主持会议                                           |
 | `access.last_host`          | 409           | —                | 会议必须保留一位主持人                                             |

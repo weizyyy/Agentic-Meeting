@@ -22,6 +22,7 @@ async def test_everything_under_api_needs_a_login(guarded):
             "enabled": True,
             "authenticated": False,
             "csrf_token": None,
+            "methods": {"password": True, "oidc": [], "proxy": False},
         }
         for path in (
             "/api/sessions",
