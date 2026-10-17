@@ -119,6 +119,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   click. `match_threshold` and `match_margin` decide how sure a suggestion must be; with
   `auto_update` a confirmed meeting is added to the profile as a sample. Suggestions go only to the
   recording page and to hosts through `GET /api/speaker-suggestions`, never to following devices.
+- `speaker_memory.store_session_voice = false` keeps a meeting's voiceprints only in memory until
+  its recording connection ends ([#25]); profiles still keep their samples. With speaker memory on,
+  the recording page now says that voiceprints are being computed, and shows a notice when the
+  speaker service stops and when it is back.
 
 ### Fixed
 

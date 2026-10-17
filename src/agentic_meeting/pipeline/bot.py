@@ -746,6 +746,8 @@ async def send_session_ready(
     await send(session_message(current, live.resumed, live.base_secs))
     if resources.cfg.session.recording_notice:
         await send(message("recording.active").notice("info"))
+        if resources.cfg.speaker_memory.backend != "none":
+            await send(message("voice.active").notice("info"))
     if resources.sessions is not None:
         await send(resources.sessions.watchers_message(live.session.id))
 

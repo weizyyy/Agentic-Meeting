@@ -32,7 +32,10 @@ cuts single-speaker clips of up to 6 s from the meeting audio in memory, has a l
 turn each into a vector and stores the vector with the caption it belongs to. The audio of the clips
 is not stored. The speaker service must listen on a loopback address of the meeting server, so
 voiceprints never leave it. Erase a meeting's voiceprints without touching its transcript with
-`DELETE /api/sessions/{id}/voice` ([interfaces.md §5.4](interfaces.md)).
+`DELETE /api/sessions/{id}/voice` ([interfaces.md §5.4](interfaces.md)). With
+`speaker_memory.store_session_voice = false` the voiceprints are kept only in memory and are gone
+when the recording connection ends; only profile samples are stored. While the feature is on, the
+recording page tells everyone that voiceprints are being computed.
 
 A host can remember a speaker's voice as a **voice profile** only after confirming that the person
 agreed ([interfaces.md §5.14](interfaces.md)). A profile holds a name and up to eight voiceprints,

@@ -158,6 +158,7 @@ def create_app(
                 cfg.resolve(cfg.session.data_dir) / "meetings.db",
                 cfg.embedding.dimensions,
                 assistant_name=cfg.session.assistant_name,
+                keep_voice_clips=cfg.speaker_memory.store_session_voice,
             )
         the_store = store or opened
         assert the_store is not None

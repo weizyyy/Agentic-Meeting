@@ -188,6 +188,7 @@ class MeetingRecorder(FrameProcessor):
                 segments=self._voice_segments,
                 idle_close_secs=merge_gap_secs + 1.0,
                 on_stored=self._matcher.poke if self._matcher is not None else None,
+                on_service=self._voice_service_changed,
             )
 
     # ------------------------------------------------------------------ #
@@ -404,6 +405,16 @@ class MeetingRecorder(FrameProcessor):
                     )
                 except (TimeoutError, Exception):
                     logger.warning("没能用整场的声纹更新档案样本，保留原来的样本")
+        if self._voice is not None and self._store is not None:
+            # 不随会议保存声纹时，这一路连接的片段到此为止
+            await self._guard(cast(MatchStore, self._store).forget_live_voice(self._session_id))
+
+    async def _voice_service_changed(self, available: bool) -> None:
+        """声纹服务断了 / 恢复了：每次中断只提示一次（转录照常）。"""
+        if available:
+            await self._notice("info", message("voice.recovered"))
+        else:
+            await self._notice("warn", message("voice.unavailable"))
 
     def voice_changed(self) -> None:
         """说话人或声纹档案变了（改发言人、合并、录入、确认 / 忽略提示……）：重新比对。"""

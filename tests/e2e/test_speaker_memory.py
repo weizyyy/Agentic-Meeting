@@ -31,6 +31,8 @@ async def voice_secs(http, session_id: str) -> dict[int, float]:
 async def test_voice_clips_follow_the_captions_and_can_be_erased(http, meeting, inference):
     client = meeting()
     session = await client.connect()
+    # 录音提示之外，还告诉大家说话人记忆开着
+    await client.next_message("notice", code="voice.active")
     for line in LINES:
         inference.asr.say(line)
     await client.speak(seconds=7)
@@ -57,17 +59,87 @@ async def test_voice_clips_follow_the_captions_and_can_be_erased(http, meeting, 
     after = await voice_secs(http, session["id"])
     assert after[new_idx] == pytest.approx(sum(secs.values()), abs=0.2) and after[0] == 0
 
-    # 声纹服务停了，字幕照常
+    # 声纹服务停了，字幕照常；页面提示一次，恢复后再提示一次
     inference.speaker.down = True
-    inference.asr.say("服务停了也照样转录")
-    await client.speak()
-    await client.next_message("utterance", text="服务停了也照样转录")
+    seen = {m["id"] for m in client.of_type("utterance")}
+    for line in LINES:
+        inference.asr.say(line)
+    await client.speak(seconds=7)
+    await client.wait_for(
+        lambda: [m for m in client.of_type("utterance") if m["id"] not in seen], "新的发言"
+    )
+    down = await client.next_message("notice", code="voice.unavailable")
+    assert down["level"] == "warn"
+    inference.speaker.down = False
+    for line in LINES:
+        inference.asr.say(line)
+    await client.speak(seconds=7)
+    await client.next_message("notice", code="voice.recovered")
+    assert [m.get("code") for m in client.messages].count("voice.unavailable") == 1
 
     erased = await http.delete(f"/api/sessions/{session['id']}/voice")
     assert erased.status_code == 200 and erased.json()["clips"] > 0
     assert all(s == 0 for s in (await voice_secs(http, session["id"])).values())
     remaining = (await http.get("/api/utterances", params={"session_id": session["id"]})).json()
-    assert len(remaining["items"]) == len(ids) + 1
+    assert len(remaining["items"]) > len(ids)
+
+
+async def test_voice_clips_can_stay_out_of_the_database(start_app, meeting_factory, inference):
+    app = await start_app(
+        {
+            "speaker_memory.backend": "sherpa_onnx",
+            "speaker_memory.base_url": inference.speaker.origin,
+            "speaker_memory.launch.enabled": False,
+            "speaker_memory.store_session_voice": False,
+            "speaker_memory.min_enroll_secs": 1,
+        }
+    )
+    async with app.http() as http:
+        client = meeting_factory(http)()
+        session = await client.connect()
+        sid = session["id"]
+        for line in LINES:
+            inference.asr.say(line)
+        await client.speak(seconds=7)
+        await client.next_message("utterance")
+
+        async def collected():
+            secs = await voice_secs(http, sid)
+            return secs if sum(secs.values()) > 0 else None
+
+        # 会议进行中照样有声纹，可以录入
+        await until(collected, "采集到声纹片段")
+        ids = [
+            u["id"]
+            for u in (await http.get("/api/utterances", params={"session_id": sid})).json()["items"]
+        ]
+        moved = await http.post(
+            "/api/utterances/speaker", json={"session_id": sid, "ids": ids, "new_speaker": "林老师"}
+        )
+        idx = moved.json()["speaker"]["idx"]
+        enrolled = await http.post(
+            f"/api/speakers/{idx}/voice-profile",
+            json={"session_id": sid, "name": "林晓", "consent": True},
+        )
+        assert enrolled.status_code == 200, enrolled.text
+        await client.close()
+
+        # 录音连接一结束，这场会议的声纹片段就没了；档案里的样本是副本，还在
+        async def forgotten():
+            return all(s == 0 for s in (await voice_secs(http, sid)).values()) or None
+
+        await until(forgotten, "清掉内存里的声纹片段")
+        again = await http.post(
+            f"/api/speakers/{idx}/voice-profile",
+            json={
+                "session_id": sid,
+                "profile_id": enrolled.json()["voice_profile"]["id"],
+                "consent": True,
+            },
+        )
+        assert again.json()["code"] == "voice.too_short"
+        profiles = (await http.get("/api/voice-profiles")).json()["items"]
+        assert [(p["name"], p["samples"]) for p in profiles] == [("林晓", 1)]
 
 
 async def test_without_a_voice_model_nothing_is_computed(start_app, meeting_factory, inference):
