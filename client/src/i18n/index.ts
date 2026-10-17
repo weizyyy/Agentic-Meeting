@@ -9,6 +9,7 @@ import { common } from "./common.ts";
 import type { Language } from "./define.ts";
 import { devices } from "./devices.ts";
 import { header } from "./header.ts";
+import { sharing } from "./sharing.ts";
 import { login } from "./login.ts";
 import { notices } from "./notices.ts";
 import { report } from "./report.ts";
@@ -36,6 +37,7 @@ const areas = {
   screen,
   report,
   login,
+  sharing,
   notices,
   serverNotices,
   serverErrors,

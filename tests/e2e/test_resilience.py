@@ -10,6 +10,7 @@ import time
 import pytest
 
 from .meeting_client import WatchingDevice
+from .test_session_events import Watcher
 from .waiting import until, until_sync
 
 
@@ -56,31 +57,75 @@ async def test_transcription_survives_failing_assistant_services(app, http, meet
 async def test_captions_resume_after_the_recognition_service_comes_back(
     app, http, meeting, inference
 ):
+    previous = meeting()
+    previous_id = (await previous.connect())["id"]
+    assert (await http.post(f"/api/sessions/{previous_id}/end")).status_code == 200
+    await previous.close()
     client = meeting()
-    await client.connect()
-    inference.asr.down = True
+    sid = (await client.connect())["id"]
+    async with (
+        Watcher(http, sid) as first,
+        Watcher(http, sid) as second,
+        Watcher(http, previous_id) as historical,
+    ):
+        for watcher in (first, second, historical):
+            await watcher.find("snapshot")
+        inference.asr.down = True
 
-    async def not_ready():
-        response = await http.get("/readyz")
-        return response.status_code == 503 and response.json()["status"] == "not_ready"
+        async def not_ready():
+            response = await http.get("/readyz")
+            return response.status_code == 503 and response.json()["status"] == "not_ready"
 
-    await until(not_ready, "识别服务不通时就绪检查失败")
-    await client.speak()  # 这段话识别不了，但连接和会议照常
+        await until(not_ready, "识别服务不通时就绪检查失败")
+        await client.speak()  # 真实音频触发后端连续请求失败，不能只依赖健康探测。
+        unavailable = await client.next_message("notice", code="asr.unavailable")
+        for watcher in (first, second):
+            event = await watcher.find(type="notice", code="asr.unavailable")
+            assert event["session_id"] == sid
+            assert {k: event["data"][k] for k in ("code", "level", "params")} == {
+                k: unavailable[k] for k in ("code", "level", "params")
+            }
+        inference.asr.down = False
+        assert (await http.get("/healthz")).json() == {"status": "ok"}
+        recovered_notice = await client.next_message("notice", code="asr.recovered")
 
-    inference.asr.down = False
-    assert (await http.get("/healthz")).json() == {"status": "ok"}
+        async def recovered():
+            inference.asr.say("识别服务回来了")
+            await client.speak()
+            return [u for u in client.of_type("utterance") if u["text"] == "识别服务回来了"]
 
-    async def recovered():
-        inference.asr.say("识别服务回来了")
-        await client.speak()
-        return [u for u in client.of_type("utterance") if u["text"] == "识别服务回来了"]
+        await until(recovered, "识别恢复后出字幕", timeout_secs=90)
+        for watcher in (first, second):
+            event = await watcher.find(type="notice", code="asr.recovered")
+            assert event["session_id"] == sid
+            assert {k: event["data"][k] for k in ("code", "level", "params")} == {
+                k: recovered_notice[k] for k in ("code", "level", "params")
+            }
+            await watcher.find(type="utterance", text="识别服务回来了")
+            for code in ("asr.unavailable", "asr.recovered"):
+                assert (
+                    len(
+                        [
+                            e
+                            for kind, e in watcher.events
+                            if kind == "meeting" and e["data"].get("code") == code
+                        ]
+                    )
+                    == 1
+                )
+                assert len([n for n in client.of_type("notice") if n["code"] == code]) == 1
+        assert not any(
+            kind == "meeting" and e["data"].get("code", "").startswith("asr.")
+            for kind, e in historical.events
+        )
 
-    await until(recovered, "识别恢复后出字幕", timeout_secs=90)
+        async def ready():  # 就绪检查缓存与真实管线恢复分别验证。
+            return (await http.get("/readyz")).status_code == 200
 
-    async def ready():  # 就绪检查的服务状态有几秒缓存，刚恢复时可能还是旧结果
-        return (await http.get("/readyz")).status_code == 200
-
-    await until(ready, "识别恢复后就绪检查通过")
+        await until(ready, "识别恢复后就绪检查通过")
+    # 先通过公开接口结束服务器媒体所有者，再关闭合成客户端，避免 ICE 同时关闭的夹具竞态。
+    assert (await http.post(f"/api/sessions/{sid}/end")).status_code == 200
+    await client.close()
 
 
 async def test_meetings_survive_a_restart(start_app, inference, meeting_factory):

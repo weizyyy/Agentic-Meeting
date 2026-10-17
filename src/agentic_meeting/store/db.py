@@ -59,6 +59,8 @@ _UTTERANCE_COLUMNS = (
 )
 _UTTERANCE_FROM = "FROM utterances u LEFT JOIN speakers sp ON sp.session_id = u.session_id AND sp.idx = u.speaker_idx"
 
+ACCESS_LOG_KEEP = 2000  # 每场会议的访问记录最多留这么多条，旧的先删
+
 
 def _failure(error: Message) -> tuple[str, str, str]:
     """失败原因写库的三列：中文、代码、参数的 JSON（interfaces.md §5.10）。"""
@@ -477,7 +479,9 @@ class Store:
     # 会话
     # ------------------------------------------------------------------ #
 
-    async def create_session(self, title: str = "", *, now: float | None = None) -> Session:
+    async def create_session(
+        self, title: str = "", *, now: float | None = None, owner: str | None = None
+    ) -> Session:
         now = time.time() if now is None else now
         session = Session(id=uuid.uuid4().hex, title=title, started_at=now, last_active_at=now)
         async with self._transaction():
@@ -485,6 +489,10 @@ class Store:
                 "INSERT INTO sessions (id, title, started_at, last_active_at) VALUES (?, ?, ?, ?)",
                 (session.id, title, now, now),
             )
+            if owner is not None:
+                await self._db.execute(
+                    "INSERT INTO meeting_members VALUES (?, ?, 'host', 1)", (session.id, owner)
+                )
             await self._db.commit()
         return session
 
@@ -568,20 +576,173 @@ class Store:
     # ---- 会议列表 ----
 
     async def list_sessions(
-        self, limit: int = 20, before: float | None = None, *, now: float | None = None
+        self,
+        limit: int = 20,
+        before: float | None = None,
+        *,
+        now: float | None = None,
+        principal: str | None = None,
+        login_digest: str | None = None,
     ) -> list[SessionSummary]:
         """按最近活动倒序；``before`` 是上一页最后一条的 ``last_active_at``。
 
         ``now`` 给出时，没关闭的连接（正在进行的会议）的时长算到 ``now``；不给就算到会话最后一次活动。
         """
-        sql = "SELECT * FROM sessions"
+        sql = "SELECT * FROM sessions WHERE 1=1"
         params: list[Any] = []
+        if principal is not None:
+            sql += (
+                " AND (id IN (SELECT session_id FROM meeting_members WHERE principal_id = ?)"
+                " OR (deletion_pending = 0 AND id IN (SELECT s.session_id FROM meeting_shares s "
+                "JOIN share_access a ON a.share_id = s.id WHERE a.login_digest = ? "
+                "AND a.expires_at > ? AND s.expires_at > ?)))"
+            )
+            params.extend((principal, login_digest, time.time(), time.time()))
         if before is not None:
-            sql += " WHERE last_active_at < ?"
+            sql += " AND last_active_at < ?"
             params.append(before)
         sql += " ORDER BY last_active_at DESC, started_at DESC LIMIT ?"
         params.append(limit)
         return [await self._summary(self._session(r), now) for r in await self._all(sql, params)]
+
+    async def utterances_belong_to(self, session_id: str, ids: list[int]) -> bool:
+        placeholders = ",".join("?" for _ in ids)
+        row = await self._one(
+            f"SELECT COUNT(*) FROM utterances WHERE session_id=? AND id IN ({placeholders})",
+            (session_id, *ids),
+        )
+        return row[0] == len(set(ids))
+
+    async def question_material(self, session_id: str) -> tuple[str, list[tuple[float, str]]]:
+        """有界读取；不把任务、原图、任意产物带入旁听问答。"""
+        digest = await self._one(
+            "SELECT substr(text,1,4096) AS text, length(text)>4096 AS clipped "
+            "FROM digests WHERE session_id=? ORDER BY t_to DESC LIMIT 1",
+            (session_id,),
+        )
+        utterances = await self._all(
+            "SELECT t_start AS t, substr(text,1,2048) AS text, length(text)>2048 AS clipped "
+            "FROM utterances WHERE session_id=? ORDER BY t_start DESC,id DESC LIMIT 100",
+            (session_id,),
+        )
+        frames = await self._all(
+            "SELECT t, substr(caption,1,1024) AS text, length(caption)>1024 AS clipped "
+            "FROM frames WHERE session_id=? AND caption IS NOT NULL ORDER BY t DESC,id DESC LIMIT 10",
+            (session_id,),
+        )
+        summary = (digest["text"] + ("…[截断]" if digest["clipped"] else "")) if digest else ""
+        rows = [
+            (row["t"], row["text"] + ("…[截断]" if row["clipped"] else ""))
+            for row in [*utterances, *frames]
+        ]
+        return summary, sorted(rows, key=lambda row: row[0], reverse=True)
+
+    async def register_principals(self, users: list[tuple[str, str]]) -> None:
+        async with self._transaction():
+            await self._db.executemany(
+                "INSERT INTO principals VALUES (?, ?) ON CONFLICT(id) DO UPDATE "
+                "SET display_name = excluded.display_name",
+                users,
+            )
+            await self._db.commit()
+
+    async def save_login(self, digest: str, principal: str, expires_at: float) -> None:
+        async with self._transaction():
+            guests = await self._all("SELECT principal_id FROM guest_logins")
+            await self._db.execute(
+                "DELETE FROM login_sessions WHERE expires_at <= ?", (time.time(),)
+            )
+            await self._remove_unused_guests(guests)
+            await self._db.execute(
+                "INSERT INTO login_sessions VALUES (?, ?, ?)", (digest, principal, expires_at)
+            )
+            await self._db.commit()
+
+    async def get_login(self, digest: str) -> dict | None:
+        row = await self._one(
+            "SELECT * FROM login_sessions WHERE digest = ? AND expires_at > ?",
+            (digest, time.time()),
+        )
+        return dict(row) if row else None
+
+    async def revoke_login(self, digest: str, *, principal: str | None = None) -> None:
+        async with self._transaction():
+            guests = await self._all("SELECT principal_id FROM guest_logins")
+            column, value = ("principal_id", principal) if principal else ("digest", digest)
+            await self._db.execute(f"DELETE FROM login_sessions WHERE {column} = ?", (value,))
+            await self._remove_unused_guests(guests)
+            await self._db.commit()
+
+    async def membership(self, session_id: str, principal: str) -> dict | None:
+        row = await self._one(
+            "SELECT role, allow_questions FROM meeting_members "
+            "WHERE session_id = ? AND principal_id = ?",
+            (session_id, principal),
+        )
+        return dict(row) if row else None
+
+    async def members(self, session_id: str) -> list[dict]:
+        return [
+            dict(row)
+            for row in await self._all(
+                "SELECT m.principal_id, p.display_name, m.role, m.allow_questions FROM meeting_members m "
+                "JOIN principals p ON p.id = m.principal_id WHERE m.session_id = ? ORDER BY m.principal_id",
+                (session_id,),
+            )
+        ]
+
+    async def set_member(
+        self, session_id: str, principal: str, role: str | None, allow_questions: bool = False
+    ) -> bool:
+        """同一事务保护最后一个主持人；返回 False 表示不能降权或移除。"""
+        async with self._transaction():
+            old = await self.membership(session_id, principal)
+            if old and old["role"] == "host" and role != "host":
+                hosts = await self._one(
+                    "SELECT COUNT(*) FROM meeting_members WHERE session_id = ? AND role = 'host'",
+                    (session_id,),
+                )
+                if hosts[0] == 1:
+                    return False
+            if role is None:
+                await self._db.execute(
+                    "DELETE FROM meeting_members WHERE session_id = ? AND principal_id = ?",
+                    (session_id, principal),
+                )
+            else:
+                await self._db.execute(
+                    "INSERT INTO meeting_members VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(session_id, principal_id) DO UPDATE SET role=excluded.role, "
+                    "allow_questions=excluded.allow_questions",
+                    (session_id, principal, role, int(allow_questions)),
+                )
+            await self._db.commit()
+        return True
+
+    async def unclaimed_sessions(self) -> list[dict]:
+        return [
+            dict(r)
+            for r in await self._all(
+                "SELECT id, title FROM sessions WHERE id NOT IN "
+                "(SELECT session_id FROM meeting_members WHERE role = 'host') ORDER BY started_at"
+            )
+        ]
+
+    async def claim_session(self, session_id: str, principal: str) -> bool:
+        async with self._transaction():
+            if await self.get_session(session_id) is None:
+                raise LookupError("会议不存在")
+            hosts = await self._all(
+                "SELECT principal_id FROM meeting_members WHERE session_id = ? AND role = 'host'",
+                (session_id,),
+            )
+            if hosts:
+                return len(hosts) == 1 and hosts[0][0] == principal
+            await self._db.execute(
+                "INSERT INTO meeting_members VALUES (?, ?, 'host', 1)", (session_id, principal)
+            )
+            await self._db.commit()
+            return True
 
     async def get_summary(
         self, session_id: str, *, now: float | None = None
@@ -1622,3 +1783,190 @@ class Store:
             )
             for r in rows
         ]
+
+    async def _remove_unused_guests(self, guests: Sequence[aiosqlite.Row]) -> None:
+        for row in guests:
+            await self._db.execute(
+                "DELETE FROM principals WHERE id = ? AND NOT EXISTS "
+                "(SELECT 1 FROM login_sessions WHERE principal_id = principals.id) "
+                "AND NOT EXISTS (SELECT 1 FROM meeting_members WHERE principal_id = principals.id)",
+                (row["principal_id"],),
+            )
+
+    async def is_guest_login(self, digest: str, principal: str) -> bool:
+        return (
+            await self._one(
+                "SELECT 1 FROM guest_logins WHERE login_digest = ? AND principal_id = ?",
+                (digest, principal),
+            )
+            is not None
+        )
+
+    async def share_sources(self, session_id: str, digest: str) -> list[dict]:
+        now = time.time()
+        return [
+            dict(r)
+            for r in await self._all(
+                "SELECT s.id, s.kind, s.allow_questions, MIN(s.expires_at, a.expires_at) AS expires_at "
+                "FROM meeting_shares s JOIN share_access a ON a.share_id = s.id "
+                "JOIN sessions m ON m.id = s.session_id WHERE s.session_id = ? AND a.login_digest = ? "
+                "AND s.expires_at > ? AND a.expires_at > ? AND m.deletion_pending = 0",
+                (session_id, digest, now, now),
+            )
+        ]
+
+    async def shares(self, session_id: str) -> list[dict]:
+        return [
+            dict(r)
+            for r in await self._all(
+                "SELECT id, kind, expires_at, allow_questions FROM meeting_shares "
+                "WHERE session_id = ? AND expires_at > ? ORDER BY created_at",
+                (session_id, time.time()),
+            )
+        ]
+
+    async def get_share(self, session_id: str, kind: str, share_id: str | None) -> dict | None:
+        row = await self._one(
+            "SELECT s.* FROM meeting_shares s JOIN sessions m ON m.id = s.session_id "
+            "WHERE s.session_id = ? AND s.kind = ? AND (? IS NULL OR s.id = ?) "
+            "AND s.expires_at > ? AND m.deletion_pending = 0",
+            (session_id, kind, share_id, share_id, time.time()),
+        )
+        return dict(row) if row else None
+
+    async def put_share(self, row: dict, *, replace_id: str | None = None) -> bool:
+        async with self._transaction():
+            await self._require_writable(row["session_id"])
+            await self._db.execute(
+                "DELETE FROM meeting_shares WHERE expires_at <= ?", (time.time(),)
+            )
+            if replace_id is not None:
+                old = await self.get_share(row["session_id"], "link", replace_id)
+                if old is None:
+                    await self._db.rollback()
+                    return False
+                await self._db.execute("DELETE FROM meeting_shares WHERE id = ?", (replace_id,))
+            elif row["kind"] == "password":
+                await self._db.execute(
+                    "DELETE FROM meeting_shares WHERE session_id = ? AND kind = 'password'",
+                    (row["session_id"],),
+                )
+            if row["kind"] == "link":
+                count = await self._one(
+                    "SELECT COUNT(*) FROM meeting_shares WHERE session_id = ? AND kind = 'link'",
+                    (row["session_id"],),
+                )
+                if count[0] >= 8:
+                    raise ValueError("share.limit")
+            await self._db.execute(
+                "INSERT INTO meeting_shares VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                tuple(
+                    row[k]
+                    for k in (
+                        "id",
+                        "session_id",
+                        "kind",
+                        "credential_hash",
+                        "salt",
+                        "created_at",
+                        "expires_at",
+                        "allow_questions",
+                    )
+                ),
+            )
+            await self._db.commit()
+            return True
+
+    async def revoke_share(self, session_id: str, share_id: str) -> None:
+        async with self._transaction():
+            await self._require_writable(session_id)
+            await self._db.execute(
+                "DELETE FROM meeting_shares WHERE id = ? AND session_id = ?", (share_id, session_id)
+            )
+            await self._db.commit()
+
+    async def exchange_share(
+        self, share: dict, digest: str, *, guest: tuple[str, float] | None = None
+    ) -> float | None:
+        # 一个事务创建匿名主体/登录/租约；不可嵌套调用其他公开写方法。
+        async with self._transaction():
+            current = await self.get_share(share["session_id"], share["kind"], share["id"])
+            if current is None or current["credential_hash"] != share["credential_hash"]:
+                return None
+            if guest is not None:
+                principal, expires = guest
+                await self._db.execute("INSERT INTO principals VALUES (?, 'Guest')", (principal,))
+                await self._db.execute(
+                    "INSERT INTO login_sessions VALUES (?, ?, ?)", (digest, principal, expires)
+                )
+                await self._db.execute(
+                    "INSERT INTO guest_logins VALUES (?, ?)", (digest, principal)
+                )
+            login = await self.get_login(digest)
+            if login is None:
+                await self._db.rollback()
+                return None
+            expires = min(current["expires_at"], login["expires_at"])
+            await self._db.execute(
+                "INSERT INTO share_access VALUES (?, ?, ?) ON CONFLICT(login_digest, share_id) DO UPDATE SET expires_at = excluded.expires_at",
+                (digest, current["id"], expires),
+            )
+            await self._db.commit()
+            return expires
+
+    async def prune_shares(self) -> None:
+        async with self._transaction():
+            guests = await self._all("SELECT principal_id FROM guest_logins")
+            now = time.time()
+            await self._db.execute("DELETE FROM meeting_shares WHERE expires_at <= ?", (now,))
+            await self._db.execute("DELETE FROM share_access WHERE expires_at <= ?", (now,))
+            await self._db.execute("DELETE FROM login_sessions WHERE expires_at <= ?", (now,))
+            await self._remove_unused_guests(guests)
+            await self._db.commit()
+
+    # ---- 访问记录 ----
+
+    async def log_access(
+        self,
+        session_id: str,
+        principal: str,
+        display_name: str,
+        action: str,
+        detail: dict[str, Any],
+        *,
+        at: float | None = None,
+        keep: int = ACCESS_LOG_KEEP,
+    ) -> None:
+        """记一条访问；每场会议只留最近 ``keep`` 条。会议已经删掉时什么也不做。"""
+        async with self._transaction():
+            if await self._one("SELECT 1 FROM sessions WHERE id = ?", (session_id,)) is None:
+                return
+            await self._db.execute(
+                "INSERT INTO access_log (session_id, at, principal_id, display_name, action, detail)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    session_id,
+                    time.time() if at is None else at,
+                    principal,
+                    display_name,
+                    action,
+                    json.dumps(detail, ensure_ascii=False),
+                ),
+            )
+            await self._db.execute(
+                "DELETE FROM access_log WHERE session_id = ? AND id <= (SELECT id FROM access_log"
+                " WHERE session_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?)",
+                (session_id, session_id, keep),
+            )
+            await self._db.commit()
+
+    async def access_log(
+        self, session_id: str, *, limit: int = 100, before_id: int | None = None
+    ) -> list[dict[str, Any]]:
+        """新的在前。"""
+        rows = await self._all(
+            "SELECT id, at, principal_id, display_name, action, detail FROM access_log"
+            " WHERE session_id = ? AND (? IS NULL OR id < ?) ORDER BY id DESC LIMIT ?",
+            (session_id, before_id, before_id, limit),
+        )
+        return [{**dict(row), "detail": json.loads(row["detail"])} for row in rows]

@@ -16,6 +16,7 @@ from agentic_meeting.config import AppConfig
 from agentic_meeting.pipeline.bot import AppResources
 from agentic_meeting.screen.ingest import IngestError, media_type_of
 from agentic_meeting.types import ScreenFrame
+from agentic_meeting.web.access import authorize, current_session, host_write
 from agentic_meeting.web.errors import ApiError, invalid
 
 
@@ -38,10 +39,12 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         return res
 
     @app.post("/api/frames")
+    @host_write
     async def upload_frame(
         request: Request,
         captured_at: Annotated[str, Form()],
         image: Annotated[UploadFile, File()],
+        session_id: Annotated[str | None, Form()] = None,
     ) -> dict[str, Any]:
         res = resources(request)
         if not cfg.screen.enabled:
@@ -49,6 +52,12 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         live = res.sessions.live
         if live is None:
             raise ApiError(404, "frames.no_live_session")
+        if res.access is not None:
+            if not session_id:
+                raise invalid("需要 session_id")
+            await authorize(request, session_id, "host")
+            if session_id != live.session.id:
+                raise ApiError(409, "session.not_live")
         async with res.store.session_work(live.session.id):
             try:
                 at = float(captured_at)
@@ -84,9 +93,10 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         if session_id:
             session = await res.store.get_session(session_id)
         else:
-            session = await res.sessions.current_session()
+            session = await current_session(request)
         if session is None:
             raise ApiError(404, "session.not_found" if session_id else "session.none")
+        await authorize(request, session.id)
         await res.store.require_available(session.id)
         return {"items": [frame_json(f) for f in await res.store.list_frames(session.id)]}
 
@@ -95,6 +105,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         res = resources(request)
         frame = await res.store.get_frame(frame_id)
         if frame is not None:
+            await authorize(request, frame.session_id, missing="frame.not_found")
             await res.store.require_available(frame.session_id)
         path = res.frames.path_of(frame) if frame is not None else None
         if frame is None or path is None or not path.is_file():

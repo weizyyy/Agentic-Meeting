@@ -33,6 +33,7 @@ interface Props {
   reconnectAttempt: number;
   /** 正在只读地看一场在别的设备上进行的会议 */
   watching: boolean;
+  watcherDisconnected: boolean;
   /** 这台设备开着这场会议时：别的设备里谁在旁观 */
   watchers: Watcher[];
   keepPending: boolean;
@@ -40,6 +41,8 @@ interface Props {
   onRename: (id: string, title: string) => void;
   onResume: (id: string) => void;
   onStart: () => void;
+  canStart?: boolean;
+  emptyHint?: string;
 }
 
 /** 会议状态前面那个点的颜色 */
@@ -75,12 +78,15 @@ export function SessionBanner({
   connection,
   reconnectAttempt,
   watching,
+  watcherDisconnected,
   watchers,
   onRename,
   onKeep,
   keepPending,
   onResume,
   onStart,
+  canStart = true,
+  emptyHint,
 }: Props) {
   const { t, language } = useI18n();
   const [editing, setEditing] = useState<string | null>(null);
@@ -92,7 +98,7 @@ export function SessionBanner({
   }, []);
 
   if (!session) {
-    return <p className="mb-4 text-sm text-muted-foreground">{t.session.none}</p>;
+    return <p className="mb-4 text-sm text-muted-foreground">{emptyHint ?? t.session.none}</p>;
   }
 
   const commit = () => {
@@ -125,7 +131,7 @@ export function SessionBanner({
                 variant="ghost"
                 size="icon-sm"
                 className="text-muted-foreground"
-                disabled={pending}
+                disabled={pending || session.access?.role === "watcher"}
                 aria-label={t.session.rename}
                 onClick={() => setEditing(session.title)}
               >
@@ -201,14 +207,18 @@ export function SessionBanner({
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {session.state === "ended" && idle && (
-          <Button variant="outline" onClick={() => onResume(session.id)}>
+          <Button
+            variant="outline"
+            disabled={session.access?.role === "watcher"}
+            onClick={() => onResume(session.id)}
+          >
             {t.session.resumeEnded}
           </Button>
         )}
         <Button
           variant="ghost"
           aria-pressed={session.keep}
-          disabled={pending || keepPending}
+          disabled={pending || keepPending || session.access?.role === "watcher"}
           title={t.common.keepHint}
           onClick={() => onKeep(session.id, !session.keep)}
         >
@@ -250,6 +260,7 @@ export function SessionBanner({
         )}
       </div>
       {pending && <Hint tone="error">{t.session.deletionIncomplete}</Hint>}
+      {watcherDisconnected && !pending && <Hint tone="warn">{t.session.watcherDisconnected}</Hint>}
       {reconnectAttempt > 0 && <Hint tone="warn">{t.session.reconnecting(reconnectAttempt)}</Hint>}
       {watching && !pending && (
         <Hint tone="info">
@@ -259,6 +270,7 @@ export function SessionBanner({
             variant="outline"
             size="sm"
             className="max-md:h-6 max-md:px-2 max-md:text-xs"
+            disabled={session.access?.role === "watcher"}
             onClick={() => onResume(session.id)}
           >
             {t.session.takeOverHere}
@@ -273,11 +285,12 @@ export function SessionBanner({
           <Button
             size="sm"
             className="bg-active text-active-foreground hover:bg-active/85"
+            disabled={session.access?.role === "watcher"}
             onClick={() => onResume(session.id)}
           >
             {t.session.resume}
           </Button>
-          <Button variant="ghost" size="sm" onClick={onStart}>
+          <Button variant="ghost" size="sm" disabled={!canStart} onClick={onStart}>
             {t.header.start}
           </Button>
         </Hint>

@@ -1,47 +1,31 @@
-"""旁观一场会议的设备（docs/interfaces.md §5.1「Following a meeting live」、§6.1 ``watchers``）。
-
-别的设备不持有连接、只看会议时，开一条服务端推送的事件流（``GET /api/sessions/{id}/events``）。
-会议页面收到的数据通道消息里，字幕、说话人、截图、任务这几类原样再推给旁观的设备；提示、助理状态这些只给会议页面。
-
-* **怎么拿到消息**：管线里推给浏览器的消息有好几个出处（会议记录器、识别服务、从管线外 ``queue_frame``），
-  所以不在每个出处各发一遍，而是给管线挂一个观察者（``WatcherObserver``），每条 ``RTVIServerMessageFrame``
-  第一次被推出时抄一份给 ``WatcherHub``。
-* **谁在旁观**：每条事件流登记一个旁观者，设备说明由 ``User-Agent`` 得出（``device_label``），只存在内存里。
-  名单变了，会话管理器把 ``watchers`` 消息推给会议页面。
-* **会议状态**：连接就绪、断开、会议结束时由会话管理器调 ``state``，旁观的设备据此刷新会议信息。
-* **跟不上的设备**：每条流最多攒 ``MAX_PENDING`` 条没发出去的消息，再多就断开它；浏览器的 ``EventSource``
-  会自己重连，重连后页面按最后一条字幕的编号补齐。
-"""
+"""单进程按会事件历史、临时状态和实际旁听连接；不镜像全部 RTVI 提示。"""
 
 from __future__ import annotations
 
 import asyncio
+import copy
 import re
 import time
+import uuid
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from loguru import logger
-from pipecat.observers.base_observer import BaseObserver, FramePushed
-from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
-
-# 原样转给旁观设备的消息类型；其余（提示、助理状态、session、session_closed、watchers）只给会议页面
-FORWARDED_TYPES = frozenset(
-    {
-        "caption",
-        "utterance",
-        "utterance_update",
-        "speaker",
-        "speakers_merged",
-        "frame",
-        "frame_caption",
-        "task",
-        "task_event",
-    }
+from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
+    InterruptionFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
+    LLMTextFrame,
 )
-MAX_PENDING = 500
-PING_SECS = 15.0
+from pipecat.observers.base_observer import BaseObserver, FramePushed
+
+EVENT_LIMIT = 256
+# 回答文字是累计全文，逐个 token 发会很快挤满历史和队列；中途最多这么久发一次，结束时总会发全文。
+ANSWER_TEXT_SECS = 0.25
 
 # 按顺序匹配：先认更具体的（iPad 的 UA 里也有 Mac、安卓的 UA 里也有 Linux，Edge 的 UA 里也有 Chrome）
 _PLATFORMS = (
@@ -73,86 +57,172 @@ def device_label(user_agent: str) -> str:
 
 @dataclass(eq=False)
 class Watcher:
-    """一条打开着的事件流。``queue`` 里放的是要推的消息，``None`` 表示流该结束了。"""
+    """一条真实订阅；名单、队列及释放使用同一个对象。"""
 
     id: int
     session_id: str
     device: str
     since: float
-    queue: asyncio.Queue[dict[str, Any] | None] = field(default_factory=asyncio.Queue)
-    closed: bool = False
+    source: SessionEvents
+    queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(EVENT_LIMIT))
+    overflow: bool = False
 
     def item(self) -> dict[str, Any]:
         return {"id": self.id, "device": self.device, "since": self.since}
 
-    async def next(self) -> dict[str, Any] | None:
-        return await self.queue.get()
+
+class SessionEvents:
+    def __init__(self, session_id: str, epoch: str) -> None:
+        self.session_id = session_id
+        self.epoch = epoch
+        self.seq = 0
+        self.history: deque[dict] = deque(maxlen=EVENT_LIMIT)
+        self.subscribers: set[Watcher] = set()
+        self.transient: dict[str, Any] = {
+            "captions": {},
+            "answer": None,
+            "assistant_state": "idle",
+            "speaking": False,
+        }
+
+    def envelope(self, data: dict, *, seq: int | None = None) -> dict:
+        return {
+            "session_id": self.session_id,
+            "epoch": self.epoch,
+            "seq": self.seq if seq is None else seq,
+            "data": data,
+        }
+
+    def publish(self, data: dict) -> None:
+        data = copy.deepcopy(data)
+        kind = data["type"]
+        if kind == "caption":
+            if data["stable"] or data["unstable"]:
+                self.transient["captions"][data["segment_id"]] = dict(data)
+            else:
+                self.transient["captions"].pop(data["segment_id"], None)
+        elif kind == "utterance":
+            self.transient["captions"].pop(data.get("segment_id"), None)
+        elif kind in {"speaker", "speakers_merged"}:
+            idx = data["idx"] if kind == "speaker" else data["from"]
+            for caption in self.transient["captions"].values():
+                if caption["speaker_idx"] == idx:
+                    caption["speaker_name"] = data["display_name"]
+                    if kind == "speakers_merged":
+                        caption["speaker_idx"] = data["into"]
+        elif kind == "assistant_answer":
+            self.transient["answer"] = data
+            self.transient["assistant_state"] = (
+                "speaking"
+                if self.transient["speaking"]
+                else ("thinking" if data["phase"] in {"started", "text"} else "idle")
+            )
+        elif kind == "assistant_state":
+            self.transient["assistant_state"] = data["state"]
+        elif kind == "assistant_speaking":
+            self.transient["speaking"] = data["speaking"]
+            self.transient["assistant_state"] = "speaking" if data["speaking"] else "idle"
+        elif kind == "session_state" and data["state"] != "live":
+            self.transient.update(captions={}, speaking=False, assistant_state="idle")
+            answer = self.transient["answer"]
+            if answer and answer["phase"] in {"started", "text"}:
+                self.transient["answer"] = {**answer, "phase": "interrupted"}
+        self.seq += 1
+        event = self.envelope(data)
+        self.history.append(event)
+        for subscriber in self.subscribers:
+            if subscriber.overflow:
+                continue
+            try:
+                subscriber.queue.put_nowait(event)
+            except asyncio.QueueFull:
+                subscriber.overflow = True
+
+    def subscribe(
+        self, cursor: str | None, subscriber: Watcher
+    ) -> tuple[Watcher, bool, list[dict]]:
+        """校验游标、选重放、登记订阅之间没有 await，生产者不能插入。"""
+        self.subscribers.add(subscriber)
+        valid = False
+        replay: list[dict] = []
+        if cursor:
+            epoch, separator, number = cursor.rpartition(":")
+            if (
+                separator
+                and epoch == self.epoch
+                and len(number) <= 20
+                and number.isascii()
+                and number.isdigit()
+            ):
+                seq = int(number)
+                oldest = self.history[0]["seq"] - 1 if self.history else self.seq
+                valid = oldest <= seq <= self.seq
+                if valid:
+                    replay = [event for event in self.history if event["seq"] > seq]
+        return subscriber, valid, replay
+
+    def snapshot_transient(self) -> dict:
+        state = copy.deepcopy(self.transient)
+        state["captions"] = list(state["captions"].values())
+        return state
 
 
 class WatcherHub:
-    """各场会议的旁观者名单和他们的消息队列。全部方法都是同步的，可以在已被取消的请求的收尾里调用。"""
+    """唯一旁听入口：每会一个有界事件源，实际订阅同时构成名单。"""
 
     def __init__(self, *, now: Callable[[], float] = time.time) -> None:
         self._now = now
-        self._watchers: dict[str, list[Watcher]] = {}
+        self.epoch = uuid.uuid4().hex
+        self.sources: dict[str, SessionEvents] = {}
         self._next_id = 1
         self._tasks: set[asyncio.Task[None]] = set()
-        # 名单变了之后调用，参数是会话编号；会话管理器用它把 watchers 消息推给会议页面。出错只记日志。
         self.on_change: Callable[[str], Awaitable[None]] | None = None
 
-    def items(self, session_id: str) -> list[dict[str, Any]]:
-        return [w.item() for w in self._watchers.get(session_id, [])]
+    def for_session(self, session_id: str) -> SessionEvents:
+        if session_id not in self.sources:
+            self.sources[session_id] = SessionEvents(session_id, f"{self.epoch}.{session_id}")
+        return self.sources[session_id]
 
-    def subscribe(self, session_id: str, device: str, state: str) -> Watcher:
-        """登记一个旁观者；它收到的第一条消息是会议此刻的状态。"""
-        watcher = Watcher(self._next_id, session_id, device, self._now())
+    def items(self, session_id: str) -> list[dict[str, Any]]:
+        source = self.sources.get(session_id)
+        return (
+            sorted((w.item() for w in source.subscribers), key=lambda w: w["id"]) if source else []
+        )
+
+    def subscribe(
+        self, session_id: str, device: str, cursor: str | None
+    ) -> tuple[Watcher, bool, list[dict]]:
+        source = self.for_session(session_id)
+        watcher = Watcher(self._next_id, session_id, device, self._now(), source)
         self._next_id += 1
-        watcher.queue.put_nowait({"type": "state", "state": state})
-        self._watchers.setdefault(session_id, []).append(watcher)
+        result = source.subscribe(cursor, watcher)
         self._changed(session_id)
-        return watcher
+        return result
 
     def unsubscribe(self, watcher: Watcher) -> None:
-        """事件流结束了（设备断开、被踢掉、应用退出）：从名单里去掉。重复调用没有影响。"""
-        watcher.closed = True
-        group = self._watchers.get(watcher.session_id)
-        if group is None or watcher not in group:
-            return
-        group.remove(watcher)
-        if not group:
-            del self._watchers[watcher.session_id]
-        self._changed(watcher.session_id)
+        if watcher in watcher.source.subscribers:
+            watcher.source.subscribers.remove(watcher)
+            self._changed(watcher.session_id)
 
     def publish(self, session_id: str, data: dict[str, Any]) -> None:
-        """会议页面收到的一条消息：属于转发的类型就抄给这场会议的每个旁观者。"""
-        if data.get("type") in FORWARDED_TYPES:
-            self._send(session_id, data)
+        if data["type"] not in {"watchers", "session", "session_closed"}:
+            self.for_session(session_id).publish(data)
 
     def state(self, session_id: str, state: str) -> None:
-        """会议状态变了：``live`` / ``interrupted`` / ``ended``。"""
-        self._send(session_id, {"type": "state", "state": state})
+        self.publish(session_id, {"type": "session_state", "state": state})
 
     def close_session(self, session_id: str) -> None:
-        """这场会议被删掉了：结束它所有的事件流。"""
-        for watcher in list(self._watchers.get(session_id, [])):
-            self._close(watcher)
+        self.publish(session_id, {"type": "session_deleted"})
+        self.sources.pop(session_id, None)
 
     def close_all(self) -> None:
-        """应用要退出了：结束全部事件流。它们是不会自己结束的请求，不结束的话 uvicorn 会一直等。"""
-        for group in list(self._watchers.values()):
-            for watcher in list(group):
-                self._close(watcher)
+        for source in self.sources.values():
+            for watcher in list(source.subscribers):
+                self.close_watcher(watcher)
 
-    def _send(self, session_id: str, data: dict[str, Any]) -> None:
-        for watcher in list(self._watchers.get(session_id, [])):
-            if watcher.queue.qsize() >= MAX_PENDING:
-                logger.warning(f"旁观设备 {watcher.id} 跟不上推送，断开它，等它重连后补齐")
-                self._close(watcher)
-            else:
-                watcher.queue.put_nowait(data)
-
-    def _close(self, watcher: Watcher) -> None:
-        while not watcher.queue.empty():  # 没发出去的不再发：被踢掉的设备重连后自己补齐
+    def close_watcher(self, watcher: Watcher) -> None:
+        """只撤销这条订阅，未发送内容不再交付。"""
+        while not watcher.queue.empty():
             watcher.queue.get_nowait()
         watcher.queue.put_nowait(None)
         self.unsubscribe(watcher)
@@ -177,14 +247,48 @@ class WatcherHub:
 
 
 class WatcherObserver(BaseObserver):
-    """挂在一场会议的管线上：每条推给浏览器的消息第一次被推出时抄一份给 ``WatcherHub``。"""
-
     def __init__(self, hub: WatcherHub, session_id: str) -> None:
         super().__init__(observe_every_push=False)
-        self._hub = hub
-        self._session_id = session_id
+        self._publish = lambda data: hub.publish(session_id, data)
+        self._response_id = ""
+        self._text = ""
+        self._answering = False
+        self._text_sent_at = 0.0
 
     async def on_push_frame(self, data: FramePushed) -> None:
         frame = data.frame
-        if isinstance(frame, RTVIServerMessageFrame) and isinstance(frame.data, dict):
-            self._hub.publish(self._session_id, frame.data)
+        phase = None
+        if isinstance(frame, LLMFullResponseStartFrame):
+            self._response_id = uuid.uuid4().hex
+            self._text = ""
+            self._text_sent_at = 0.0
+            self._answering = True
+            phase = "started"
+        elif isinstance(frame, LLMTextFrame) and self._answering:
+            self._text += frame.text
+            now = time.monotonic()
+            if now - self._text_sent_at >= ANSWER_TEXT_SECS:
+                self._text_sent_at = now
+                phase = "text"
+        elif isinstance(frame, LLMFullResponseEndFrame) and self._answering:
+            self._answering = False
+            phase = "ended"
+        elif isinstance(frame, InterruptionFrame) and self._answering:
+            self._answering = False
+            phase = "interrupted"
+        elif isinstance(frame, (BotStartedSpeakingFrame, BotStoppedSpeakingFrame)):
+            self._publish(
+                {
+                    "type": "assistant_speaking",
+                    "speaking": isinstance(frame, BotStartedSpeakingFrame),
+                }
+            )
+        if phase:
+            self._publish(
+                {
+                    "type": "assistant_answer",
+                    "response_id": self._response_id,
+                    "phase": phase,
+                    "text": self._text,
+                }
+            )

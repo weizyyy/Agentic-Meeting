@@ -136,6 +136,7 @@ class MeetingRecorder(FrameProcessor):
         self._bot_started_at: float | None = None
         # 助理开始 / 停止说话时调用（文字入口要等助理说完再交出排队的消息）；参数是「是否正在说话」。
         self.on_bot_speaking_changed: Callable[[bool], Awaitable[None]] | None = None
+        self.on_event: Callable[[dict], None] | None = None
         self._assistant_turn_started_at: float | None = None
         self._tasks: set[asyncio.Task] = set()
         self._finished = False
@@ -390,6 +391,8 @@ class MeetingRecorder(FrameProcessor):
             logger.exception("会议记录器处理失败，已跳过（转录链路不受影响）")
 
     async def _send(self, data: dict) -> None:
+        if self.on_event is not None:
+            self.on_event(data)
         await self.push_frame(RTVIServerMessageFrame(data=data))
 
     async def _notice(self, level: str, msg: Message) -> None:

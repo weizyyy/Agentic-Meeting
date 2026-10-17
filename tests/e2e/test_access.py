@@ -23,7 +23,13 @@ async def test_everything_under_api_needs_a_login(guarded):
             "authenticated": False,
             "csrf_token": None,
         }
-        for path in ("/api/sessions", "/api/session", "/api/ice", "/api/utterances"):
+        for path in (
+            "/api/sessions",
+            "/api/session",
+            "/api/ice",
+            "/api/utterances",
+            "/api/sessions/unauthenticated/events",
+        ):
             response = await http.get(path)
             assert response.status_code == 401, path
             assert response.json() == {"error": "请先登录", "code": "auth.required", "params": {}}

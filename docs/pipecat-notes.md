@@ -555,6 +555,14 @@ await self.push_frame(RTVIServerMessageFrame(data={"type": "caption", ...}))
 
 ## 10. Custom processors
 
+`WatcherObserver` in `pipeline/watchers.py` observes answer and speech frames in the pinned
+1.12.0 source. `BaseObserver(observe_every_push=False)` delivers each frame's first push to
+`on_push_frame(FramePushed)`. `LLMFullResponseStartFrame`, `LLMTextFrame`,
+`LLMFullResponseEndFrame`, `InterruptionFrame`, `BotStartedSpeakingFrame` and
+`BotStoppedSpeakingFrame` provide cumulative answers and speaking state. Recorder `_send`, ASR
+status and bot `send` publish their own custom messages against the source meeting; the observer
+does not mirror RTVI messages again, so these sources are not duplicated.
+
 ```python
 from pipecat.frames.frames import Frame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
@@ -691,3 +699,16 @@ await client.disconnect();
 - Screenshots do not use the SDK's `enableScreenShare`, which would create a WebRTC video track. The
   page calls `navigator.mediaDevices.getDisplayMedia()`, draws the picture onto a `<canvas>` and
   uploads still images.
+
+## Meeting authorization callbacks (1.12.0)
+
+- `FunctionCallParams` and `FunctionCallResultProperties` are dataclasses. A wrapper can use
+  `dataclasses.replace` to preserve every field while guarding `result_callback` and the later
+  `on_context_updated` callback. `app_resources` is passed by reference: freeze the originating
+  live connection and login in the per-worker resources; never recover authority from a global
+  current connection when a delayed callback runs.
+- `OpenAIBaseLLMService.run_inference` builds requests with `get_llm_adapter()` and
+  `get_llm_invocation_params`, including system-instruction and developer-role conversion. The
+  readonly question budget measures these same messages. A new `LLMContext(messages)` carries no
+  tools. This non-streaming method returns only `response.choices[0].message.content`; it does not
+  dispatch returned tool calls. The app treats an empty content result as a failed question.

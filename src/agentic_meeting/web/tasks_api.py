@@ -20,6 +20,7 @@ from agentic_meeting.agent.tasks import task_dir
 from agentic_meeting.config import AppConfig
 from agentic_meeting.pipeline.bot import AppResources
 from agentic_meeting.types import TaskEvent, TaskRecord
+from agentic_meeting.web.access import audit, authorize, current_session, host_write
 from agentic_meeting.web.errors import ApiError
 
 
@@ -42,7 +43,7 @@ def task_json(task: TaskRecord) -> dict[str, Any]:
 
 
 def event_json(event: TaskEvent) -> dict[str, Any]:
-    return {"at": event.at, "kind": event.kind, "summary": event.summary}
+    return {"id": event.id, "at": event.at, "kind": event.kind, "summary": event.summary}
 
 
 def register(app: FastAPI, cfg: AppConfig) -> None:
@@ -56,6 +57,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         task = await resources(request).store.get_task(task_id)
         if task is None:
             raise ApiError(404, "task.not_found")
+        await authorize(request, task.session_id, missing="task.not_found")
         await resources(request).store.require_available(task.session_id)
         return task
 
@@ -65,9 +67,10 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         if session_id:
             session = await res.store.get_session(session_id)
         else:
-            session = await res.sessions.current_session()
+            session = await current_session(request)
         if session is None:
             raise ApiError(404, "session.not_found" if session_id else "session.none")
+        await authorize(request, session.id)
         await res.store.require_available(session.id)
         return {"items": [task_json(t) for t in await res.store.list_tasks(session.id)]}
 
@@ -98,9 +101,11 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         return body
 
     @app.post("/api/tasks/{task_id}/cancel")
+    @host_write
     async def cancel_task(request: Request, task_id: str) -> dict[str, Any]:
         res = resources(request)
         task = await find(request, task_id)
+        await authorize(request, task.session_id, "host")
         if task.finished:
             return task_json(task)  # 已经结束的：原样返回，不算错
         if res.tasks is None:
@@ -120,6 +125,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         if path is None:
             raise ApiError(404, "artifact.not_found")
         filename = os.path.basename(path)
+        await audit(request, task.session_id, "task.artifact", task_id=task.id, name=safe)
         media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
         # 产物是远端模型写的代码生成的：不让浏览器把它当页面或脚本执行
         inline = media_type in ("image/png", "image/jpeg", "image/webp", "image/gif")

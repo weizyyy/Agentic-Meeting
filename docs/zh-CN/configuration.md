@@ -69,6 +69,25 @@ ice_servers = [
 口令本身写在 `.env` 里，不写进 `config.toml`，至少 8 个字符。修改口令后所有设备都要重新登录。
 `host` 不是回环地址又没有设置口令时，`agentic-meeting check` 和 `serve` 会给出提醒。
 
+### 会议身份
+
+设置 `server.meeting_access = true`，配置 `server.local_users`（也可写成 `[[server.local_users]]` 表）。
+每个账号有 `id`（1–64 位 ASCII 字母、数字、`_` 或 `-`）、`display_name`（1–100 字）、`password_env`、
+`can_host`（默认 `false`）；至少有一个可主持账号。启动前设置每个密码环境变量，至少八字符。
+账号由可信运维预配并安全交付凭据，无公开注册。ID 必须稳定，不得转让；改显示名不改变授权。
+保留 ID 并轮换密码可恢复原账号和会议权限，同时使旧登录失效。若还配置了站点 `password_env`，登录时必须额外提供共享口令。
+
+旧会议在认领前隐藏。停止服务后运行 `agentic-meeting access list-unclaimed`，再运行
+`agentic-meeting access claim SESSION_ID --owner alice`（需要时在 `access` 前加 `--config path.toml`）。
+重复同一认领幂等；冲突认领失败；应用正在使用数据目录时命令拒绝执行。
+主持人在**会议访问权限**中输入准确主体 ID（如 `local:alice`）授权。旁听者不能管理会议。
+除当前录音登录外的其他登录只能提交无工具问答；使用有界会议文字，发送给既有配置的实时模型服务，该服务可位于远端。
+接口与撤权行为见 [§5.11](interfaces.md#511-会议访问)。
+
+主持人还可以不建账号，用**会议分享**里的会议口令或链接给出临时旁听权限（[§5.12](interfaces.md#512-会议分享)），
+不需要额外配置。分享默认 24 小时、最长七天；访客登录最长 24 小时，也不超过 `auth_session_days`。
+主持人可以在**访问日志**里查看谁打开、导出过会议，谁改过它的权限（[§5.13](interfaces.md#513-访问日志)）。
+
 ## `[realtime_llm]`
 
 被叫到名字时负责应答的模型。`mode` 在两种接入方式中选择其一；两个小节可以同时填写，切换时只需修改一行。

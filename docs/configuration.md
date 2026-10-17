@@ -73,6 +73,32 @@ The password itself goes into `.env`, never into `config.toml`; it must be at le
 long. Changing it logs out every device. `agentic-meeting check` and `serve` warn when `host` is
 not a loopback address and no password is set.
 
+### Meeting identities
+
+Set `server.meeting_access = true` and configure `server.local_users` (or `[[server.local_users]]` tables).
+Each entry has `id` (1–64 ASCII letters, digits, `_` or `-`), `display_name` (1–100 characters),
+`password_env` and `can_host` (default `false`). At least one account must be able to host.
+Set each password environment variable to at least eight characters before starting the server.
+There is no public registration: a trusted operator provisions the account and securely gives its
+credential to the user. Keep ids stable; changing a display name does not change grants. Rotate
+credentials under the same id to recover access and invalidate old logins. A shared `password_env`,
+if configured, remains an additional login gate.
+
+Existing meetings are hidden until claimed. Stop the server, run
+`agentic-meeting access list-unclaimed`, then `agentic-meeting access claim SESSION_ID --owner alice`
+(with `--config path.toml` before `access` when needed). An identical claim is idempotent; a
+conflicting claim fails. The command refuses a data directory in use by the application.
+Hosts grant access from **Meeting access** using the exact principal id (for example `local:alice`).
+A watcher cannot manage meetings. Questions from any login other than the recording login use
+bounded meeting text and no tools; data goes to the configured realtime model provider, which can
+be remote. See [§5.11](interfaces.md#511-meeting-access) for route and revocation behavior.
+
+Hosts can also give temporary watcher access without an account, through a meeting password or a
+link from **Meeting shares** ([§5.12](interfaces.md#512-meeting-shares)); this needs no further
+configuration. Shares last 24 hours by default and at most seven days, and a guest login lasts at
+most 24 hours and never longer than `auth_session_days`. Hosts can read who opened, exported or
+changed access to a meeting under **Access log** ([§5.13](interfaces.md#513-access-log)).
+
 ## `[realtime_llm]`
 
 The model that answers when the assistant is called. `mode` selects one of two access modes; both

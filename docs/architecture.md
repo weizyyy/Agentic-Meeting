@@ -8,6 +8,13 @@ class names and import paths are in [pipecat-notes.md](pipecat-notes.md).
 
 ## 1. Overview
 
+Meeting watchers use the single `WatcherHub` owned by the session manager. Each meeting has one
+bounded history and transient cache, and its subscriptions also form the presence list. Producers
+publish against their source meeting; custom RTVI frames are not mirrored a second time. The page
+consumes snapshots and replay through the same reducer as recording messages. Subscription capture
+precedes database reads, and each network send has a deadline so a slow watcher cannot block
+transcription or retain a subscription indefinitely (interfaces.md §5.1).
+
 ```
 Browser                                      Server host (GPU)
 ┌────────────────────────┐              ┌───────────────────────────────────────────────┐
@@ -519,3 +526,17 @@ must never stop recognition and captions.
 | Remote agent model or MCP unavailable                   | Task fails                     | The task is marked failed with the reason and the assistant says so                                                   |
 | Docker missing                                          | No code execution              | The agent still searches and reads images, and reports that it could not run code                                     |
 | Browser disconnects                                     | Capture stops                  | The client reconnects; the session is kept and the timeline continues                                                 |
+
+## 10. Meeting access
+
+With `server.meeting_access = true` every person logs in with a local account from the
+configuration, and each meeting is visible only to its members (host or watcher) and to logins that
+redeemed one of its shares. There is no identity provider, so it works offline. `web/access.py`
+authenticates logins, decides each request's role from `meeting_members` and active shares, and
+keeps a lease on every long response (event streams, downloads, read-only questions, recording
+connections); a sweep every 0.5 seconds ends leases whose access was revoked or expired.
+`web/shares.py` manages meeting passwords and links. Only the login that owns the recording
+connection can use tools; everyone else's questions take a tool-free path with a bounded context,
+so a watcher cannot pause or slow transcription. Access changes, exports and views are written to
+a per-meeting access log; a failed write is logged and never fails the request. Details are in
+[interfaces §5.11–§5.13](interfaces.md#511-meeting-access).
