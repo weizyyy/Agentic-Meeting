@@ -223,3 +223,22 @@ CREATE TABLE IF NOT EXISTS reports (
     finished_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_reports_session ON reports (session_id, id);
+
+-- 声纹片段（跨会议记住说话人，docs/interfaces.md §2.7、§4.4）。只在开启 speaker_memory 时写入。
+-- 片段挂在发言上：说话人看的是发言当前的 speaker_idx，改说话人、合并说话人都跟着走；
+-- 发言被删（保留期、删会议）时级联删除。vector 是 float32 小端、单位长度；
+-- model_sha256 是算它的模型文件的指纹，不同模型的向量不能互相比较。
+CREATE TABLE IF NOT EXISTS voice_clips (
+    id            INTEGER PRIMARY KEY,
+    session_id    TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    utterance_id  INTEGER NOT NULL REFERENCES utterances(id) ON DELETE CASCADE,
+    t_start       REAL    NOT NULL,
+    t_end         REAL    NOT NULL,
+    secs          REAL    NOT NULL,         -- 片段里语音的总时长
+    diar_idx      INTEGER NOT NULL DEFAULT 0, -- 说话人区分的槽位；没有说话人区分时为 0
+    vector        BLOB    NOT NULL,
+    model_sha256  TEXT    NOT NULL,
+    created_at    REAL    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_voice_clips_session ON voice_clips (session_id, t_start);
+CREATE INDEX IF NOT EXISTS idx_voice_clips_utterance ON voice_clips (utterance_id);

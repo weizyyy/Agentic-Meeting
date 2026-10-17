@@ -260,6 +260,26 @@ Speech synthesis through an OpenAI-compatible `/v1/audio/speech` endpoint that s
 | `min_similarity` | `0.4`                        | Cosine-similarity floor for semantic matches; `0` disables it                                                        |
 | `launch.*`       |                              | See [Launch settings](#launch-settings). Add `--device none` to `extra_args` to keep the server off the GPU entirely |
 
+## `[speaker_memory]`
+
+Remembering speakers across meetings ([#25](https://github.com/weizyyy/Agentic-Meeting/issues/25)).
+This release collects voice clips of each speaker during a meeting and stores their voiceprints;
+recognizing people in later meetings follows. Voiceprints are biometric data: they are computed by
+a local service and never leave the machine ([data-governance.md](data-governance.md)). The whole
+section may be omitted.
+
+| Key                               | Default                   | Description                                                                                                     |
+| --------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `backend`                         | `"none"`                  | `"none"` turns the feature off; `"sherpa_onnx"` uses the speaker service, which needs `uv sync --extra speaker` |
+| `base_url`                        | `"http://127.0.0.1:8084"` | Speaker service address. Must be a loopback address with a port, even when the service is started elsewhere     |
+| `launch.enabled`                  | `true`                    | `false` means the service is started elsewhere                                                                  |
+| `launch.model_path`               | `""`                      | Speaker-embedding model file (ONNX); required when the service is launched here                                 |
+| `launch.num_threads`              | `1`                       | CPU threads of the service, 1–16                                                                                |
+| `launch.env`, `launch.extra_args` |                           | As in [Launch settings](#launch-settings)                                                                       |
+
+The service runs on the CPU. Its command line is in [interfaces.md §9](interfaces.md), and the
+collection rules in [interfaces.md §4.4](interfaces.md).
+
 ## `[audio]`
 
 Automatic input gain, applied before voice activity detection.

@@ -9,7 +9,9 @@
   发言定稿（落库、``utterance`` 消息、向实时模型的上下文追加一行 ``[时:分:秒 说话人] 文本``）；
 * 发言落库后 5 秒内每秒重新核对一次说话人，变了就更新数据库并发 ``utterance_update``；
 * 助理说话的起止（``BotStarted/StoppedSpeakingFrame``，方向是向上游）告诉 assembler，丢弃回声；
-  助理自己的话、浏览器里键入的文字也由它落库（``record_assistant`` / ``record_typed``）。
+  助理自己的话、浏览器里键入的文字也由它落库（``record_assistant`` / ``record_typed``）；
+* 开启了跨会议记住说话人时，把音频、识别发言的时间范围和助理说话的时段交给 ``VoiceClipper``，
+  由它在后台切出单人语音片段、算声纹（voice/clips.py）。
 
 **转录链路优先存活**：任何一环出错（存储、说话人区分、字幕）都只记日志，帧照常放行；落库失败的发言进重试队列，
 下一次写入时按原顺序补写。
@@ -25,7 +27,7 @@ import math
 import uuid
 from collections.abc import Awaitable, Callable
 from time import monotonic
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from loguru import logger
 from pipecat.frames.frames import (
@@ -68,6 +70,8 @@ from agentic_meeting.types import (
     SpeakerSegment,
     Utterance,
 )
+from agentic_meeting.voice.client import SpeakerClient
+from agentic_meeting.voice.clips import VoiceClipper, VoiceClipStore
 
 UNKNOWN_SPEAKER_NAME = "未知"
 
@@ -108,6 +112,7 @@ class MeetingRecorder(FrameProcessor):
         merge_gap_secs: float = 0.0,
         merge_soft_chars: int = MERGE_SOFT_CHARS,
         merge_max_chars: int = MERGE_MAX_CHARS,
+        speaker_client: SpeakerClient | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -158,6 +163,18 @@ class MeetingRecorder(FrameProcessor):
         self._diar_failed = False
         self._warned_backlog = False
         self._warned_segments = False
+
+        # 声纹片段（跨会议记住说话人）：开启了、并且有地方落库时才有
+        self._voice: VoiceClipper | None = None
+        self._voice_task: asyncio.Task | None = None
+        if speaker_client is not None and store is not None and session_id:
+            self._voice = VoiceClipper(
+                client=speaker_client,
+                store=cast(VoiceClipStore, store),
+                session_id=session_id,
+                segments=self._voice_segments,
+                idle_close_secs=merge_gap_secs + 1.0,
+            )
 
     # ------------------------------------------------------------------ #
     # Pipecat 入口
@@ -316,6 +333,8 @@ class MeetingRecorder(FrameProcessor):
     # ------------------------------------------------------------------ #
 
     def _begin(self) -> None:
+        if self._voice is not None and self._voice_task is None:
+            self._voice_task = self.create_task(self._voice.run(), name="voice_clips")
         if self._diarizer is None or isinstance(self._diarizer, NullDiarizer):
             return
         if self._audio_task is None:
@@ -336,6 +355,7 @@ class MeetingRecorder(FrameProcessor):
             except (TimeoutError, asyncio.CancelledError, Exception):
                 logger.warning("说话人区分没能在结束前处理完剩余的音频")
         await self._guard(self._write_unsaved())
+        await self._stop_voice(drain=True)
         await self._cancel_tasks()
 
     async def _abort(self) -> None:
@@ -343,7 +363,18 @@ class MeetingRecorder(FrameProcessor):
         task, self._audio_task = self._audio_task, None
         if task is not None:
             await self.cancel_task(task)
+        await self._stop_voice(drain=False)
         await self._cancel_tasks()
+
+    async def _stop_voice(self, *, drain: bool) -> None:
+        task, self._voice_task = self._voice_task, None
+        if task is not None:
+            await self.cancel_task(task)
+        if drain and self._voice is not None:
+            try:
+                await asyncio.wait_for(self._voice.drain(), DRAIN_TIMEOUT_SECS)
+            except (TimeoutError, Exception):
+                logger.warning("结束前没能处理完剩余的声纹片段，已丢弃")
 
     async def _cancel_tasks(self) -> None:
         for task in list(self._tasks):
@@ -404,10 +435,12 @@ class MeetingRecorder(FrameProcessor):
 
     def _on_audio(self, frame: InputAudioRawFrame) -> None:
         self._samples += frame.num_frames
-        if self._audio_queue is None or self._diar_failed:
-            return
         if frame.sample_rate != ASR_SAMPLE_RATE or frame.num_channels != 1:
             return  # 格式不对的音频识别服务已经报过错，这里不再重复
+        if self._voice is not None:
+            self._voice.push_audio(frame.audio, self._now())
+        if self._audio_queue is None or self._diar_failed:
+            return
         self._audio_buf += frame.audio
         if len(self._audio_buf) >= self._diar_batch_bytes:
             self._flush_audio_buffer()
@@ -446,6 +479,12 @@ class MeetingRecorder(FrameProcessor):
                 logger.exception("说话人区分出错，之后的发言不再区分说话人")
                 await self._guard(self._notice("warn", message("diar.failed", error=str(e))))
 
+    async def _voice_segments(self, since_secs: float) -> list[SpeakerSegment] | None:
+        """给声纹片段用的分段；没有说话人区分（或已降级）时返回 None，按整条发言切。"""
+        if self._diarizer is None or self._diar_failed or isinstance(self._diarizer, NullDiarizer):
+            return None
+        return await self._segments(since_secs)
+
     async def _segments(self, since_secs: float) -> list[SpeakerSegment]:
         if self._diarizer is None or self._diar_failed or isinstance(self._diarizer, NullDiarizer):
             return []
@@ -471,9 +510,14 @@ class MeetingRecorder(FrameProcessor):
         if isinstance(frame, BotStartedSpeakingFrame):
             self._bot_started_at = self._now()
             self._assembler.on_bot_speaking(self._bot_started_at, None)
+            if self._voice is not None:
+                self._voice.on_assistant_speaking(self._bot_started_at, None)
             self._notify_bot_speaking(True)
         elif isinstance(frame, BotStoppedSpeakingFrame) and self._bot_started_at is not None:
             self._assembler.on_bot_speaking(self._bot_started_at, self._now())
+            if self._voice is not None:
+                # 与回声窗口一致：停止说话之后再算 0.3 秒（interfaces.md §4.3 第 6 条）
+                self._voice.on_assistant_speaking(self._bot_started_at, self._now() + 0.3)
             self._bot_started_at = None
             self._notify_bot_speaking(False)
 
@@ -549,6 +593,8 @@ class MeetingRecorder(FrameProcessor):
                 self._last_asr = utterance
             # 先追加上下文行，后面紧跟着放行触发用户轮次的那条转录帧。并进上一条的片段也照样追加自己这一行：
             # 上下文里已有的行不回改，模型看到的是按时间排的几行，内容不缺。
+            if self._voice is not None:
+                self._voice.on_speech(utterance, final.t_start, final.t_end)
             line = context_line(
                 final.t_start, await self._display_name(utterance.speaker_idx), final.text
             )

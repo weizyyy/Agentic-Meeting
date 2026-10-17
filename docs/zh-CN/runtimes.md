@@ -145,16 +145,17 @@ Linux + CUDA + Python 3.12）。要看的文件：
 把下列文件放在 `models/` 下的任意位置，并在 `config/config.toml` 中填写路径。
 最后一栏是本项目测试时使用的模型；同类的其他模型以相同方式配置。
 
-| 配置项                                         | 文件                                       | 测试所用                                                                |
-| ---------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
-| `realtime_llm.llama_server.launch.model_path`  | 对话模型 GGUF（仅 `llama_server` 方式）    | 任意支持工具调用的模型                                                  |
-| `realtime_llm.llama_server.launch.mmproj_path` | 该模型配套的识图投影 GGUF                  | 模型不识图时留空并设 `supports_vision = false`                          |
-| `asr.launch.model_path`                        | 识别模型 GGUF                              | Confucius4-R2T2，Q8_0 与 f16                                            |
-| `asr.launch.mmproj_path`                       | 识别模型配套的音频投影 GGUF                | 同一发布页里以 `mmproj` 开头的文件                                      |
-| `diarization.model_path`                       | 说话人区分 GGUF（NeMo-Speech.cpp 格式）    | Nemotron-3-Diarization，q8_0                                            |
-| `tts.launch.model_path`                        | 语音合成的 talker GGUF（qwentts.cpp 格式） | Qwen3-TTS 内置音色版，0.6B 与 1.7B                                      |
-| `tts.launch.codec_path`                        | 语音合成的 tokenizer/codec GGUF            | 与 talker 同一发布页                                                    |
-| `embedding.launch.model_path`                  | 嵌入模型 GGUF                              | Qwen3-Embedding 0.6B，Q8_0；`embedding.dimensions` 须设为模型的输出维度 |
+| 配置项                                         | 文件                                              | 测试所用                                                                |
+| ---------------------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------- |
+| `realtime_llm.llama_server.launch.model_path`  | 对话模型 GGUF（仅 `llama_server` 方式）           | 任意支持工具调用的模型                                                  |
+| `realtime_llm.llama_server.launch.mmproj_path` | 该模型配套的识图投影 GGUF                         | 模型不识图时留空并设 `supports_vision = false`                          |
+| `asr.launch.model_path`                        | 识别模型 GGUF                                     | Confucius4-R2T2，Q8_0 与 f16                                            |
+| `asr.launch.mmproj_path`                       | 识别模型配套的音频投影 GGUF                       | 同一发布页里以 `mmproj` 开头的文件                                      |
+| `diarization.model_path`                       | 说话人区分 GGUF（NeMo-Speech.cpp 格式）           | Nemotron-3-Diarization，q8_0                                            |
+| `tts.launch.model_path`                        | 语音合成的 talker GGUF（qwentts.cpp 格式）        | Qwen3-TTS 内置音色版，0.6B 与 1.7B                                      |
+| `tts.launch.codec_path`                        | 语音合成的 tokenizer/codec GGUF                   | 与 talker 同一发布页                                                    |
+| `embedding.launch.model_path`                  | 嵌入模型 GGUF                                     | Qwen3-Embedding 0.6B，Q8_0；`embedding.dimensions` 须设为模型的输出维度 |
+| `speaker_memory.launch.model_path`             | sherpa-onnx 可加载的声纹模型 ONNX，16 kHz（可选） | 尚未用真实模型测试；候选是用中文语音训练的 3D-Speaker CAM++ 或 ERes2Net |
 
 **硬件档位。** 使用测试所用的模型时，全部本地服务（识别、说话人区分、语音合成、嵌入）合计占用的显存：
 

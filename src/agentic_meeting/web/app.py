@@ -54,6 +54,7 @@ from agentic_meeting.screen.ingest import FrameIngestor
 from agentic_meeting.store.db import CleanupPlan, SessionBusy, Store
 from agentic_meeting.store.embeddings import EmbeddingClient, EmbeddingWorker
 from agentic_meeting.store.retention import RetentionWorker
+from agentic_meeting.voice.client import SpeakerClient
 from agentic_meeting.web import access as meeting_access
 from agentic_meeting.web import (
     auth,
@@ -174,6 +175,8 @@ def create_app(
         if the_embedder is None and store is None and cfg.embedding.enabled:
             the_embedder = EmbeddingClient.from_config(cfg.embedding)
         backfill = EmbeddingWorker(the_store, the_embedder) if the_embedder is not None else None
+        # 声纹服务（跨会议记住说话人）；关闭时为 None，会议里就不采集声纹片段
+        speaker = SpeakerClient.from_config(cfg.speaker_memory)
         if backfill is not None:
             backfill.start()
         # 后台模型：实时模型的后台实例（llama.cpp 部署方式下即后台槽位）；画面摘要也可以改由后台 agent 的模型生成。
@@ -295,6 +298,7 @@ def create_app(
             sessions=sessions,
             frames=frames,
             embedder=the_embedder,
+            speaker=speaker,
             captions=captions,
             background=background,
             background_models=models,
@@ -339,6 +343,8 @@ def create_app(
                 await backfill.stop()
             if the_embedder is not None and embedder is None:
                 await the_embedder.close()
+            if speaker is not None:
+                await speaker.close()
             if opened is not None:
                 await opened.close()
 

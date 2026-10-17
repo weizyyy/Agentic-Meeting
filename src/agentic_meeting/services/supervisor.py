@@ -247,7 +247,7 @@ def _bind_port(base_url: str, field_name: str) -> int:
 
 
 def build_specs(cfg: AppConfig, *, find: Finder = find_executable) -> list[ServiceSpec]:
-    """按配置生成各服务的规格，顺序固定为 realtime、asr、tts、embedding。
+    """按配置生成各服务的规格，顺序固定为 realtime、asr、tts、embedding、speaker。
 
     ``find`` 用来定位程序，默认是 :func:`find_executable`；只在服务确实要由我们启动时才调用。
     被整体关闭的服务不生成；``launch.enabled = false`` 的生成一条只检查不启动的记录。
@@ -395,6 +395,40 @@ def build_specs(cfg: AppConfig, *, find: Finder = find_executable) -> list[Servi
 
         specs.append(
             local("embedding", "embedding.base_url", emb.base_url, emb.launch, embedding_argv)
+        )
+
+    # ---- 声纹（跨会议记住说话人）----
+    # 声纹服务是本项目自己的 Python 程序，用当前的解释器启动，不用找可执行文件。
+    speaker = cfg.speaker_memory
+    if speaker.backend != "none":
+        launch = speaker.launch
+        managed = launch.enabled
+        port = _bind_port(speaker.base_url, "speaker_memory.base_url")
+        specs.append(
+            ServiceSpec(
+                name="speaker",
+                argv=[
+                    sys.executable,
+                    "-m",
+                    "agentic_meeting.voice.service",
+                    "--model",
+                    path(launch.model_path),
+                    "--host",
+                    BIND_HOST,
+                    "--port",
+                    str(port),
+                    "--threads",
+                    str(launch.num_threads),
+                    *launch.extra_args,
+                ]
+                if managed
+                else [],  # fmt: skip
+                env=dict(launch.env) if managed else {},
+                health_url=f"{_origin(speaker.base_url)}/health",
+                log_path=log_dir / "speaker.log",
+                startup_timeout_secs=launch.startup_timeout_secs if managed else 0.0,
+                managed=managed,
+            )
         )
 
     return specs

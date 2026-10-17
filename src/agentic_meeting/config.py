@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import ipaddress
 import os
 import re
@@ -553,6 +554,37 @@ class EmbeddingConfig(_Model):
     launch: LlamaServerLaunch = Field(default_factory=lambda: LlamaServerLaunch(gpu_layers="0"))
 
 
+class SpeakerLaunch(_Model):
+    """声纹服务的启动参数。服务是本项目自己的 Python 程序（agentic_meeting.voice.service），不用找可执行文件。"""
+
+    enabled: bool = True
+    model_path: str = ""  # 声纹模型（ONNX），用户必填（backend != "none" 时）
+    num_threads: int = Field(default=1, ge=1, le=16)
+    env: dict[str, str] = Field(default_factory=dict)
+    extra_args: list[str] = Field(default_factory=list)
+    startup_timeout_secs: float = 60.0
+
+
+class SpeakerMemoryConfig(_Model):
+    """跨会议记住说话人（docs/design/speaker-memory.md）。默认关闭：不算声纹、不存片段。"""
+
+    backend: Literal["none", "sherpa_onnx"] = "none"
+    # 声纹服务的地址。声纹是生物特征数据，只允许本机回环地址。
+    base_url: str = "http://127.0.0.1:8084"
+    launch: SpeakerLaunch = Field(default_factory=SpeakerLaunch)
+
+    @field_validator("base_url")
+    @classmethod
+    def _local_only(cls, value: str) -> str:
+        parsed = urlparse(value)
+        if parsed.scheme != "http" or not is_loopback(value) or parsed.port is None:
+            raise ValueError(
+                "speaker_memory.base_url 必须是带端口的本机回环地址（例如 http://127.0.0.1:8084）："
+                f"声纹属于生物特征数据，不发往其他机器；当前值是 {value!r}"
+            )
+        return value.rstrip("/")
+
+
 # --------------------------------------------------------------------------- #
 # 实时行为
 # --------------------------------------------------------------------------- #
@@ -698,6 +730,7 @@ class AppConfig(_Model):
     diarization: DiarizationConfig = Field(default_factory=DiarizationConfig)
     tts: TTSConfig
     embedding: EmbeddingConfig
+    speaker_memory: SpeakerMemoryConfig = Field(default_factory=SpeakerMemoryConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
     turn: TurnConfig = Field(default_factory=TurnConfig)
     realtime: RealtimeConfig = Field(default_factory=RealtimeConfig)
@@ -838,6 +871,14 @@ def check_ready(cfg: AppConfig) -> list[str]:
 
     if cfg.embedding.enabled and cfg.embedding.launch.enabled:
         need_file("embedding.launch.model_path", cfg.embedding.launch.model_path)
+
+    speaker = cfg.speaker_memory
+    if speaker.backend != "none" and speaker.launch.enabled:
+        need_file("speaker_memory.launch.model_path", speaker.launch.model_path)
+        if importlib.util.find_spec("sherpa_onnx") is None:
+            problems.append(
+                "speaker_memory.backend = sherpa_onnx 需要可选依赖：先运行 uv sync --extra speaker"
+            )
 
     if cfg.agent.enabled:
         need_value("agent.base_url", cfg.agent.base_url)

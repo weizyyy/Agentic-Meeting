@@ -378,6 +378,16 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
             request.state.authorized_sessions.discard(session.id)
         return {"id": session.id}
 
+    @app.delete("/api/sessions/{session_id}/voice")
+    @host_write
+    async def erase_voice(request: Request, session_id: str) -> dict[str, Any]:
+        """清除这场会议的声纹片段，文字记录不动（interfaces.md §5.4）。"""
+        store, _ = parts(request)
+        session = await resolve(request, session_id, action="host")
+        clips = await store.delete_voice_clips(session.id)
+        await audit(request, session.id, "voice.erase", clips=clips)
+        return {"id": session.id, "clips": clips}
+
     # ---- 发言 ----
 
     @app.get("/api/utterances")
@@ -459,12 +469,16 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
     async def list_speakers(request: Request, session_id: str | None = None) -> dict[str, Any]:
         store, _ = parts(request)
         session = await resolve(request, session_id)
-        return {
-            "items": [
-                {"idx": s.idx, "display_name": s.display_name}
-                for s in await store.list_speakers(session.id)
-            ]
-        }
+        items = [
+            {"idx": s.idx, "display_name": s.display_name}
+            for s in await store.list_speakers(session.id)
+        ]
+        if cfg.speaker_memory.backend != "none":
+            # 跨会议记住说话人开启时：每位说话人已经采集到多少秒声纹（录入要够一定时长）
+            secs = await store.voice_secs(session.id)
+            for item in items:
+                item["voice_secs"] = round(secs.get(item["idx"], 0.0), 1)
+        return {"items": items}
 
     @app.put("/api/speakers/{idx}")
     @host_write

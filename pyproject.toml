@@ -36,6 +36,12 @@ dependencies = [
 agent = [
     "openai-agents[docker]>=0.23,<0.24",
 ]
+# 跨会议记住说话人的声纹服务（speaker_memory.backend = "sherpa_onnx" 时需要）。uv sync --extra speaker
+# 运行库在 sherpa-onnx-core 里；有的发布文件的元数据没写这条依赖，所以两个都写上、锁同一个版本。
+speaker = [
+    "sherpa-onnx==1.13.8",
+    "sherpa-onnx-core==1.13.8",
+]
 
 [project.urls]
 Homepage = "https://github.com/weizyyy/Agentic-Meeting"
