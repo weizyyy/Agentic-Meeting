@@ -1,5 +1,6 @@
 // 服务端 → 浏览器的自定义消息（docs/interfaces.md §6.1）。
-// 目前处理：caption、utterance、utterance_update、speaker、speakers_merged、session、session_closed、
+// 目前处理：caption、utterance、utterance_update、speaker、speakers_merged、speaker_suggestion、
+// speaker_suggestion_cleared、session、session_closed、
 // assistant_state、notice、watchers、
 // frame、frame_caption、task、task_event；不认识的类型收到时忽略。
 // 旁观的事件流（§5.1）用同一套消息，另加 state。
@@ -86,6 +87,25 @@ export interface SpeakerMessage {
   type: "speaker";
   idx: number;
   display_name: string;
+}
+
+/** 「这位说话人可能是声纹档案里的某某」（§5.14）；只发给录音的页面 */
+export interface SpeakerSuggestion {
+  speaker_idx: number;
+  profile_id: number;
+  name: string;
+  /** 余弦相似度，保留两位小数 */
+  score: number;
+}
+
+export interface SpeakerSuggestionMessage extends SpeakerSuggestion {
+  type: "speaker_suggestion";
+}
+
+/** 之前给这位说话人的提示不再成立 */
+export interface SpeakerSuggestionClearedMessage {
+  type: "speaker_suggestion_cleared";
+  speaker_idx: number;
 }
 
 /** 说话人 `from` 并入了 `into`；`display_name` 是 `into` 的显示名。 */
@@ -192,6 +212,8 @@ export type ServerMessage =
   | UtteranceUpdateMessage
   | SpeakerMessage
   | SpeakersMergedMessage
+  | SpeakerSuggestionMessage
+  | SpeakerSuggestionClearedMessage
   | SessionMessage
   | SessionClosedMessage
   | AssistantStateMessage
@@ -327,6 +349,25 @@ export function parseServerMessage(data: unknown): ServerMessage | null {
       const { idx, display_name } = data;
       if (typeof idx === "number" && typeof display_name === "string") {
         return { type: "speaker", idx, display_name };
+      }
+      return null;
+    }
+    case "speaker_suggestion": {
+      const { speaker_idx, profile_id, name, score } = data;
+      if (
+        typeof speaker_idx === "number" &&
+        typeof profile_id === "number" &&
+        typeof name === "string" &&
+        typeof score === "number"
+      ) {
+        return { type: "speaker_suggestion", speaker_idx, profile_id, name, score };
+      }
+      return null;
+    }
+    case "speaker_suggestion_cleared": {
+      const { speaker_idx } = data;
+      if (typeof speaker_idx === "number") {
+        return { type: "speaker_suggestion_cleared", speaker_idx };
       }
       return null;
     }

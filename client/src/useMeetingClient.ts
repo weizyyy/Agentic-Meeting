@@ -31,7 +31,12 @@ import {
   type ConnectionState,
   type MeetingState,
 } from "./meetingState.ts";
-import { fatalErrorText, parseServerMessage, type ServerMessage } from "./protocol.ts";
+import {
+  fatalErrorText,
+  parseServerMessage,
+  type ServerMessage,
+  type SpeakerSuggestion,
+} from "./protocol.ts";
 import { REPORT_POLL_MS } from "./report.ts";
 import { reconnectDelayMs, shouldReconnect } from "./resume.ts";
 import type { TaskDetail } from "./tasks.ts";
@@ -115,6 +120,14 @@ export function dispatchServerMessage(dispatch: Dispatch<Action>, message: Serve
         idx: message.idx,
         displayName: message.display_name,
       });
+      break;
+    case "speaker_suggestion": {
+      const { type: _type, ...item } = message;
+      dispatch({ type: "suggestion", item });
+      break;
+    }
+    case "speaker_suggestion_cleared":
+      dispatch({ type: "suggestionCleared", idx: message.speaker_idx });
       break;
     case "speakers_merged":
       dispatch({
@@ -248,6 +261,10 @@ export interface MeetingClient {
   renameSpeaker: (idx: number, displayName: string) => Promise<void>;
   /** 重新读取正在显示的这场会议的说话人（声纹录入之后名字和关联会变） */
   reloadSpeakers: () => Promise<void>;
+  /** 确认「可能是某某」：说话人关联到档案、改成档案的名字 */
+  acceptSuggestion: (suggestion: SpeakerSuggestion) => Promise<void>;
+  /** 忽略「可能是某某」：这场会议里不再提 */
+  dismissSuggestion: (suggestion: SpeakerSuggestion) => Promise<void>;
   /** 向助理发一条文字消息（只用文字回答）。发出去返回 true；没通过校验或还没连接返回 false 并给出提示。 */
   sendText: (raw: string) => boolean;
   /** 开始共享屏幕（弹出浏览器的选择窗口）；只在连接期间有效 */
@@ -834,6 +851,65 @@ export function useMeetingClient(initialSessionId: string | null = null): Meetin
     }
   }, [api]);
 
+  // 主持人打开一场开着说话人记忆的会议：读一次当前的提示（之后由数据通道推送）
+  const suggestionsFor =
+    state.viewing &&
+    state.viewing.access?.role !== "watcher" &&
+    state.speakers.some((s) => s.voice_secs !== undefined)
+      ? state.viewing.id
+      : null;
+  useEffect(() => {
+    if (suggestionsFor === null) return;
+    let cancelled = false;
+    void api
+      .listSuggestions(suggestionsFor)
+      .then((items) => {
+        if (!cancelled) dispatch({ type: "suggestionsLoaded", sessionId: suggestionsFor, items });
+      })
+      .catch(() => undefined); // 读不到就不显示提示，不打扰
+    return () => {
+      cancelled = true;
+    };
+  }, [api, suggestionsFor]);
+
+  const acceptSuggestion = useCallback(
+    async (suggestion: SpeakerSuggestion) => {
+      const viewing = latest.current.viewing;
+      if (!viewing) return;
+      try {
+        const done = await api.acceptSuggestion(
+          viewing.id,
+          suggestion.speaker_idx,
+          suggestion.profile_id,
+        );
+        dispatch({ type: "suggestionCleared", idx: suggestion.speaker_idx });
+        dispatch({
+          type: "speakerRenamed",
+          idx: done.speaker.idx,
+          displayName: done.speaker.display_name,
+        });
+        await reloadSpeakers();
+      } catch (error) {
+        fail("suggestion", error);
+      }
+    },
+    [api, fail, reloadSpeakers],
+  );
+
+  const dismissSuggestion = useCallback(
+    async (suggestion: SpeakerSuggestion) => {
+      const viewing = latest.current.viewing;
+      if (!viewing) return;
+      try {
+        await api.dismissSuggestion(viewing.id, suggestion.speaker_idx, suggestion.profile_id);
+        dispatch({ type: "suggestionCleared", idx: suggestion.speaker_idx });
+      } catch (error) {
+        fail("suggestion", error);
+      }
+    },
+    [api, fail],
+  );
+
   const assignSpeaker = useCallback(
     async (
       ids: readonly number[],
@@ -1043,6 +1119,8 @@ export function useMeetingClient(initialSessionId: string | null = null): Meetin
     deleteSession,
     renameSpeaker,
     reloadSpeakers,
+    acceptSuggestion,
+    dismissSuggestion,
     sendText,
     startScreenShare: screenShare.start,
     stopScreenShare: screenShare.stop,

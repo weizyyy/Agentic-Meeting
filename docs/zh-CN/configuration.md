@@ -242,8 +242,8 @@ allowed_groups = []
 
 ## `[speaker_memory]`
 
-跨会议记住说话人（[#25](https://github.com/weizyyy/Agentic-Meeting/issues/25)）。这一版在会议中采集每位说话人的
-语音片段并保存声纹，主持人征得本人同意后可以把一位说话人的声音记成声纹档案；在以后的会议里认出人来是下一步。声纹属于生物特征数据：由本机的服务计算，从不离开本机
+跨会议记住说话人（[#25](https://github.com/weizyyy/Agentic-Meeting/issues/25)）。会议中采集每位说话人的
+语音片段并保存声纹；主持人征得本人同意后可以把一位说话人的声音记成声纹档案，以后的会议里会提示主持人哪位说话人可能是哪份档案。声纹属于生物特征数据：由本机的服务计算，从不离开本机
 （[data-governance.md](data-governance.md)）。整段可以不写。
 
 | 配置项                            | 默认值                    | 说明                                                                              |
@@ -251,12 +251,16 @@ allowed_groups = []
 | `backend`                         | `"none"`                  | `"none"` 关闭此功能；`"sherpa_onnx"` 使用声纹服务，需要 `uv sync --extra speaker` |
 | `base_url`                        | `"http://127.0.0.1:8084"` | 声纹服务地址。必须是写明端口的回环地址，服务另行启动时也一样                      |
 | `min_enroll_secs`                 | `20`                      | 一位说话人在这场会议里要有多少秒单人语音才能记住他的声音，1–600 秒                |
+| `min_match_secs`                  | `10`                      | 一位说话人有多少秒单人语音之后才和档案比对，1–600 秒                              |
+| `match_threshold`                 | `0.6`                     | 提示需要的最低余弦相似度，0 到 1 之间。和模型有关，换模型时要重新标定             |
+| `match_margin`                    | `0.08`                    | 最像的档案要比第二像的高出多少；两份档案差不多像时不提示                          |
+| `auto_update`                     | `true`                    | 主持人确认提示后，把这场会议的声纹作为样本加进档案                                |
 | `launch.enabled`                  | `true`                    | 设为 `false` 表示服务另行启动                                                     |
 | `launch.model_path`               | `""`                      | 声纹模型文件（ONNX）；由应用启动服务时必填                                        |
 | `launch.num_threads`              | `1`                       | 服务的 CPU 线程数，1–16                                                           |
 | `launch.env`、`launch.extra_args` |                           | 同[启动参数](#启动参数)                                                           |
 
-服务只用 CPU。命令行见 [interfaces.md §9](interfaces.md)，采集规则见 [interfaces.md §4.4](interfaces.md)，声纹档案与录入见 [interfaces.md §5.14](interfaces.md)。
+服务只用 CPU。命令行见 [interfaces.md §9](interfaces.md)，采集规则见 [interfaces.md §4.4](interfaces.md)，声纹档案、录入和比对见 [interfaces.md §5.14](interfaces.md)。
 
 ## `[audio]`
 

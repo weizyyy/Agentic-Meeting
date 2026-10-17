@@ -461,6 +461,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
                     "speaker_name": name,
                 },
             )
+        manager.voice_changed(session.id)
         return {"speaker": {"idx": idx, "display_name": name}, "ids": changed}
 
     # ---- 说话人 ----
@@ -523,4 +524,5 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         merged = await manager.merge_speakers(session.id, idx, into)
         if merged is None:
             raise ApiError(404, "speaker.not_found")
+        manager.voice_changed(session.id)
         return merged

@@ -35,6 +35,12 @@ export const captions = defineMessages(
       voice: "声纹…",
       voiceHint: "记住这位说话人的声音，或管理声纹档案",
       voiceLinked: (name: string) => `已关联声纹档案「${name}」`,
+      maybe: (name: string) => `可能是 ${name}`,
+      suggestionLabel: (speaker: string, name: string) =>
+        `「${speaker}」听起来像声纹档案里的「${name}」`,
+      acceptSuggestion: (speaker: string, name: string) =>
+        `是 ${name}：把「${speaker}」改名为「${name}」并关联档案`,
+      dismissSuggestion: "不是，这场会议里不再提示",
     },
   },
   {
@@ -73,6 +79,12 @@ export const captions = defineMessages(
       voice: "Voice…",
       voiceHint: "Remember this speaker's voice, or manage voice profiles",
       voiceLinked: (name: string) => `Linked to the voice profile “${name}”`,
+      maybe: (name: string) => `Maybe ${name}`,
+      suggestionLabel: (speaker: string, name: string) =>
+        `“${speaker}” sounds like “${name}” from the voice profiles`,
+      acceptSuggestion: (speaker: string, name: string) =>
+        `Yes, ${name}: rename “${speaker}” to “${name}” and link the profile`,
+      dismissSuggestion: "No, stop suggesting this in this meeting",
     },
   },
 );

@@ -1,4 +1,4 @@
-"""声纹档案与录入的 HTTP 接口（docs/interfaces.md §5.14）。
+"""声纹档案、录入和会议中提示的 HTTP 接口（docs/interfaces.md §5.14）。
 
 只在 ``speaker_memory.backend`` 不是 ``"none"`` 时注册；关闭时这些路径都不存在。
 响应里只有名字、时长和日期，从不包含向量。
@@ -13,6 +13,7 @@ from fastapi import FastAPI, Request
 
 from agentic_meeting.config import AppConfig
 from agentic_meeting.types import Session
+from agentic_meeting.voice.matching import session_suggestions
 from agentic_meeting.voice.profiles import (
     VoiceModelChanged,
     VoiceProfile,
@@ -48,7 +49,8 @@ def _name(value: Any) -> str:
 def register(app: FastAPI, cfg: AppConfig) -> None:
     if cfg.speaker_memory.backend == "none":
         return
-    min_enroll_secs = cfg.speaker_memory.min_enroll_secs
+    memory = cfg.speaker_memory
+    min_enroll_secs = memory.min_enroll_secs
 
     def parts(request: Request) -> tuple[Any, Any]:
         res = request.app.state.resources
@@ -93,19 +95,21 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
     @app.patch("/api/voice-profiles/{profile_id}")
     async def rename_profile(request: Request, profile_id: int) -> dict[str, Any]:
         require_account(request)
-        store, _ = parts(request)
+        store, manager = parts(request)
         name = _name((await _json_body(request)).get("name"))
         if not await store.rename_voice_profile(profile_id, name):
             raise ApiError(404, "voice.profile_not_found")
+        manager.voice_changed()
         return profile_json(await profile_or_404(store, profile_id))
 
     @app.delete("/api/voice-profiles/{profile_id}")
     async def delete_profile(request: Request, profile_id: int) -> dict[str, Any]:
         require_account(request)
-        store, _ = parts(request)
+        store, manager = parts(request)
         clips = await store.delete_voice_profile(profile_id)
         if clips is None:
             raise ApiError(404, "voice.profile_not_found")
+        manager.voice_changed()
         return {"id": profile_id, "clips": clips}
 
     # ---- 录入与关联 ----
@@ -158,6 +162,7 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         if speakers[idx].display_name != profile.name:
             await manager.rename_speaker(session.id, idx, profile.name)
         await audit(request, session.id, "voice.enroll", speaker_idx=idx, profile_id=profile.id)
+        manager.voice_changed()
         return {
             "speaker": {"idx": idx, "display_name": profile.name},
             "voice_profile": profile_json(profile),
@@ -166,8 +171,85 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
     @app.delete("/api/speakers/{idx}/voice-profile")
     @host_write
     async def unlink(request: Request, idx: int, session_id: str | None = None) -> dict[str, Any]:
-        store, _ = parts(request)
+        store, manager = parts(request)
         session = await host_session(request, session_id)
         if await store.unlink_voice(session.id, idx):
             await audit(request, session.id, "voice.unlink", speaker_idx=idx)
+            manager.voice_changed()
         return {"idx": idx, "voice_profile": None}
+
+    # ---- 会议中的提示 ----
+
+    def suggestion_target(body: dict[str, Any]) -> tuple[int, int]:
+        idx, profile_id = body.get("speaker_idx"), body.get("profile_id")
+        for value, field in ((idx, "speaker_idx"), (profile_id, "profile_id")):
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise invalid(f"{field} 必须是整数")
+        assert isinstance(idx, int) and isinstance(profile_id, int)
+        if idx <= 0:
+            raise ApiError(400, "voice.not_enrollable")
+        return idx, profile_id
+
+    @app.get("/api/speaker-suggestions")
+    async def list_suggestions(request: Request, session_id: str | None = None) -> dict[str, Any]:
+        store, _ = parts(request)
+        session = await host_session(request, session_id)
+        found = await session_suggestions(store, session.id, memory)
+        return {"items": [s.json() for s in found]}
+
+    @app.post("/api/speaker-suggestions/accept")
+    @host_write
+    async def accept(request: Request) -> dict[str, Any]:
+        store, manager = parts(request)
+        body = await _json_body(request)
+        session = await host_session(request, body.get("session_id"))
+        idx, profile_id = suggestion_target(body)
+        speakers = {s.idx: s for s in await store.list_speakers(session.id)}
+        if idx not in speakers:
+            raise ApiError(404, "speaker.not_found")
+        await profile_or_404(store, profile_id)
+        voice = None
+        if memory.auto_update:
+            clips = await store.speaker_voice_clips(session.id, idx)
+            voice = await asyncio.to_thread(voiceprint, clips)
+        try:
+            if voice is not None:
+                profile = await store.enroll_voice(
+                    session.id,
+                    idx,
+                    profile_id=profile_id,
+                    name="",
+                    vector=voice.vector,
+                    secs=voice.secs,
+                    model_sha256=voice.model_sha256,
+                )
+            else:
+                profile = await store.link_voice(session.id, idx, profile_id)
+        except LookupError as e:
+            raise ApiError(404, "voice.profile_not_found") from e
+        except VoiceProfileInUse as e:
+            raise ApiError(409, "voice.profile_in_use") from e
+        except VoiceModelChanged as e:
+            raise ApiError(409, "voice.model_changed") from e
+        if speakers[idx].display_name != profile.name:
+            await manager.rename_speaker(session.id, idx, profile.name)
+        await audit(request, session.id, "voice.accept", speaker_idx=idx, profile_id=profile.id)
+        manager.voice_changed(session.id)
+        return {
+            "speaker": {"idx": idx, "display_name": profile.name},
+            "voice_profile": profile_json(profile),
+        }
+
+    @app.post("/api/speaker-suggestions/dismiss")
+    @host_write
+    async def dismiss(request: Request) -> dict[str, Any]:
+        store, manager = parts(request)
+        body = await _json_body(request)
+        session = await host_session(request, body.get("session_id"))
+        idx, profile_id = suggestion_target(body)
+        if not await store.has_speaker(session.id, idx):
+            raise ApiError(404, "speaker.not_found")
+        if not await store.dismiss_voice(session.id, idx, profile_id):
+            raise ApiError(404, "voice.profile_not_found")
+        manager.voice_changed(session.id)
+        return {"speaker_idx": idx, "profile_id": profile_id}

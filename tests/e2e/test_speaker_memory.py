@@ -121,10 +121,14 @@ async def test_only_a_host_can_erase_voice_clips(start_app, inference):
         # 旁观者能看到时长，但不能清除
         assert sum((await voice_secs(viewer, sid)).values()) > 0
         assert (await viewer.delete(f"/api/sessions/{sid}/voice")).status_code == 403
-        # 也不能录入声纹档案；档案列表登录了的账号都能看
+        # 也不能录入声纹档案、看不到提示；档案列表登录了的账号都能看
         enroll = {"session_id": sid, "consent": True}
         assert (await viewer.post("/api/speakers/1/voice-profile", json=enroll)).status_code == 403
         assert (await viewer.get("/api/voice-profiles")).status_code == 200
+        # 「可能是某某」的提示只给主持人
+        hints = {"session_id": sid}
+        assert (await viewer.get("/api/speaker-suggestions", params=hints)).status_code == 403
+        assert (await host.get("/api/speaker-suggestions", params=hints)).json() == {"items": []}
         assert sum((await voice_secs(host, sid)).values()) > 0
 
         erased = await host.delete(f"/api/sessions/{sid}/voice")

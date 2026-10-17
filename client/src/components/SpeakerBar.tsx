@@ -1,11 +1,12 @@
-import { AudioLinesIcon, PlusIcon, XIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AudioLinesIcon, CheckIcon, PlusIcon, XIcon } from "lucide-react";
+import { Fragment, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 import type { SpeakerInfo } from "../api.ts";
 import { useI18n } from "../i18n/index.ts";
+import type { SpeakerSuggestion } from "../protocol.ts";
 import { assignTargets } from "../selection.ts";
 import { mergeTargets, nameSuggestions, renamableSpeakers } from "../sessionView.ts";
 
@@ -38,6 +39,10 @@ interface Props {
   onClearSelection: () => void;
   /** 打开这位说话人的声纹（记住他的声音）；没开说话人记忆时不给 */
   onVoice?: (idx: number) => void;
+  /** 「可能是某某」的提示（只有主持人有） */
+  suggestions?: readonly SpeakerSuggestion[];
+  onAcceptSuggestion?: (suggestion: SpeakerSuggestion) => void;
+  onDismissSuggestion?: (suggestion: SpeakerSuggestion) => void;
 }
 
 /**
@@ -54,6 +59,9 @@ export function SpeakerBar({
   onAssign,
   onClearSelection,
   onVoice,
+  suggestions = [],
+  onAcceptSuggestion,
+  onDismissSuggestion,
 }: Props) {
   const { t } = useI18n();
   const [editing, setEditing] = useState<{ idx: number; name: string } | null>(null);
@@ -250,30 +258,82 @@ export function SpeakerBar({
             )}
           </span>
         ) : (
-          <Button
-            key={p.idx}
-            variant="outline"
-            size="xs"
-            className={CHIP}
-            title={
-              p.voice_profile
-                ? `${t.captions.speakers.chipHint}\n${t.captions.speakers.voiceLinked(p.voice_profile.name)}`
-                : t.captions.speakers.chipHint
-            }
-            onClick={() => setEditing({ idx: p.idx, name: p.display_name })}
-          >
-            <Dot />
-            {p.display_name}
-            {p.voice_profile && (
-              <AudioLinesIcon
-                data-icon="inline-end"
-                aria-label={t.captions.speakers.voiceLinked(p.voice_profile.name)}
-              />
-            )}
-          </Button>
+          <Fragment key={p.idx}>
+            <Button
+              variant="outline"
+              size="xs"
+              className={CHIP}
+              title={
+                p.voice_profile
+                  ? `${t.captions.speakers.chipHint}\n${t.captions.speakers.voiceLinked(p.voice_profile.name)}`
+                  : t.captions.speakers.chipHint
+              }
+              onClick={() => setEditing({ idx: p.idx, name: p.display_name })}
+            >
+              <Dot />
+              {p.display_name}
+              {p.voice_profile && (
+                <AudioLinesIcon
+                  data-icon="inline-end"
+                  aria-label={t.captions.speakers.voiceLinked(p.voice_profile.name)}
+                />
+              )}
+            </Button>
+            <Suggestion
+              suggestion={suggestions.find((s) => s.speaker_idx === p.idx)}
+              speaker={p.display_name}
+              onAccept={onAcceptSuggestion}
+              onDismiss={onDismissSuggestion}
+            />
+          </Fragment>
         ),
       )}
     </div>
+  );
+}
+
+/** 说话人旁边的「可能是某某」：确认（改名并关联档案）或忽略。 */
+function Suggestion({
+  suggestion,
+  speaker,
+  onAccept,
+  onDismiss,
+}: {
+  suggestion: SpeakerSuggestion | undefined;
+  speaker: string;
+  onAccept?: (suggestion: SpeakerSuggestion) => void;
+  onDismiss?: (suggestion: SpeakerSuggestion) => void;
+}) {
+  const { t } = useI18n();
+  if (!suggestion || !onAccept || !onDismiss) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-client-foreground/50 pl-2 text-xs text-client-foreground"
+      role="group"
+      aria-label={t.captions.speakers.suggestionLabel(speaker, suggestion.name)}
+    >
+      {t.captions.speakers.maybe(suggestion.name)}
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="rounded-full"
+        title={t.captions.speakers.acceptSuggestion(speaker, suggestion.name)}
+        aria-label={t.captions.speakers.acceptSuggestion(speaker, suggestion.name)}
+        onClick={() => onAccept(suggestion)}
+      >
+        <CheckIcon />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="rounded-full"
+        title={t.captions.speakers.dismissSuggestion}
+        aria-label={t.captions.speakers.dismissSuggestion}
+        onClick={() => onDismiss(suggestion)}
+      >
+        <XIcon />
+      </Button>
+    </span>
   );
 }
 

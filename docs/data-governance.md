@@ -39,8 +39,11 @@ agreed ([interfaces.md §5.14](interfaces.md)). A profile holds a name and up to
 one per meeting; they are copies, so deleting the meeting they came from does not delete them.
 Deleting the profile (**声纹…** on a speaker, or `DELETE /api/voice-profiles/{id}`) removes its
 voiceprints and, in every meeting, the clips of the speakers linked to it, and keeps the captions.
-Profiles have no retention period yet; they stay until deleted. Recognizing people in later meetings
-is not part of this release; the plan is in [design/speaker-memory.md](design/speaker-memory.md).
+Profiles have no retention period yet; they stay until deleted. In later meetings the server
+compares speakers with the profiles and only suggests a name to the host; nothing is renamed
+without confirmation, and the comparison runs on the meeting server. Confirming a suggestion adds
+that meeting's voiceprint to the profile unless `speaker_memory.auto_update` is off. The plan is in
+[design/speaker-memory.md](design/speaker-memory.md).
 
 Downloaded exports are separate copies wherever the operator/browser saves them. Logs and task
 results can also contain meeting content; they are not equivalent to the utterance table.

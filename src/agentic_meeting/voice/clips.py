@@ -198,8 +198,10 @@ class VoiceClipper:
         session_id: str,
         segments: Callable[[float], Awaitable[list[SpeakerSegment] | None]] | None = None,
         idle_close_secs: float = 3.0,
+        on_stored: Callable[[], None] | None = None,
     ) -> None:
         self._client = client
+        self._on_stored = on_stored  # 每落库一个片段调用一次
         self._store = store
         self._session_id = session_id
         self._segments = segments
@@ -304,11 +306,14 @@ class VoiceClipper:
                 model_sha256=model,
             )
             try:
-                await self._store.add_voice_clip(clip, now=time.time())
+                stored = await self._store.add_voice_clip(clip, now=time.time())
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 logger.warning(f"声纹片段没能落库，已丢弃：{type(e).__name__}")
+                continue
+            if stored and self._on_stored is not None:
+                self._on_stored()
 
     async def _embed(self, pcm: bytes) -> tuple[list[float], str] | None:
         try:
