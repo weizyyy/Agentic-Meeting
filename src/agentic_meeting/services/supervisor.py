@@ -338,11 +338,16 @@ def build_specs(cfg: AppConfig, *, find: Finder = find_executable) -> list[Servi
     asr = cfg.asr
     template = asr_template_path(cfg)
 
+    # 同时进行的每场会议各占一个识别槽位。llama-server 把 -c 平分给各个槽位，所以 ctx_size 按槽位数放大，
+    # 每个槽位拿到的仍是配置的 ctx_size（0 = 用模型自带上限，不放大）。
+    asr_slots = cfg.session.max_live_meetings
+
     def asr_argv(exe: str, port: int) -> list[str]:
         return [
             exe, "-m", path(asr.launch.model_path), "--mmproj", path(asr.launch.mmproj_path),
             "--host", BIND_HOST, "--port", str(port),
-            "-c", str(asr.launch.ctx_size), "-np", "1", "-ngl", asr.launch.gpu_layers,
+            "-c", str(asr.launch.ctx_size * asr_slots), "-np", str(asr_slots),
+            "-ngl", asr.launch.gpu_layers,
             "--jinja", "--chat-template-file", str(template),
             *NO_PROMPT_CACHE,
             *asr.launch.extra_args,

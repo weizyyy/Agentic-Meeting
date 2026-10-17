@@ -66,7 +66,12 @@ from agentic_meeting.pipeline.services import (
     build_realtime_llm,
     build_tts,
 )
-from agentic_meeting.pipeline.session import LiveConnection, SessionManager, SessionNotFound
+from agentic_meeting.pipeline.session import (
+    LiveConnection,
+    MeetingsFull,
+    SessionManager,
+    SessionNotFound,
+)
 from agentic_meeting.pipeline.text_input import TextInputHandler, extract_text
 from agentic_meeting.pipeline.tools import realtime_tools
 from agentic_meeting.pipeline.wake import WakeWordUserTurnStartStrategy
@@ -107,9 +112,14 @@ class AppResources:
     background_models: list[BackgroundModel] = field(default_factory=list)
     retention: RetentionWorker | None = None
     captions: Any = None  # 画面摘要：要用到 submit(IngestedFrame)
+    tts_slots: asyncio.Semaphore | None = (
+        None  # 语音合成的并发上限，各场会议共用（tts.max_concurrent）
+    )
     questions: Any = None  # 无工具会议问答
     access: Any = None  # 可选会议授权，旧模式为 None
-    live: Any = None  # 每条管线冻结的会议连接，工具不读取全局 live
+    # 这条管线所在的那一路连接。``run_bot`` 给每条管线复制一份资源并填上它，工具据此知道是哪场会议；
+    # 同时进行好几场会议时不能去问会话管理器「现在是哪一场」。
+    live: Any = None
     identity: Any = None  # 服务器认证的录音登录，不来自 requestData
     speaker: SpeakerClient | None = None  # 声纹服务；跨会议记住说话人关闭时没有
 
@@ -170,6 +180,8 @@ def build_parts(
     messages: list[dict[str, Any]] | None = None,
     first_segment_id: int = 1,
     speaker: SpeakerClient | None = None,
+    lane: int = 0,
+    tts_limiter: asyncio.Semaphore | None = None,
 ) -> BotParts:
     """按配置造出各个处理器。``audio`` 是 ``load_audio_models`` 在工作线程里加载好的模型。
     ``asr_backend``、``llm``、``tts``、``store``、``diarizer`` 可注入，测试时换成假的。
@@ -178,6 +190,8 @@ def build_parts(
     继续一场会议时：``clock`` 带着本次连接在会话时间轴上的起点，记录器和识别服务都用它；
     ``messages`` 是从数据库重建的上下文，实时模型一开始就带着它；``first_segment_id`` 是字幕行编号的起点
     （每次连接各占一段，页面上留着的旧字幕行才不会和新连接的撞号）。
+    ``lane`` 是这场会议在同时进行的会议里的位置，决定实时模型用哪个槽位；``tts_limiter`` 是各场会议共用的
+    语音合成并发上限。
     """
     # 唤醒策略放在 start 列表的第一个：它在未唤醒时返回 STOP，后面的策略就不会执行。
     wake = WakeWordUserTurnStartStrategy(
@@ -208,7 +222,7 @@ def build_parts(
         "realtime_system", assistant_name=cfg.session.assistant_name, task_section=task_section
     )
     if tts is None and cfg.tts.enabled:
-        tts = build_tts(cfg)
+        tts = build_tts(cfg, limiter=tts_limiter)
     return BotParts(
         vad_analyzer=audio.vad_analyzer,
         vad=VADProcessor(vad_analyzer=audio.vad_analyzer),
@@ -231,7 +245,7 @@ def build_parts(
         ),
         wake=wake,
         user_aggregator=aggregators.user(),
-        llm=llm or build_realtime_llm(cfg, system_prompt),
+        llm=llm or build_realtime_llm(cfg, system_prompt, lane=lane),
         tts=tts if cfg.tts.enabled else None,  # 语音合成关闭时管线里不放这个服务
         assistant_aggregator=aggregators.assistant(),
         context=context,
@@ -530,17 +544,23 @@ async def run_bot(
             logger.warning("要继续的会议已经不存在，断开这次连接")
             await connection.disconnect()
             return
+        except MeetingsFull:
+            # 协商之前也查过，走到这里说明这一瞬间别的会议占了最后一个位置
+            logger.warning("同时进行的会议已满，断开这次连接")
+            await connection.disconnect()
+            return
     if live is not None:
         live.owner = asyncio.current_task()
-        # 即使旧模式也固定工具所属连接，不能让迟到工具读到另一场会。
+        # 工具、上下文管理都从资源里取「这条管线是哪场会议」，迟到的工具也读不到另一场会
         resources = replace(resources, live=live)
     diarizer: Diarizer | None = None
     text_input: TextInputHandler | None = None
     context_manager: ContextManager | None = None
     activity = AssistantActivity()
     for model in resources.background_models:
-        # 助理应答时后台模型让路（画面摘要、滚动纪要），应答完再恢复
-        activity.subscribe(lambda busy, m=model: m.pause() if busy else m.resume())
+        # 助理应答时后台模型让路（画面摘要、滚动纪要），应答完再恢复；同时进行的几场会议各按各的算，
+        # 都闲下来才恢复
+        activity.subscribe(lambda busy, m=model: m.pause(activity) if busy else m.resume(activity))
     try:
         pending_notices: list[tuple[str, Message]] = []  # 管线造好、页面就绪之前产生的提示
 
@@ -575,6 +595,8 @@ async def run_bot(
                 live.connection_id * SEGMENT_IDS_PER_CONNECTION + 1 if live is not None else 1
             ),
             speaker=resources.speaker,
+            lane=live.lane if live is not None else 0,
+            tts_limiter=resources.tts_slots,
         )
         if manager is not None and live is not None:
 
@@ -667,7 +689,11 @@ async def run_bot(
                 return
             ready_sent = True
             if live is not None:
-                if live.stop_requested or live.done.is_set() or manager.live is not live:
+                if (
+                    live.stop_requested
+                    or live.done.is_set()
+                    or manager.live_for(live.session.id) is not live
+                ):
                     return
                 await send_session_ready(resources, live, send)
             for level, msg in pending_notices:

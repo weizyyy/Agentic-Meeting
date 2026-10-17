@@ -6,7 +6,7 @@
 后台任务关掉时（``agent.enabled = false``）不给任务工具。
 
 工具通过 ``params.app_resources``（应用共享的 ``AppResources``）拿到存储、嵌入客户端、配置；
-「现在是哪场会议、会议进行到第几秒」来自正在进行的那路连接（``resources.live``）。
+「现在是哪场会议、会议进行到第几秒」来自这条管线所在的那路连接（``resources.live``，由 ``run_bot`` 填上）。
 
 约定：
 
@@ -87,10 +87,16 @@ class _Env:
 
     async def require(self) -> None:
         """权限来自原录音登录及原连接，绝不跟随全局当前会议。"""
+        live = self.live
+        if (
+            live.stop_requested
+            or live.done.is_set()
+            or self.resources.sessions.live_for(self.session_id) is not live
+        ):
+            # 这路连接已经停了或被换掉：结果不再写进任何一场会议
+            raise asyncio.CancelledError
         access = self.resources.access
         if access is not None:
-            if self.live.stop_requested or self.live.done.is_set():
-                raise asyncio.CancelledError
             from agentic_meeting.web.errors import ApiError
 
             try:

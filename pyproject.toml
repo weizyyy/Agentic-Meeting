@@ -28,6 +28,7 @@ dependencies = [
     "numpy>=1.26.4,<3",
     "soundfile>=0.13",
     "loguru>=0.7.3",
+    "pyjwt[crypto]>=2.10",
 ]
 
 [project.optional-dependencies]

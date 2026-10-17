@@ -148,10 +148,9 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         body = await summary_of(request, session)
         body["access"] = await authorize(request, session.id)
         if body["access"] is not None:
-            live = resources(request).sessions.live
+            live = resources(request).sessions.live_for(session.id)
             body["access"]["tool_enabled"] = bool(
                 live is not None
-                and live.session.id == session.id
                 and not live.stop_requested
                 and live.identity.digest == request.state.identity.digest
             )
@@ -203,8 +202,8 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         session = await resolve(request, session_id, action="question")
         access = resources(request).access
         if access is not None:
-            live = manager.live
-            if live is None or live.session.id != session.id:
+            live = manager.live_for(session.id)
+            if live is None:
                 raise ApiError(409, "session.not_live")
             if live.identity.digest != request.state.identity.digest:
                 return await resources(request).questions.ask(
@@ -448,9 +447,9 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
                 raise ApiError(404, "speaker.not_found")
         changed = await store.set_utterances_speaker(session.id, ids, idx)
         name = await store.speaker_name(session.id, idx)
-        if manager.is_live(session.id):
-            live = manager.live
-            if live is not None and live.recorder is not None:
+        live = manager.live_for(session.id)
+        if live is not None:
+            if live.recorder is not None:
                 live.recorder.set_speaker_name(idx, name)
         for utterance_id in changed:
             await manager.push_to(
@@ -498,8 +497,8 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         session = await resolve(request, given, action="host")
         if not await store.rename_speaker(session.id, idx, name):
             raise ApiError(404, "speaker.not_found")
-        live = manager.live
-        if live is not None and live.session.id == session.id:
+        live = manager.live_for(session.id)
+        if live is not None:
             if live.recorder is not None:
                 live.recorder.set_speaker_name(idx, name)
         await manager.push_to(session.id, {"type": "speaker", "idx": idx, "display_name": name})

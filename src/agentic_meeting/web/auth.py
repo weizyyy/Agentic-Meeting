@@ -1,11 +1,12 @@
 """访问口令：登录、签名 Cookie 会话、CSRF 令牌、登录限速（docs/interfaces.md §5.7）。
 
-需要显式开启：``server.password_env`` 留空时 :func:`register` 只挂一个报告「未启用」的 ``GET /api/auth``，
-不加中间件，单机使用与以前完全一样。
+需要显式开启：访问口令、单点登录（``sso.py``）都没配时 :func:`register` 只挂一个报告「未启用」的
+``GET /api/auth``，不加中间件，单机使用与以前完全一样。单点登录认出人之后也签发这里的会话 Cookie。
 
 会话不存服务端：Cookie 里带到期时刻和一个随机数，用签名密钥做 HMAC。签名密钥由数据目录里的随机密钥
 （``auth_secret``，首次启动时生成）和口令共同派生，所以改口令或删掉那个文件都会让所有设备退出登录；
-只拿到 Cookie 也没法离线猜口令。CSRF 令牌由同一密钥对会话随机数做 HMAC 得到，同样不用存。
+只拿到 Cookie 也没法离线猜口令。没设口令（只用单点登录）时只由随机密钥派生。CSRF 令牌由同一密钥
+对会话随机数做 HMAC 得到，同样不用存。
 """
 
 from __future__ import annotations
@@ -24,12 +25,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from loguru import logger
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from agentic_meeting.config import AppConfig, secret
+from agentic_meeting.web import sso as sso_module
 from agentic_meeting.web.errors import ApiError, error_response, invalid
+from agentic_meeting.web.sso import SingleSignOn
 
 COOKIE_NAME = "am_session"
 CSRF_HEADER = "X-CSRF-Token"
@@ -54,6 +57,8 @@ MAX_LOGIN_BODY_BYTES = 16 * 1024
 
 # 不需要登录的接口
 PUBLIC_PATHS = frozenset({("GET", "/api/auth"), ("HEAD", "/api/auth"), ("POST", "/api/auth/login")})
+# 单点登录的跳转和回调（浏览器从身份提供方跳回来时还没有会话）
+PUBLIC_GET_PREFIX = "/api/auth/oidc/"
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
@@ -142,22 +147,29 @@ class LoginLimiter:
 
 
 class AuthGuard:
-    """口令校验与会话签发。``clock`` 可注入（测试用）。"""
+    """口令校验与会话签发。``password`` 为 None 表示不用口令登录（只用单点登录）。``clock`` 可注入（测试用）。"""
 
     def __init__(
         self,
-        password: str,
+        password: str | None,
         server_secret: bytes,
         *,
         session_secs: float,
         clock: Callable[[], float] = time.time,
         limiter: LoginLimiter | None = None,
     ) -> None:
-        if not password:
+        if password == "":
             raise ValueError("访问口令不能为空")
         self._salt = server_secret
-        self._stretched = stretch_password(password, server_secret)
-        self._key = hmac.new(self._stretched, b"agentic-meeting session", hashlib.sha256).digest()
+        self.has_password = password is not None
+        if password is not None:
+            self._stretched = stretch_password(password, server_secret)
+            self._key = hmac.new(
+                self._stretched, b"agentic-meeting session", hashlib.sha256
+            ).digest()
+        else:
+            self._stretched = b""
+            self._key = hmac.new(server_secret, b"agentic-meeting session", hashlib.sha256).digest()
         self.session_secs = session_secs
         self._clock = clock
         self.limiter = limiter or LoginLimiter()
@@ -165,18 +177,20 @@ class AuthGuard:
 
     @classmethod
     def from_config(cls, cfg: AppConfig) -> AuthGuard | None:
-        """按配置创建；没有启用口令返回 None。启用了却读不到口令时报错（宁可起不来，也不能不设防）。"""
-        env_name = cfg.server.password_env
-        if not env_name:
+        """按配置创建；不需要登录时返回 None。启用了却读不到口令时报错（宁可起不来，也不能不设防）。"""
+        if not cfg.server.login_enabled:
             return None
-        password = secret(env_name)
-        if not password:
+        env_name = cfg.server.password_env
+        password = secret(env_name) if env_name else None
+        if env_name and not password:
             raise RuntimeError(f"server.password_env 指向的环境变量 {env_name} 未设置")
         server_secret = load_or_create_secret(cfg.resolve(cfg.session.data_dir))
         return cls(password, server_secret, session_secs=cfg.server.auth_session_days * 86400.0)
 
     def check_password(self, candidate: str) -> bool:
         """比对口令（阻塞几十毫秒；在事件循环里请用 :meth:`check_password_async`）。"""
+        if not self.has_password:
+            return False
         return hmac.compare_digest(stretch_password(candidate, self._salt), self._stretched)
 
     async def check_password_async(self, candidate: str) -> bool:
@@ -242,24 +256,51 @@ async def _read_body_limited(request: Request, limit: int) -> bytes | None:
     return b"".join(chunks)
 
 
-def _status(*, enabled: bool, csrf_token: str | None) -> dict[str, Any]:
-    authenticated = csrf_token is not None or not enabled
-    return {"enabled": enabled, "authenticated": authenticated, "csrf_token": csrf_token}
+def register(app: FastAPI, guard: AuthGuard | None, sso: SingleSignOn | None = None) -> None:
+    """挂上 ``/api/auth`` 系列接口；需要登录时再加上拦截 ``/api`` 的中间件。"""
+    methods: dict[str, Any] = {
+        "password": guard is not None and guard.has_password,
+        **(sso.methods() if sso is not None else {"oidc": [], "proxy": False}),
+    }
 
+    def status(*, csrf_token: str | None) -> dict[str, Any]:
+        enabled = guard is not None
+        return {
+            "enabled": enabled,
+            "authenticated": csrf_token is not None or not enabled,
+            "csrf_token": csrf_token,
+            "methods": methods,
+        }
 
-def register(app: FastAPI, guard: AuthGuard | None) -> None:
-    """挂上 ``/api/auth`` 系列接口；启用了口令时再加上拦截 ``/api`` 的中间件。"""
+    def set_session_cookie(request: Request, response: Response, cookie: str) -> None:
+        assert guard is not None
+        response.set_cookie(
+            COOKIE_NAME,
+            cookie,
+            max_age=int(guard.session_secs),
+            path="/",
+            httponly=True,
+            samesite="strict",
+            secure=request.url.scheme == "https",
+        )
+
+    async def start_session(
+        request: Request, response: Response, _identity: sso_module.ExternalIdentity
+    ) -> None:
+        """单点登录认出人之后：签发会话，Cookie 写进跳转响应（页面随后从 GET /api/auth 取令牌）。"""
+        assert guard is not None
+        set_session_cookie(request, response, guard.issue()[0])
 
     @app.get("/api/auth")
     async def auth_status(request: Request) -> dict[str, Any]:
         if guard is None:
-            return _status(enabled=False, csrf_token=None)
-        nonce = guard.verify(request.cookies.get(COOKIE_NAME))
-        return _status(enabled=True, csrf_token=guard.csrf_token(nonce) if nonce else None)
+            return status(csrf_token=None)
+        nonce = current_nonce(guard, sso, request.scope, request.cookies.get(COOKIE_NAME))
+        return status(csrf_token=guard.csrf_token(nonce) if nonce else None)
 
     @app.post("/api/auth/login")
     async def login(request: Request) -> JSONResponse:
-        if guard is None:
+        if guard is None or not guard.has_password:
             raise ApiError(404, "auth.not_enabled")
         address = _client_address(request)
         wait = guard.limiter.retry_after(address)
@@ -281,23 +322,15 @@ def register(app: FastAPI, guard: AuthGuard | None) -> None:
             return error_response(401, "auth.wrong_password")
         guard.limiter.succeeded(address)
         cookie, csrf = guard.issue()
-        response = JSONResponse(_status(enabled=True, csrf_token=csrf))
-        response.set_cookie(
-            COOKIE_NAME,
-            cookie,
-            max_age=int(guard.session_secs),
-            path="/",
-            httponly=True,
-            samesite="strict",
-            secure=request.url.scheme == "https",
-        )
+        response = JSONResponse(status(csrf_token=csrf))
+        set_session_cookie(request, response, cookie)
         logger.info(f"登录成功：{address}")
         return response
 
     @app.post("/api/auth/logout")
     async def logout(request: Request) -> JSONResponse:
         # 启用了口令时这个接口在中间件后面：只有已登录、带着令牌的页面才能退出（防止别的网站把人踢下线）
-        response = JSONResponse(_status(enabled=guard is not None, csrf_token=None))
+        response = JSONResponse(status(csrf_token=None))
         response.delete_cookie(
             COOKIE_NAME,
             path="/",
@@ -310,7 +343,21 @@ def register(app: FastAPI, guard: AuthGuard | None) -> None:
     if guard is None:
         return
 
-    app.add_middleware(LoginRequired, guard=guard)
+    if sso is not None and sso.providers:
+        sso_module.register(app, sso, start_session=start_session, client_address=_client_address)
+    app.add_middleware(LoginRequired, guard=guard, sso=sso)
+
+
+def current_nonce(
+    guard: AuthGuard, sso: SingleSignOn | None, scope: Scope, cookie: str | None
+) -> str | None:
+    """这个请求的会话随机数：有效 Cookie 的，或者受信任代理传来的用户名派生的；都没有返回 None。"""
+    nonce = guard.verify(cookie)
+    if nonce is None and sso is not None and sso.proxy is not None:
+        identity = sso.proxy.identity(scope)
+        if identity is not None:
+            nonce = sso_module.proxy_nonce(identity)
+    return nonce
 
 
 class LoginRequired:
@@ -321,9 +368,10 @@ class LoginRequired:
     bot，不能被一个 HTTP 请求的生命周期牵连。
     """
 
-    def __init__(self, app: ASGIApp, guard: AuthGuard) -> None:
+    def __init__(self, app: ASGIApp, guard: AuthGuard, sso: SingleSignOn | None = None) -> None:
         self.app = app
         self.guard = guard
+        self.sso = sso
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -332,10 +380,13 @@ class LoginRequired:
         request = Request(scope)  # 只读请求头和 Cookie，不碰请求体
         path = request.url.path
         method = request.method
-        if not (path == "/api" or path.startswith("/api/")) or (method, path) in PUBLIC_PATHS:
+        public = (method, path) in PUBLIC_PATHS or (
+            method in ("GET", "HEAD") and path.startswith(PUBLIC_GET_PREFIX)
+        )
+        if not (path == "/api" or path.startswith("/api/")) or public:
             await self.app(scope, receive, send)
             return
-        nonce = self.guard.verify(request.cookies.get(COOKIE_NAME))
+        nonce = current_nonce(self.guard, self.sso, scope, request.cookies.get(COOKIE_NAME))
         if nonce is None:
             response = error_response(401, "auth.required")
         elif method not in SAFE_METHODS and not self.guard.csrf_ok(

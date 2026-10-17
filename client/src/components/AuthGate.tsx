@@ -8,6 +8,11 @@ import { readShareEntry } from "../sharing.ts";
 import { LoginPage } from "./LoginPage.tsx";
 import { Button } from "./ui/button";
 
+/** 只靠反向代理登录时退出没有意义：代理下一个请求又会带上身份。 */
+function canLogOut(status: AuthStatus): boolean {
+  return status.enabled && (status.methods.password || status.methods.oidc.length > 0);
+}
+
 /** 登录失效时卸载会议页面，清除旧内容并关闭媒体；状态未知时只显示重试。 */
 export function AuthGate() {
   const { t } = useI18n();
@@ -95,7 +100,7 @@ export function AuthGate() {
           key={version}
           initialSessionId={opened}
           auth={status}
-          onLogout={status.enabled ? () => void onLogout() : undefined}
+          onLogout={canLogOut(status) ? () => void onLogout() : undefined}
         />
       )}
     </>

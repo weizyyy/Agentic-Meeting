@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import importlib.util
+import ipaddress
 import os
 import re
 import tomllib
@@ -100,6 +101,9 @@ def _wake_alias(value: str) -> str:
     )
 
 
+MAX_LIVE_MEETINGS = 16
+
+
 class SessionConfig(_Model):
     data_dir: str = "data"
     recording_notice: bool = True
@@ -113,6 +117,9 @@ class SessionConfig(_Model):
     hotwords: list[str] = Field(default_factory=list)
     # 预先登记的成员名单，仅用于界面里给说话人编号改名时做候选。
     members: list[str] = Field(default_factory=list)
+    # 同时进行的会议最多几场。1 = 新会议顶替正在进行的那一场；大于 1 时满了就拒绝新会议。
+    # 每场会议各占实时模型的一个槽位、识别服务的一个槽位和一份说话人区分模型（architecture.md §3.2）。
+    max_live_meetings: int = Field(default=1, ge=1, le=MAX_LIVE_MEETINGS)
 
     @field_validator("assistant_name")
     @classmethod
@@ -181,9 +188,91 @@ class LocalUserConfig(_Model):
     can_host: bool = False
 
 
+def _check_http_url(value: str, label: str) -> str:
+    """http(s) 地址，有主机名，不带查询串和片段；http 只允许本机回环地址。"""
+    parsed = urlparse(value)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError(f"{label} 必须是 http:// 或 https:// 开头的完整地址")
+    if parsed.query or parsed.fragment:
+        raise ValueError(f"{label} 不能带查询串或 # 片段")
+    if parsed.scheme == "http" and not is_loopback_host(parsed.hostname):
+        raise ValueError(f"{label} 必须用 https（只有本机回环地址可以用 http）")
+    return value
+
+
+class OidcProviderConfig(_Model):
+    """一个 OpenID Connect 身份提供方（docs/interfaces.md §5.7）。"""
+
+    # 出现在登录地址里：/api/auth/oidc/<id>/start。改了要同时改身份提供方那边登记的回调地址。
+    id: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,31}$")
+    # 登录页按钮上的名字
+    display_name: str = Field(min_length=1, max_length=60)
+    # 和发现文档里的 issuer 逐字相同（包括末尾的斜杠）
+    issuer: str
+    client_id: str = Field(min_length=1)
+    # 客户端密钥所在的环境变量名；留空 = 公开客户端（只靠 PKCE）
+    client_secret_env: str = ""
+    scopes: list[str] = Field(default_factory=lambda: ["openid", "profile", "email"])
+    # 用户名、用户组取自哪个声明
+    username_claim: str = Field(default="preferred_username", min_length=1)
+    groups_claim: str = Field(default="groups", min_length=1)
+    # 都留空 = 身份提供方认证过的人都能登录；否则用户名在前者里或属于后者中的某个组
+    allowed_users: list[str] = Field(default_factory=list)
+    allowed_groups: list[str] = Field(default_factory=list)
+    # 会议权限模式下能开会、能被设为主持人的用户名和用户组；每次登录时重新判断
+    host_users: list[str] = Field(default_factory=list)
+    host_groups: list[str] = Field(default_factory=list)
+
+    @field_validator("issuer")
+    @classmethod
+    def _issuer(cls, v: str) -> str:
+        return _check_http_url(v, "server.oidc.issuer")
+
+    @field_validator("scopes")
+    @classmethod
+    def _scopes(cls, v: list[str]) -> list[str]:
+        if "openid" not in v:
+            raise ValueError("server.oidc.scopes 必须包含 openid")
+        if any(not s or any(c.isspace() for c in s) for s in v):
+            raise ValueError("server.oidc.scopes 的每一项都不能为空或含空白")
+        return v
+
+
+class ProxyAuthConfig(_Model):
+    """信任反向代理传来的身份头（docs/interfaces.md §5.7）。trusted_proxies 留空 = 不启用。"""
+
+    # 反向代理的地址或网段（"127.0.0.1"、"10.0.0.0/8"）；只认直接连过来的这些地址带的身份头
+    trusted_proxies: list[str] = Field(default_factory=list)
+    user_header: str = Field(default="X-Forwarded-User", min_length=1)
+    name_header: str = ""
+    # 逗号分隔的用户组
+    groups_header: str = ""
+    allowed_users: list[str] = Field(default_factory=list)
+    allowed_groups: list[str] = Field(default_factory=list)
+
+    @field_validator("trusted_proxies")
+    @classmethod
+    def _networks(cls, v: list[str]) -> list[str]:
+        for item in v:
+            try:
+                ipaddress.ip_network(item.strip(), strict=False)
+            except ValueError as e:
+                raise ValueError(
+                    f"server.proxy_auth.trusted_proxies 里的 {item!r} 不是地址或网段"
+                ) from e
+        return v
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.trusted_proxies)
+
+
 class ServerConfig(_Model):
     host: str = "0.0.0.0"
     port: int = Field(default=7860, ge=1, le=65535)
+    # 浏览器访问本服务用的地址，如 "https://meet.example.org"。单点登录的回调地址由它生成；
+    # 留空时按请求推断（反向代理后面要让 uvicorn 信任代理，见 docs/interfaces.md §5.7）。
+    public_url: str = ""
     # 局域网访问必须 HTTPS（浏览器采集麦克风/屏幕要求安全上下文）。二者都留空 = 纯 HTTP，
     # 只能用 http://localhost 访问。
     tls_cert: str = ""
@@ -197,6 +286,9 @@ class ServerConfig(_Model):
     auth_session_days: float = Field(default=7.0, gt=0, le=365)
     meeting_access: bool = False
     local_users: list[LocalUserConfig] = Field(default_factory=list)
+    # 单点登录：OpenID Connect 身份提供方，以及反向代理传来的身份头。都可以和访问口令并用。
+    oidc: list[OidcProviderConfig] = Field(default_factory=list)
+    proxy_auth: ProxyAuthConfig = Field(default_factory=ProxyAuthConfig)
 
     @model_validator(mode="after")
     def _local_identities(self) -> ServerConfig:
@@ -205,7 +297,28 @@ class ServerConfig(_Model):
             raise ValueError("server.local_users 的 id 不能重复")
         if self.meeting_access and not any(user.can_host for user in self.local_users):
             raise ValueError("会议权限模式至少需要一个 can_host 的本地账号")
+        # 代理身份头每个请求都带、没有登录记录，接不上会议权限模式的登录、撤权和分享
+        if self.meeting_access and self.proxy_auth.enabled:
+            raise ValueError("server.proxy_auth 不能和 server.meeting_access 同时开启")
         return self
+
+    @field_validator("public_url")
+    @classmethod
+    def _public_url(cls, v: str) -> str:
+        return _check_http_url(v, "server.public_url").rstrip("/") if v else v
+
+    @field_validator("oidc")
+    @classmethod
+    def _unique_providers(cls, v: list[OidcProviderConfig]) -> list[OidcProviderConfig]:
+        ids = [provider.id for provider in v]
+        if len(ids) != len(set(ids)):
+            raise ValueError("server.oidc 里的 id 不能重复")
+        return v
+
+    @property
+    def login_enabled(self) -> bool:
+        """是否需要登录：访问口令、OpenID Connect、反向代理身份头，配了任一种就要。"""
+        return bool(self.password_env or self.oidc or self.proxy_auth.enabled)
 
     @field_validator("ice_servers", mode="before")
     @classmethod
@@ -255,6 +368,7 @@ class LlamaServerEndpoint(LLMEndpoint):
     # 由本项目启动服务时对应 --reasoning on|off。
     thinking: bool = False
     # 槽位分工：实时应答与缓存预热用一个，后台任务（画面摘要、滚动纪要）用另一个。
+    # 同时进行好几场会议（session.max_live_meetings = N）时，第 k 场（0 起）的实时应答用 realtime_slot + k。
     realtime_slot: int = Field(default=0, ge=0)
     background_slot: int = Field(default=1, ge=0)
     launch: LlamaServerLaunch = Field(default_factory=lambda: LlamaServerLaunch(parallel=2))
@@ -325,13 +439,14 @@ class RealtimeLLMConfig(_Model):
             return True
         return self.active.cache_warm  # type: ignore[attr-defined]
 
-    def request_extra_body(self, *, background: bool = False) -> dict:
+    def request_extra_body(self, *, background: bool = False, lane: int = 0) -> dict:
         """每次请求要并入 ``extra_body`` 的字段。
 
         - 用户在配置里写的 ``extra_body`` 原样带上。
         - ``sampling.top_k`` 不是 OpenAI SDK 的标准参数，也放这里。
         - llama_server 方式额外带槽位号和 ``cache_prompt``：实时应答与后台任务各用一个槽位，
-          互不冲掉对方的前缀缓存。通用接口没有这些概念，不带。
+          互不冲掉对方的前缀缓存；同时进行的第 ``lane`` 场会议（0 起）用 ``realtime_slot + lane``。
+          通用接口没有这些概念，不带。
         """
         endpoint = self.active
         body: dict = dict(endpoint.extra_body)
@@ -340,7 +455,9 @@ class RealtimeLLMConfig(_Model):
         if self.mode == "llama_server":
             assert self.llama_server is not None
             slot = (
-                self.llama_server.background_slot if background else self.llama_server.realtime_slot
+                self.llama_server.background_slot
+                if background
+                else self.llama_server.realtime_slot + lane
             )
             body["id_slot"] = slot
             body["cache_prompt"] = True
@@ -419,6 +536,8 @@ class TTSConfig(_Model):
     voice: str  # 音色名，取决于所选权重
     language: str = "Chinese"
     sample_rate: int = 24000
+    # 同时发给合成服务的请求最多几个。同时进行好几场会议时，各场的回答按句轮流合成。
+    max_concurrent: int = Field(default=1, ge=1)
     launch: TTSLaunch = Field(default_factory=TTSLaunch)
 
 
@@ -709,14 +828,23 @@ def check_ready(cfg: AppConfig) -> list[str]:
     need_value(f"{section}.model", rt.active.model)
     need_env(f"{section}.api_key_env", rt.active.api_key_env)
     if rt.mode == "llama_server" and rt.llama_server is not None:
-        if rt.llama_server.realtime_slot == rt.llama_server.background_slot:
-            problems.append(f"{section}.realtime_slot 与 background_slot 不能相同")
+        meetings = cfg.session.max_live_meetings
+        first = rt.llama_server.realtime_slot
+        last = first + meetings - 1
+        if first <= rt.llama_server.background_slot <= last:
+            if meetings == 1:
+                problems.append(f"{section}.realtime_slot 与 background_slot 不能相同")
+            else:
+                problems.append(
+                    f"session.max_live_meetings = {meetings}，实时应答要用槽位 {first}–{last}，"
+                    f"{section}.background_slot 不能落在这个范围里"
+                )
         launch = rt.llama_server.launch
         if launch.enabled:
             need_file(f"{section}.launch.model_path", launch.model_path)
             if rt.llama_server.supports_vision:
                 need_file(f"{section}.launch.mmproj_path", launch.mmproj_path)
-            slots_needed = max(rt.llama_server.realtime_slot, rt.llama_server.background_slot) + 1
+            slots_needed = max(last, rt.llama_server.background_slot) + 1
             if launch.parallel < slots_needed:
                 problems.append(
                     f"{section}.launch.parallel = {launch.parallel}，"
@@ -774,6 +902,8 @@ def check_ready(cfg: AppConfig) -> list[str]:
     for i, ice in enumerate(cfg.server.ice_servers):
         need_env(f"server.ice_servers[{i}].credential_env", ice.credential_env)
     need_env("server.password_env", cfg.server.password_env)
+    for provider in cfg.server.oidc:
+        need_env(f"server.oidc[{provider.id}].client_secret_env", provider.client_secret_env)
     password = secret(cfg.server.password_env)
     if password and len(password) < MIN_PASSWORD_CHARS:
         problems.append(f"server.password_env 指向的口令太短：至少需要 {MIN_PASSWORD_CHARS} 个字符")
@@ -837,8 +967,8 @@ def is_loopback_host(host: str) -> bool:
 
 
 def server_warnings(cfg: AppConfig) -> list[str]:
-    """服务端自身的安全提醒，只在命令行打印、不发给浏览器（都是「没有访问口令」的后果）。"""
-    if cfg.server.password_env:
+    """服务端自身的安全提醒，只在命令行打印、不发给浏览器（都是「不需要登录」的后果）。"""
+    if cfg.server.login_enabled:
         return []
     warnings: list[str] = []
     if not is_loopback_host(cfg.server.host):

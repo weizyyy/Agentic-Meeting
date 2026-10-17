@@ -18,13 +18,14 @@ variable; the value goes in `.env` (see [`.env.example`](../.env.example)).
 
 ## `[session]`
 
-| Key              | Default  | Description                                                                                                                                                                                          |
-| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `data_dir`       | `"data"` | Where the database, screenshots, task files and logs are stored                                                                                                                                      |
-| `assistant_name` | —        | The assistant's name and wake word. An English word (letters and digits, starting with a letter)                                                                                                     |
-| `wake_aliases`   | `[]`     | Other spellings that also wake the assistant: English words, or strings of two or more Chinese characters. Useful when ASR keeps writing the name a certain way, e.g. `["Novel", "诺瓦"]` for `Nova` |
-| `hotwords`       | `[]`     | Terms passed to ASR as hints: member names, project jargon, abbreviations                                                                                                                            |
-| `members`        | `[]`     | Names offered as suggestions when renaming speakers                                                                                                                                                  |
+| Key                 | Default  | Description                                                                                                                                                                                                                           |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data_dir`          | `"data"` | Where the database, screenshots, task files and logs are stored                                                                                                                                                                       |
+| `assistant_name`    | —        | The assistant's name and wake word. An English word (letters and digits, starting with a letter)                                                                                                                                      |
+| `wake_aliases`      | `[]`     | Other spellings that also wake the assistant: English words, or strings of two or more Chinese characters. Useful when ASR keeps writing the name a certain way, e.g. `["Novel", "诺瓦"]` for `Nova`                                  |
+| `hotwords`          | `[]`     | Terms passed to ASR as hints: member names, project jargon, abbreviations                                                                                                                                                             |
+| `members`           | `[]`     | Names offered as suggestions when renaming speakers                                                                                                                                                                                   |
+| `max_live_meetings` | `1`      | How many meetings can be live at the same time (1–16). With `1`, a new meeting takes over the live one; above `1`, a new meeting is refused while all places are taken. See [architecture §3.2](architecture.md#32-parallel-meetings) |
 
 `recording_notice` defaults to `true` and controls the start notice after the connection is ready. Setting it to `false` does not hide the fixed transcription status or disable transcription. This is not a consent dialog. New meetings and manual resumes show it once when actually ready; SDK automatic reconnection does not repeat it.
 
@@ -48,10 +49,13 @@ Periods must be integers, not booleans, negative/fractional or out-of-range valu
 | --------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `host`                | `"0.0.0.0"` | Bind address                                                                                                                                                 |
 | `port`                | `7860`      | HTTP(S) port                                                                                                                                                 |
+| `public_url`          | `""`        | The address browsers use, such as `"https://meet.example.org"`. Single sign-on builds its callback address from it; empty means taken from each request      |
 | `tls_cert`, `tls_key` | `""`        | Certificate and key files. Required for access from other devices; see [getting started](getting-started.md#access-from-other-devices)                       |
 | `ice_servers`         | `[]`        | STUN/TURN servers used by both the server and the browser. Leave empty on a single LAN; see below                                                            |
 | `password_env`        | `""`        | Name of the environment variable that holds the access password. Empty means no login is required. See [Access password](getting-started.md#access-password) |
 | `auth_session_days`   | `7`         | How long a login lasts, in days (more than 0, at most 365). The session ends at that time even if the page is in use                                         |
+| `oidc`                | `[]`        | OpenID Connect providers for single sign-on; see [Single sign-on](#single-sign-on) below                                                                     |
+| `proxy_auth`          | —           | Identity headers from a trusted reverse proxy; see [Single sign-on](#single-sign-on) below                                                                   |
 
 Each entry of `ice_servers` is either a URL string (`"stun:host:3478"`) or a table with `urls` (a
 string or a list), `username` and `credential_env`, the name of the environment variable that holds
@@ -71,7 +75,68 @@ warn otherwise.
 
 The password itself goes into `.env`, never into `config.toml`; it must be at least 8 characters
 long. Changing it logs out every device. `agentic-meeting check` and `serve` warn when `host` is
-not a loopback address and no password is set.
+not a loopback address and no login method is configured.
+
+### Single sign-on
+
+People can log in with an account they already have at their organization instead of the shared
+password. Both can be enabled together: the login page then shows one button per provider above
+the password field, and the password keeps working while the provider is unreachable. A device that
+is already logged in does not need the provider again until its login expires
+(`auth_session_days`). The protocol details are in [interfaces](interfaces.md#57-access-password-and-single-sign-on).
+
+With [meeting identities](#meeting-identities) (`meeting_access`), people who sign in through
+OpenID Connect get their own identity next to the local accounts, and `host_users` and
+`host_groups` decide who may start meetings. Identity headers from a reverse proxy cannot be
+combined with `meeting_access`; the configuration is rejected when both are set.
+
+**OpenID Connect.** Register this application at the provider (Keycloak, Authentik, Microsoft Entra
+ID, Google and others) as a web application with the authorization code flow, and give it the
+callback address `<public_url>/api/auth/oidc/<id>/callback`. Then add one entry per provider:
+
+```toml
+[server]
+public_url = "https://meet.example.org"
+oidc = [
+  { id = "lab", display_name = "Lab account", issuer = "https://id.example.org/realms/lab", client_id = "agentic-meeting", client_secret_env = "AGENTIC_MEETING_OIDC_SECRET", allowed_groups = ["lab-members"] },
+]
+```
+
+| Key                 | Default                          | Description                                                                                                          |
+| ------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `id`                | —                                | Lower-case letters, digits, `-` and `_`, at most 32 characters; part of the callback address                         |
+| `display_name`      | —                                | Text of the button: "Sign in with …"                                                                                 |
+| `issuer`            | —                                | Exactly as in the provider's discovery document, including any trailing slash. HTTPS unless it is a loopback address |
+| `client_id`         | —                                | Client id registered at the provider                                                                                 |
+| `client_secret_env` | `""`                             | Name of the environment variable that holds the client secret. Empty for a public client                             |
+| `scopes`            | `["openid", "profile", "email"]` | Requested scopes; must include `openid`. Add the scope that releases groups if the provider needs one                |
+| `username_claim`    | `"preferred_username"`           | Claim used as the user name (for example `email`); `sub` when it is missing                                          |
+| `groups_claim`      | `"groups"`                       | Claim that lists the user's groups                                                                                   |
+| `allowed_users`     | `[]`                             | User names allowed to log in                                                                                         |
+| `allowed_groups`    | `[]`                             | Groups whose members are allowed to log in. With both lists empty, everyone the provider accepts can log in          |
+| `host_users`        | `[]`                             | With `meeting_access`: user names that may start and host meetings                                                   |
+| `host_groups`       | `[]`                             | With `meeting_access`: groups whose members may start and host meetings                                              |
+
+`agentic-meeting check` reports a `client_secret_env` that is named but not set. The provider is
+contacted only when someone logs in, not at startup, so the application starts while it is offline.
+
+**Identity headers from a reverse proxy.** When a reverse proxy in front of the application already
+authenticates people (oauth2-proxy, Authelia, a web server module), it can pass the user name in a
+header:
+
+```toml
+[server.proxy_auth]
+trusted_proxies = ["127.0.0.1"]     # addresses or networks of the proxy itself
+user_header = "X-Forwarded-User"
+name_header = ""                    # optional: display name
+groups_header = ""                  # optional: comma-separated groups
+allowed_users = []
+allowed_groups = []
+```
+
+The headers are accepted only on connections that come directly from `trusted_proxies`; from any
+other address they are ignored. The proxy must authenticate every request it forwards and remove
+these headers from requests it receives. An empty `trusted_proxies` turns this off.
 
 ### Meeting identities
 
@@ -122,11 +187,11 @@ Keys common to `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`:
 
 Only for `llama_server`:
 
-| Key                                | Default  | Description                                                                                                         |
-| ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------- |
-| `thinking`                         | `false`  | Maps to `--reasoning on/off`. Keep it off for low latency                                                           |
-| `realtime_slot`, `background_slot` | `0`, `1` | Server slots for live answers and for background work (screen summaries, running summary)                           |
-| `launch.*`                         |          | See [Launch settings](#launch-settings). `ctx_size` is shared by all slots; `parallel` must cover both slot numbers |
+| Key                                | Default  | Description                                                                                                                                                                                                                            |
+| ---------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `thinking`                         | `false`  | Maps to `--reasoning on/off`. Keep it off for low latency                                                                                                                                                                              |
+| `realtime_slot`, `background_slot` | `0`, `1` | Server slots for live answers and for background work (screen summaries, running summary). With `session.max_live_meetings = N`, live answers use the N slots starting at `realtime_slot`, and `background_slot` must lie outside them |
+| `launch.*`                         |          | See [Launch settings](#launch-settings). `ctx_size` is shared by all slots, each getting `ctx_size / parallel`; `parallel` must cover every slot number in use                                                                         |
 
 Only for `openai_api`:
 
@@ -143,18 +208,18 @@ Only for `openai_api`:
 
 Streaming speech recognition through `llama-server`'s audio input.
 
-| Key                               | Default                                      | Description                                                                                                                         |
-| --------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `backend`                         | `"llama_server"`                             | Recognition backend                                                                                                                 |
-| `profile`                         | `"config/asr_profiles/confucius4_r2t2.toml"` | Prompt-format profile of the ASR model. Add a new profile to use a different model family                                           |
-| `base_url`                        | `"http://127.0.0.1:8081"`                    | ASR server address                                                                                                                  |
-| `language`                        | `"Chinese"`                                  | Language hint; empty lets the model decide                                                                                          |
-| `chunk_ms`                        | `320`                                        | Audio added per step (80–2000). Smaller means lower latency and more GPU load                                                       |
-| `window_secs`, `window_drop_secs` | `16.0`, `8.0`                                | Rolling audio window and how much is dropped when it fills                                                                          |
-| `unfixed_tokens`                  | `1`                                          | Trailing tokens held back as provisional at each step                                                                               |
-| `max_new_tokens`                  | `32`                                         | Generation cap when a segment is finalized                                                                                          |
-| `preroll_ms`                      | `1500`                                       | Audio from before speech was detected that is still sent to ASR. A short wake word followed by a pause is lost if this is too small |
-| `launch.*`                        |                                              | See [Launch settings](#launch-settings). The ASR server always runs a single slot                                                   |
+| Key                               | Default                                      | Description                                                                                                                                                                                |
+| --------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `backend`                         | `"llama_server"`                             | Recognition backend                                                                                                                                                                        |
+| `profile`                         | `"config/asr_profiles/confucius4_r2t2.toml"` | Prompt-format profile of the ASR model. Add a new profile to use a different model family                                                                                                  |
+| `base_url`                        | `"http://127.0.0.1:8081"`                    | ASR server address                                                                                                                                                                         |
+| `language`                        | `"Chinese"`                                  | Language hint; empty lets the model decide                                                                                                                                                 |
+| `chunk_ms`                        | `320`                                        | Audio added per step (80–2000). Smaller means lower latency and more GPU load                                                                                                              |
+| `window_secs`, `window_drop_secs` | `16.0`, `8.0`                                | Rolling audio window and how much is dropped when it fills                                                                                                                                 |
+| `unfixed_tokens`                  | `1`                                          | Trailing tokens held back as provisional at each step                                                                                                                                      |
+| `max_new_tokens`                  | `32`                                         | Generation cap when a segment is finalized                                                                                                                                                 |
+| `preroll_ms`                      | `1500`                                       | Audio from before speech was detected that is still sent to ASR. A short wake word followed by a pause is lost if this is too small                                                        |
+| `launch.*`                        |                                              | See [Launch settings](#launch-settings). The ASR server runs one slot per live meeting (`session.max_live_meetings`); `ctx_size` is per slot and is multiplied by the slot count at launch |
 
 ## `[diarization]`
 
@@ -172,15 +237,16 @@ Streaming speech recognition through `llama-server`'s audio input.
 
 Speech synthesis through an OpenAI-compatible `/v1/audio/speech` endpoint that streams PCM.
 
-| Key           | Default                      | Description                                                                          |
-| ------------- | ---------------------------- | ------------------------------------------------------------------------------------ |
-| `enabled`     | `true`                       | `false` gives text-only answers                                                      |
-| `base_url`    | `"http://127.0.0.1:8082/v1"` | TTS server address                                                                   |
-| `model`       | `"tts"`                      | Request `model` field; matches the server's `--alias`                                |
-| `voice`       | —                            | Voice name supported by the chosen weights                                           |
-| `language`    | `"Chinese"`                  | Synthesis language                                                                   |
-| `sample_rate` | `24000`                      | Output sample rate in Hz                                                             |
-| `launch.*`    |                              | `model_path` (talker), `codec_path`, `default_language`, plus the common launch keys |
+| Key              | Default                      | Description                                                                                                                              |
+| ---------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`        | `true`                       | `false` gives text-only answers                                                                                                          |
+| `base_url`       | `"http://127.0.0.1:8082/v1"` | TTS server address                                                                                                                       |
+| `model`          | `"tts"`                      | Request `model` field; matches the server's `--alias`                                                                                    |
+| `voice`          | —                            | Voice name supported by the chosen weights                                                                                               |
+| `language`       | `"Chinese"`                  | Synthesis language                                                                                                                       |
+| `sample_rate`    | `24000`                      | Output sample rate in Hz                                                                                                                 |
+| `max_concurrent` | `1`                          | Requests sent to the TTS server at the same time. With several live meetings, their answers are synthesized sentence by sentence in turn |
+| `launch.*`       |                              | `model_path` (talker), `codec_path`, `default_language`, plus the common launch keys                                                     |
 
 ## `[embedding]`
 
@@ -319,16 +385,16 @@ model's context window.
 
 Each locally launched service has a `launch` table.
 
-| Key                         | Description                                                                                    |
-| --------------------------- | ---------------------------------------------------------------------------------------------- |
-| `enabled`                   | `false` means the service is started elsewhere and the application only connects to `base_url` |
-| `executable`                | Path to the server binary; empty searches the default locations                                |
-| `model_path`, `mmproj_path` | Weights and, where applicable, the multimodal projector                                        |
-| `ctx_size`                  | Context size passed to the server                                                              |
-| `parallel`                  | Number of slots (realtime LLM only)                                                            |
-| `gpu_layers`                | Passed to `-ngl`: a number, `"auto"` or `"all"`; `"0"` runs on CPU                             |
-| `env`                       | Extra environment variables, e.g. `{ CUDA_VISIBLE_DEVICES = "1" }`                             |
-| `extra_args`                | Arguments appended verbatim, e.g. `["--device", "CUDA0"]`                                      |
+| Key                         | Description                                                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `enabled`                   | `false` means the service is started elsewhere and the application only connects to `base_url`       |
+| `executable`                | Path to the server binary; empty searches the default locations                                      |
+| `model_path`, `mmproj_path` | Weights and, where applicable, the multimodal projector                                              |
+| `ctx_size`                  | Context size passed to the server                                                                    |
+| `parallel`                  | Number of slots (realtime LLM only; the ASR server's slot count follows `session.max_live_meetings`) |
+| `gpu_layers`                | Passed to `-ngl`: a number, `"auto"` or `"all"`; `"0"` runs on CPU                                   |
+| `env`                       | Extra environment variables, e.g. `{ CUDA_VISIBLE_DEVICES = "1" }`                                   |
+| `extra_args`                | Arguments appended verbatim, e.g. `["--device", "CUDA0"]`                                            |
 
 The exact command lines are documented in [interfaces.md §9](interfaces.md), and multi-GPU layouts
 in [runtimes.md §5](runtimes.md).

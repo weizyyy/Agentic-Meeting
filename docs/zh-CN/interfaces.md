@@ -23,12 +23,12 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
 
 | 配置段           | 内容                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `session`        | 助理名字（即唤醒词，必须是英文单词）、别名（`wake_aliases`：识别把名字写成的其他拼写，或听成的至少两个汉字；只用来唤醒，不作为识别热词）、识别热词、成员名单、数据目录                                                                                                                                                                                                                                                    |
-| `server`         | 监听地址与端口、HTTPS 证书、ICE 服务器、访问口令、登录有效期、`meeting_access` 与 `local_users`（§5.11）                                                                                                                                                                                                                                                                                                                  |
+| `session`        | 助理名字（即唤醒词，必须是英文单词）、别名（`wake_aliases`：识别把名字写成的其他拼写，或听成的至少两个汉字；只用来唤醒，不作为识别热词）、识别热词、成员名单、数据目录、同时进行的会议数                                                                                                                                                                                                                                  |
+| `server`         | 监听地址与端口、对外地址、HTTPS 证书、ICE 服务器、访问口令、单点登录、登录有效期、`meeting_access` 与 `local_users`（§5.11）                                                                                                                                                                                                                                                                                              |
 | `realtime_llm`   | 接入方式 `mode`，以及两种方式各自的一整套设置：`[realtime_llm.llama_server]`（地址、模型名字段、是否识图、思考开关、采样参数、槽位分工、启动参数）和 `[realtime_llm.openai_api]`（地址、密钥变量名、模型名、是否识图、是否认识 developer 角色、是否预热、附加请求字段、采样参数）                                                                                                                                         |
 | `asr`            | 识别后端、提示词格式档案、步长与窗口、每步不定稿的 token 数、句首回补时长（`preroll_ms`，默认 1500 毫秒）、启动参数                                                                                                                                                                                                                                                                                                       |
 | `diarization`    | 后端、动态库路径、权重路径、显卡序号、分段阈值                                                                                                                                                                                                                                                                                                                                                                            |
-| `tts`            | 地址、模型名字段、音色、语言、启动参数                                                                                                                                                                                                                                                                                                                                                                                    |
+| `tts`            | 地址、模型名字段、音色、语言、并发请求数、启动参数                                                                                                                                                                                                                                                                                                                                                                        |
 | `embedding`      | 地址、模型名字段、向量维度、查询前缀（`query_prefix`，召回时加在查询前面的任务指令，默认空）、相关度门槛（`min_similarity`，余弦相似度，默认 0.4，0 = 不设）、启动参数                                                                                                                                                                                                                                                    |
 | `speaker_memory` | 跨会议记住说话人：后端、本机声纹服务的地址、启动参数（§4.4）                                                                                                                                                                                                                                                                                                                                                              |
 | `audio`          | 入口收音增强：自动增益开关、起始增益、增益上限、目标电平、静音线、电平日志间隔（`audio/gain.py`，architecture.md §4）                                                                                                                                                                                                                                                                                                     |
@@ -48,14 +48,14 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
 - 相对路径一律用 `AppConfig.resolve()` 解析（相对仓库根目录）。
 - 业务代码不按实时模型的接入方式分支。`RealtimeLLMConfig` 提供以下成员：
 
-  | 成员                                   | 含义                                                                                       |
-  | -------------------------------------- | ------------------------------------------------------------------------------------------ |
-  | `active`                               | 当前选中的那一套设置（`base_url`、`api_key_env`、`model`、`supports_vision`、`sampling`…） |
-  | `managed`                              | 是否由进程管理器启动实时模型服务（只有 `llama_server` 方式且 `launch.enabled` 时为真）     |
-  | `has_health_endpoint`                  | 只读探测是否使用地址源的专用 `/health` 端点，与进程由谁启动无关                            |
-  | `request_extra_body(background=False)` | 每次请求要放进 `extra_body` 的字段，已按接入方式合并好                                     |
-  | `cache_warm`                           | 是否做缓存预热                                                                             |
-  | `supports_developer_role`              | 服务端是否认识 `developer` 角色                                                            |
+  | 成员                                           | 含义                                                                                                                    |
+  | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+  | `active`                                       | 当前选中的那一套设置（`base_url`、`api_key_env`、`model`、`supports_vision`、`sampling`…）                              |
+  | `managed`                                      | 是否由进程管理器启动实时模型服务（只有 `llama_server` 方式且 `launch.enabled` 时为真）                                  |
+  | `has_health_endpoint`                          | 只读探测是否使用地址源的专用 `/health` 端点，与进程由谁启动无关                                                         |
+  | `request_extra_body(background=False, lane=0)` | 每次请求要放进 `extra_body` 的字段，已按接入方式合并好。`lane` 是这场会议在进行中的会议里的位置（architecture.md §3.2） |
+  | `cache_warm`                                   | 是否做缓存预热                                                                                                          |
+  | `supports_developer_role`                      | 服务端是否认识 `developer` 角色                                                                                         |
 
   只有进程管理器（要不要生成启动命令）需要直接看 `mode` 和 `llama_server.launch`。
 
@@ -565,23 +565,23 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 
 除信令外，全部是 JSON；业务错误返回 `{"error": "<中文说明>", "code", "params"}` 和合适的状态码，`code` 标明是哪一条错误（§5.9）。
 开发时前端跑在 5173 端口并把 `/api` 代理到应用（见 `client/vite.config.ts`）。
-就绪检查的 503 响应保留 §5.8 定义的状态快照。配置了访问口令时，中间件保护 `/api`
+就绪检查的 503 响应保留 §5.8 定义的状态快照。需要登录时，中间件保护 `/api`
 及其下路径，§5.7 的公开认证接口除外。§5.8 的三个运维 GET 位于 `/api` 之外，保持匿名。
 
 ### 5.1 会话与对时
 
-| 方法与路径                                           | 请求                  | 响应                                                                                                                         |
-| ---------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/time`                                      | —                     | `{"server_time": <Unix 秒，浮点>}`                                                                                           |
-| `GET /api/sessions?limit=20&before=<last_active_at>` | —                     | `{"items": [会话摘要]}`，按 `last_active_at` 倒序；`before` 用来翻页                                                         |
-| `GET /api/sessions/{id}`                             | —                     | 会话摘要 + `"screen": {配置的 screen 段}` + `"connections": [{connected_at, disconnected_at, t_from, t_to}]`；不存在返回 404 |
-| `GET /api/session`                                   | —                     | 「当前会话」：活动连接所在的会话；没有就取最近一个未结束的；都没有返回 404。格式同上                                         |
-| `PATCH /api/sessions/{id}`                           | `{"title"?, "keep"?}` | 更新后的会话摘要；标题去首尾空白、最长 200 字；keep 是布尔值                                                                 |
-| `POST /api/sessions/{id}/end`                        | —                     | `{"id", "ended_at"}`。会话正在进行时同时断开它的连接，并在后台生成最后一份滚动纪要（响应不等它）                             |
-| `POST /api/session/end`                              | —                     | 同上，作用于当前会话                                                                                                         |
-| `POST /api/sessions/{id}/text`                       | `{"text": "…"}`       | `{"accepted": <boolean>, "notice": <notice 或 null>}`。旁观这场会议的设备打字提问（见下）                                    |
-| `GET /api/sessions/{id}/events`                      | —                     | 旁观这场会议的设备用的服务端推送事件流（见下）                                                                               |
-| `DELETE /api/sessions/{id}`                          | —                     | 数据库、向量、文件完整移除后才返回 `{"id"}`；忙时 409，删除失败 500（§8.4）                                                  |
+| 方法与路径                                           | 请求                  | 响应                                                                                                                             |
+| ---------------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/time`                                      | —                     | `{"server_time": <Unix 秒，浮点>}`                                                                                               |
+| `GET /api/sessions?limit=20&before=<last_active_at>` | —                     | `{"items": [会话摘要]}`，按 `last_active_at` 倒序；`before` 用来翻页                                                             |
+| `GET /api/sessions/{id}`                             | —                     | 会话摘要 + `"screen": {配置的 screen 段}` + `"connections": [{connected_at, disconnected_at, t_from, t_to}]`；不存在返回 404     |
+| `GET /api/session`                                   | —                     | 「当前会话」：最近连上的那场进行中的会议；没有就取最近一个未结束的；都没有返回 404。格式同上。同时进行好几场时请改用带编号的接口 |
+| `PATCH /api/sessions/{id}`                           | `{"title"?, "keep"?}` | 更新后的会话摘要；标题去首尾空白、最长 200 字；keep 是布尔值                                                                     |
+| `POST /api/sessions/{id}/end`                        | —                     | `{"id", "ended_at"}`。会话正在进行时同时断开它的连接，并在后台生成最后一份滚动纪要（响应不等它）                                 |
+| `POST /api/session/end`                              | —                     | 同上，作用于当前会话                                                                                                             |
+| `POST /api/sessions/{id}/text`                       | `{"text": "…"}`       | `{"accepted": <boolean>, "notice": <notice 或 null>}`。旁观这场会议的设备打字提问（见下）                                        |
+| `GET /api/sessions/{id}/events`                      | —                     | 旁观这场会议的设备用的服务端推送事件流（见下）                                                                                   |
+| `DELETE /api/sessions/{id}`                          | —                     | 数据库、向量、文件完整移除后才返回 `{"id"}`；忙时 409，删除失败 500（§8.4）                                                      |
 
 **会话摘要**：`{"id", "title", "keep": <boolean>, "deletion_pending": <boolean>, "started_at", "ended_at", "last_active_at", "state": "live" | "interrupted" | "ended",
 "duration_secs", "utterance_count", "speakers": ["王老师", …], "preview": [{"speaker", "text"}（最后两条发言）]}`。
@@ -671,10 +671,12 @@ SDK 重连替换 peer 时，关闭旧 peer 只保留当前 peer 仍使用的同�
 - 不带：新建会话。
 - 带，且会话存在：继续它（已中断或已结束的都可以；已结束的先重新打开）。具体做法见 architecture.md §3.1。
 - 带，但会话不存在：在协商之前返回 404 `{"error": "找不到这场会议"}`。
-- 已有别的活动连接时，新连接顶替它（同一时刻只有一路）。
+- 这场会议正在别的连接上进行时，新连接顶替那一路（一场会议同一时刻只有一路连接）；
+- 否则，进行中的会议已经有 `session.max_live_meetings` 场时：上限是 1 就顶替正在进行的那一场；上限大于 1 就在协商之前
+  以 409 `session.capacity` 拒绝（`params.max` 是上限）。带着已有连接 `pc_id` 的请求是重新协商，不占新位置（architecture.md §3.2）。开了 `server.meeting_access` 时先做 §5.11 的权限检查，无权录音的调用者得到 401、403 或 404，而不是 409。
 
 实现：`session_id` 为 `null` 等同于不带；不是字符串或是空串返回 400；会议不存在返回 404，两种情况都不会进入协商、
-不会建管线。新建不再结束别的会议。服务端在管线里做的事：`SessionManager.attach` 顶替旧连接（哪怕就是这场会议的另一路）、
+不会建管线。新建不再结束别的会议。服务端在管线里做的事：`SessionManager.attach` 顶替这场会议的旧连接、
 重新打开已结束的会议、算 `base_secs = max(此刻 − started_at, 时间轴已经用到的地方)` 并写一行连接记录；会议记录器和识别服务
 都从 `base_secs` 接着计时；实时模型的上下文由数据库重建（`build_context_messages`，最新纪要 + 最近 `keep_recent_minutes` 分钟），
 重建失败就从空的开始；开了预热的话连接建立后立刻预热一次。
@@ -699,10 +701,11 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 
 `POST /api/frames`，`multipart/form-data`：
 
-| 字段          | 类型       | 说明                                                          |
-| ------------- | ---------- | ------------------------------------------------------------- |
-| `captured_at` | 浮点字符串 | 采集时刻，**已换算成服务端时钟**的 Unix 秒                    |
-| `image`       | 文件       | `image/webp` 或 `image/jpeg`，长边不超过 `screen.max_side_px` |
+| 字段          | 类型         | 说明                                                                                                            |
+| ------------- | ------------ | --------------------------------------------------------------------------------------------------------------- |
+| `captured_at` | 浮点字符串   | 采集时刻，**已换算成服务端时钟**的 Unix 秒                                                                      |
+| `image`       | 文件         | `image/webp` 或 `image/jpeg`，长边不超过 `screen.max_side_px`                                                   |
+| `session_id`  | 字符串，可选 | 截图属于哪场进行中的会议。同时进行好几场时、或开了 `server.meeting_access` 时必填；不给时用唯一一场进行中的会议 |
 
 响应 `{"id": <截图编号>, "t": <会话时间轴秒>}`。校验：当前有进行中的会议；文件类型合法；
 大小 ≤ 4 MB；`captured_at` 与服务端当前时间相差不超过 60 秒（否则 400）。
@@ -713,8 +716,8 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 
 补充说明（`screen/ingest.py`、`web/frames_api.py`）：
 
-- 状态码：没有进行中的会议 404；不是图片、不是 WebP / JPEG、长边超过 `screen.max_side_px`、`captured_at` 不是数字或与服务端
-  时间相差超过 60 秒 → 400；超过 4 MB → 413；`screen.enabled = false` → 403；缺字段 → 422；落盘失败 → 500（同时撤销数据库里那一行）。
+- 状态码：没给 `session_id` 而没有进行中的会议 → 404 `frames.no_live_session`；`session_id` 指的会议没有在进行 → 409 `session.not_live`；不是图片、不是 WebP / JPEG、长边超过 `screen.max_side_px`、
+  `captured_at` 不是数字或与服务端时间相差超过 60 秒、同时进行好几场会议或开了 `server.meeting_access` 却没给 `session_id` → 400；超过 4 MB → 413；`screen.enabled = false` → 403；缺字段 → 422；落盘失败 → 500（同时撤销数据库里那一行）。
 - 文件类型以**解码结果**为准，不看浏览器声称的类型；文件名是 `<6 位截图编号>.webp`（或 `.jpg`）。
 - `t = max(0, captured_at − sessions.started_at)`。
 - **画面有没有变由服务端再判一次**：把新图缩成 64×36 灰度，与这场会议里上一张「变了」的图比（分成 8×6 的小块，取变化最大的那一块的平均差 / 255，
@@ -722,7 +725,7 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
   只靠兜底间隔传上来的图只要画面变了，照样单独生成摘要。不用整张的平均差：白底幻灯片只换了文字时整张只差 1% 左右）。没变的图（浏览器的兜底上传）照常进时间线、照常推 `frame`，但不再单独生成摘要、
   不往实时模型的上下文追加 `[画面]` 行，摘要沿用上一张的。只和上一张「变了」的图比，所以缓慢的累计变化迟早会超过阈值。
   这份「上一张」只在内存里，服务重启后第一张按「变了」处理。
-- **画面摘要（`screen/caption.py`）**：每次只做最新一张待处理的截图，积压的记为 `skipped`；助理应答时暂停，
+- **画面摘要（`screen/caption.py`）**：每场会议只做最新一张待处理的截图，积压的记为 `skipped`；同时进行好几场时按排队先后轮流；助理应答时暂停，
   被取消的那张应答完再做（除非又来了更新的画面）；模型出错或给出空摘要记为 `failed`。成功后写回数据库、推 `frame_caption`、
   向实时模型的上下文追加 `[画面 时:分:秒] 摘要`（`run_llm=False`）。画面没变的截图沿用上一张的摘要并推 `frame_caption`，
   但不再追加上下文行；上一张没有成功的摘要时，它当作新画面重做（相当于每个兜底间隔重试一次）。
@@ -850,18 +853,25 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 
 生成中的报告页面每 2 秒轮询一次 `GET /api/sessions/{id}/report`，不依赖音频连接。页面上，字幕区上方有「字幕 / 报告」两个页签。
 
-### 5.7 访问口令
+### 5.7 访问口令与单点登录
 
-需要显式开启。`server.password_env` 留空（默认）时以下内容都不生效：`/api` 不设限，
-`GET /api/auth` 返回 `enabled: false`。填写后，启动时从这个环境变量读取口令，`web/auth.py` 里的中间件
-拦住 `/api/` 下除 `GET /api/auth` 和 `POST /api/auth/login` 以外的全部路径。静态页面（`/`、`/assets/…`）
-不拦截，里面没有会议数据。
+需要显式开启。三种登录方式配了任一种就需要登录：共享的访问口令（`server.password_env`）、一个或多个
+OpenID Connect 身份提供方（`server.oidc`）、受信任反向代理传来的身份头（`server.proxy_auth.trusted_proxies`）。
+都没配（默认）时以下内容都不生效：`/api` 不设限，`GET /api/auth` 返回 `enabled: false`。配了任一种时，
+`web/auth.py` 里的中间件拦住 `/api/` 下除 `GET /api/auth`、`POST /api/auth/login` 和两个 `GET /api/auth/oidc/…`
+以外的全部路径。静态页面（`/`、`/assets/…`）不拦截，里面没有会议数据。几种方式可以同时开；无论用哪种登录，
+得到的都是下面同一种会话 Cookie 和 CSRF 令牌，其余接口不知道设备是怎么登录的。
 
-| 方法与路径              | 请求                  | 响应                                                                                                                                                                   |
-| ----------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/auth`         | —                     | `{"enabled", "authenticated", "csrf_token"}`；未登录或未启用口令时 `csrf_token` 为 `null`                                                                              |
-| `POST /api/auth/login`  | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}`，并下发会话 Cookie。口令不对 401；尝试过多 429，`Retry-After` 给出秒数；请求体超过 16 KiB 413；未启用口令 404 |
-| `POST /api/auth/logout` | —                     | `{"enabled": true, "authenticated": false, "csrf_token": null}`，并清除 Cookie                                                                                         |
+| 方法与路径                               | 请求                                | 响应                                                                                                                                                                   |
+| ---------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/auth`                          | —                                   | `{"enabled", "authenticated", "csrf_token", "methods"}`；未登录或不需要登录时 `csrf_token` 为 `null`                                                                   |
+| `POST /api/auth/login`                   | `{"password": "..."}`               | 同一个对象，`"authenticated": true`，并下发会话 Cookie。口令不对 401；尝试过多 429，`Retry-After` 给出秒数；请求体超过 16 KiB 413；没配访问口令 404 `auth.not_enabled` |
+| `POST /api/auth/logout`                  | —                                   | 同一个对象，`"authenticated": false`、`"csrf_token": null`，并清除 Cookie                                                                                              |
+| `GET /api/auth/oidc/{provider}/start`    | 查询参数 `next`（可选）             | 302 跳到身份提供方的授权地址；`provider` 不存在 404 `auth.provider_not_found`。连不上身份提供方时 303 回到页面，带 `#login_error=sso.unavailable`                      |
+| `GET /api/auth/oidc/{provider}/callback` | 查询参数 `code`、`state` 或 `error` | 303 跳到 `next` 并下发会话 Cookie；失败时 303 跳到 `next` 并带 `#login_error=<代码>`，不下发会话                                                                       |
+
+`methods` 为 `{"password": bool, "oidc": [{"id", "display_name"}, …], "proxy": bool}`，列出登录页能提供的方式；
+无论是否已登录都会给出，不需要登录时为 `false`、`[]`、`false`。
 
 **受保护的请求。** 没有有效的会话 Cookie 时返回 401 `{"error": "请先登录"}`。`POST`、`PUT`、`PATCH`、
 `DELETE` 还要求请求头 `X-CSRF-Token` 等于当前会话的令牌，否则 403。`POST`/`PATCH /api/offer` 也不例外：
@@ -889,6 +899,59 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 （凭据可以经 `GET /api/ice` 读到）再返回一条。它们由 `check` 和 `serve` 打印，不发给浏览器。
 
 已经建立的 WebRTC 连接不会因为 Cookie 到期或在别处退出登录而中断；之后的 HTTP 请求会被拒绝。
+
+#### OpenID Connect 单点登录
+
+`server.oidc` 的每一项是一个身份提供方，用上面地址里的 `id` 区分。流程是带 PKCE（`S256`）和 `nonce` 的授权码流程；
+`client_secret_env` 指向密钥时作为机密客户端，否则作为公开客户端：
+
+1. `start` 读取 `<issuer>/.well-known/openid-configuration`（缓存一小时；超时 10 秒），要求其中的 `issuer`
+   与配置逐字相同。生成随机的 `state`、`nonce` 和 code verifier，连同身份提供方、回调地址和 `next` 在内存里保留
+   10 分钟（最多 1000 个进行中的登录，满了丢最早的）。下发 Cookie `am_sso`（`HttpOnly; SameSite=Lax;
+Path=/api/auth/oidc/; Max-Age=600`，HTTPS 时加 `Secure`），值是一个随机数，它的 SHA-256 和进行中的登录存在一起；
+   然后带 `response_type=code`、`client_id`、`redirect_uri`、`scope`、`state`、`nonce`、`code_challenge`、
+   `code_challenge_method=S256` 跳到授权地址。
+2. `callback` 取出并删除 `state` 对应的进行中登录（每个 `state` 只能用一次）；它不存在、已过期、不属于这个身份提供方，
+   或者与同一浏览器的 `am_sso` Cookie 对不上，都算失败。然后用 code verifier 和同一个回调地址在令牌接口换取令牌，
+   客户端认证用 HTTP Basic（`client_secret_basic`），身份提供方只声明支持 `client_secret_post` 时改用表单。
+3. ID 令牌必须用非对称算法（`RS*`、`PS*`、`ES*`、`EdDSA`）签名，算法须在身份提供方的
+   `id_token_signing_alg_values_supported` 里（没有这一项时按 `RS256`），公钥取自它的 `jwks_uri`（遇到未知的 key id
+   时重新获取，最多每 30 秒一次）。`iss` 须等于 issuer，`aud` 须包含 client id（有 `azp` 或有多个受众时 `azp` 须等于
+   client id），`exp`、`iat`、`sub` 必须有，`nonce` 须对上，时钟允许相差 60 秒。不签名的令牌和 HMAC 算法一律拒收。
+4. 用户名取 `username_claim` 指定的声明（默认 `preferred_username`，缺失时用 `sub`），显示名取 `name`（缺失时用
+   用户名），用户组取 `groups_claim` 指定的声明（字符串列表或单个字符串）。ID 令牌里缺用户名或用户组声明、而身份提供方
+   有 `userinfo_endpoint` 时，用 access token 从那里补全；其中的 `sub` 必须与 ID 令牌相同。
+5. `allowed_users` 或 `allowed_groups` 不为空时，用户名须在前者里，或者属于后者中的某个组；都为空时身份提供方认证过的人
+   都可以登录。
+
+回调地址是 `<public_url>/api/auth/oidc/<id>/callback`，`public_url` 取 `server.public_url`，留空时取请求的协议和主机
+（与上面的客户端地址一样，只有 uvicorn 信任代理时才采用 `X-Forwarded-Proto` 和 `Host`）。在身份提供方那边登记的
+必须正是这个地址。身份提供方的所有接口都必须是 HTTPS，issuer 是本机回环地址时除外。ID 令牌、access token 和声明
+都不保存，只签发会话 Cookie。
+
+`next` 必须是本站的路径（以一个 `/` 开头，最多 2000 个字符），否则换成 `/`。失败原因放在地址的片段里交给页面，
+服务端不会再看到它，页面读完就去掉：
+
+| `login_error`     | 原因                                                                  |
+| ----------------- | --------------------------------------------------------------------- |
+| `sso.unavailable` | 连不上发现文档、公钥、令牌或 userinfo 接口                            |
+| `sso.cancelled`   | 身份提供方返回 `error=access_denied`（用户拒绝或取消）                |
+| `sso.expired`     | `state` 未知或已过期，或 `am_sso` Cookie 缺失、对不上                 |
+| `sso.denied`      | 在身份提供方那边登录成功，但不在 `allowed_users`、`allowed_groups` 里 |
+| `sso.failed`      | 其他错误：令牌被拒收、身份提供方返回错误                              |
+
+具体原因记在服务端日志里。只有登录那一下需要身份提供方：它离线时已经登录的设备照常可用，访问口令也始终可用。
+
+#### 反向代理传来的身份头
+
+`server.proxy_auth.trusted_proxies` 列了地址或网段时，直连对端是其中之一、并带有非空 `user_header`
+（默认 `X-Forwarded-User`）的请求，不需要 Cookie 就以该用户身份登录。直连对端是 uvicorn 按 `X-Forwarded-For`
+改写之前的 TCP 对端，所以客户端没法借这个头冒充代理地址。其他地址发来的同名头一律忽略。可选的 `name_header` 和
+`groups_header` 给出显示名和用户组（逗号分隔）；头的值按 UTF-8 读取。`allowed_users`、`allowed_groups` 与
+OpenID Connect 一样限定谁能进；被拒绝的用户按未登录处理。
+
+`GET /api/auth` 对这样的请求报告已登录，CSRF 令牌由用户名在会话令牌的同一密钥下派生；改动性的请求照常需要它。
+只要代理还在发这个头，退出登录就不起作用。代理必须把它自己没有认证的请求里的这个头去掉。
 
 ### 5.8 健康检查与基础指标
 
@@ -984,6 +1047,11 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
       "minimum": 0,
       "maximum": 1
     },
+    "at_most_meetings": {
+      "type": ["integer","null"],
+      "minimum": 0,
+      "maximum": 16
+    },
     "lifecycle": {
       "enum": ["starting","running","stopping"]
     },
@@ -1018,7 +1086,7 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
       "type": "object",
       "additionalProperties": false,
       "required": ["enabled","depth"],
-      "properties": {"enabled":{"type":"boolean"},"depth":{"$ref":"#/$defs/zero_or_one"}}
+      "properties": {"enabled":{"type":"boolean"},"depth":{"$ref":"#/$defs/at_most_meetings"}}
     },
     "queues": {
       "type": "object",
@@ -1045,7 +1113,7 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
       "type": "object",
       "additionalProperties": false,
       "required": ["status","lifecycle","live_connections","caption_lag_seconds","caption_sample_age_seconds","queues","task_counts","task_counts_age_seconds","services","service_snapshot_age_seconds"],
-      "properties": {"status":{"enum":["ok","partial"]},"lifecycle":{"$ref":"#/$defs/lifecycle"},"live_connections":{"$ref":"#/$defs/zero_or_one"},"caption_lag_seconds":{"$ref":"#/$defs/seconds"},"caption_sample_age_seconds":{"$ref":"#/$defs/seconds"},"queues":{"$ref":"#/$defs/queues"},"task_counts":{"$ref":"#/$defs/task_counts"},"task_counts_age_seconds":{"$ref":"#/$defs/seconds"},"services":{"$ref":"#/$defs/services"},"service_snapshot_age_seconds":{"$ref":"#/$defs/seconds"}}
+      "properties": {"status":{"enum":["ok","partial"]},"lifecycle":{"$ref":"#/$defs/lifecycle"},"live_connections":{"$ref":"#/$defs/at_most_meetings"},"caption_lag_seconds":{"$ref":"#/$defs/seconds"},"caption_sample_age_seconds":{"$ref":"#/$defs/seconds"},"queues":{"$ref":"#/$defs/queues"},"task_counts":{"$ref":"#/$defs/task_counts"},"task_counts_age_seconds":{"$ref":"#/$defs/seconds"},"services":{"$ref":"#/$defs/services"},"service_snapshot_age_seconds":{"$ref":"#/$defs/seconds"}}
     }
   }
 }
@@ -1054,19 +1122,19 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 **指标字典。** 这些是应用实例的 gauge，不是进程启动后的累计 counter。
 内存字段每次从当前资源读取，缓存的数据库/服务字段给出各自 age。
 
-| 字段                            | 精确口径及重置/故障语义                                                                                                                                                                                                              |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `live_connections`              | 当前已向 `SessionManager` 登记 worker 和 recorder 的活动连接数，取 0 或 1。管线仍在组装或接管间隙为 0；资源不存在/不可读为 `null`。不计历史连接行数                                                                                  |
-| `caption_lag_seconds`           | 新 `ASRDelta` 第一次成功发送非空 `CaptionUpdate` 后，按共享会话音频时间轴计算 `raw_lag = recorder.elapsed_secs - delta.audio_end_secs`。只接受有限且 `raw_lag >= -1 / ASR_SAMPLE_RATE` 的值，再保存 `max(0, raw_lag)`                |
-| `caption_sample_age_seconds`    | 距该成功样本的单调时钟秒数。无样本时两个字幕字段都为 `null`                                                                                                                                                                          |
-| `queues.transcript_retry`       | 活动 recorder 等待下次存储重试的未写入发言数；空闲为 0；已登记连接的 recorder 不存在/不可读时为 `null`                                                                                                                               |
-| `queues.screen_caption.enabled` | 画面摘要 worker 是否启用，启动前按上文的配置后备规则给出                                                                                                                                                                             |
-| `queues.screen_caption.depth`   | 等待处理的新画面槽位数，取 0 或 1，不含正在处理的画面及复用摘要的 followers。关闭为 0；启用但 worker 不可用/不可读时为 `null`                                                                                                        |
-| `queues.agent_tasks`            | 与 `task_counts` 同一数据库聚合快照的 `queued` 数；聚合不可用时为 `null`                                                                                                                                                             |
-| `task_counts`                   | 对**数据库全部保留任务**按 `queued/running/succeeded/failed/cancelled` 分组计数。空库为五个零；关闭 agent 不会隐藏保留任务；删除任务可降低计数；重启恢复结果体现在下次快照。查询失败时整组为 `null`，不能使用 `TaskManager._running` |
-| `task_counts_age_seconds`       | 成功计数快照的单调时钟 age，有效期严格小于 5 秒；计数不可用时为 `null`                                                                                                                                                               |
-| `services`                      | 与就绪接口共用的固定名称快照及状态语义                                                                                                                                                                                               |
-| `service_snapshot_age_seconds`  | 自该轮服务刷新完成后的单调时钟 age，有效期严格小于 5 秒；当前快照中任一启用服务为 `unknown`，或尚无完成的刷新时为 `null`                                                                                                             |
+| 字段                            | 精确口径及重置/故障语义                                                                                                                                                                                                                                             |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `live_connections`              | 当前已向 `SessionManager` 登记 worker 和 recorder 的活动连接数，取 0 到 `session.max_live_meetings`。管线仍在组装或接管间隙的不计；资源不存在/不可读为 `null`。不计历史连接行数                                                                                     |
+| `caption_lag_seconds`           | 新 `ASRDelta` 第一次成功发送非空 `CaptionUpdate` 后，按共享会话音频时间轴计算 `raw_lag = recorder.elapsed_secs - delta.audio_end_secs`。只接受有限且 `raw_lag >= -1 / ASR_SAMPLE_RATE` 的值，再保存 `max(0, raw_lag)`。同时进行好几场时报最大的那一场及它的样本年龄 |
+| `caption_sample_age_seconds`    | 距该成功样本的单调时钟秒数。无样本时两个字幕字段都为 `null`                                                                                                                                                                                                         |
+| `queues.transcript_retry`       | 各场活动 recorder 等待下次存储重试的未写入发言数之和；空闲为 0；已登记连接的 recorder 不存在/不可读时为 `null`                                                                                                                                                      |
+| `queues.screen_caption.enabled` | 画面摘要 worker 是否启用，启动前按上文的配置后备规则给出                                                                                                                                                                                                            |
+| `queues.screen_caption.depth`   | 等待处理的新画面槽位数，每场进行中的会议最多 1 个，不含正在处理的画面及复用摘要的 followers。关闭为 0；启用但 worker 不可用/不可读时为 `null`                                                                                                                       |
+| `queues.agent_tasks`            | 与 `task_counts` 同一数据库聚合快照的 `queued` 数；聚合不可用时为 `null`                                                                                                                                                                                            |
+| `task_counts`                   | 对**数据库全部保留任务**按 `queued/running/succeeded/failed/cancelled` 分组计数。空库为五个零；关闭 agent 不会隐藏保留任务；删除任务可降低计数；重启恢复结果体现在下次快照。查询失败时整组为 `null`，不能使用 `TaskManager._running`                                |
+| `task_counts_age_seconds`       | 成功计数快照的单调时钟 age，有效期严格小于 5 秒；计数不可用时为 `null`                                                                                                                                                                                              |
+| `services`                      | 与就绪接口共用的固定名称快照及状态语义                                                                                                                                                                                                                              |
+| `service_snapshot_age_seconds`  | 自该轮服务刷新完成后的单调时钟 age，有效期严格小于 5 秒；当前快照中任一启用服务为 `unknown`，或尚无完成的刷新时为 `null`                                                                                                                                            |
 
 同一 delta 至多尝试采样一次，包括它同时出现在临时/最终帧或产生多个说话人字幕分片的情况。
 只在非空字幕消息成功送入输出管线后采样；发送失败、纯空白/空字幕、键入文字和助理发言不产生样本。
@@ -1226,6 +1294,12 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 | `auth.wrong_password`       | 401           | —                | 口令不对                                                           |
 | `auth.too_many`             | 429           | —                | 尝试次数过多，请稍后再试                                           |
 | `auth.not_enabled`          | 404           | —                | 没有启用访问口令                                                   |
+| `auth.provider_not_found`   | 404           | —                | 没有这个登录方式                                                   |
+| `sso.unavailable`           | —（§5.7）     | —                | 暂时连不上身份提供方，请稍后再试或改用其他登录方式                 |
+| `sso.cancelled`             | —（§5.7）     | —                | 登录已取消                                                         |
+| `sso.expired`               | —（§5.7）     | —                | 登录请求已过期，请重新登录                                         |
+| `sso.denied`                | —（§5.7）     | —                | 这个账号没有被允许登录                                             |
+| `sso.failed`                | —（§5.7）     | —                | 单点登录没有完成，请重试                                           |
 | `access.denied`             | 403           | —                | 无权执行此操作                                                     |
 | `access.invalid_member`     | 400           | —                | 成员不存在或不能主持会议                                           |
 | `access.last_host`          | 409           | —                | 会议必须保留一位主持人                                             |
@@ -1241,6 +1315,7 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 | `session.none`              | 404           | —                | 现在没有会议                                                       |
 | `session.busy`              | 409           | —                | 会议正在处理或等待删除，请稍后重试                                 |
 | `session.not_live`          | 409           | —                | 这场会议现在没有在进行，消息没有发送                               |
+| `session.capacity`          | 409           | `max`: number    | 已经有 {max} 场会议在同时进行，请等其中一场结束或断开后再开始      |
 | `session.delete_incomplete` | 500           | —                | 删除未完成，会议待删除，请稍后重试                                 |
 | `session.title_too_long`    | 400           | `max`：number    | 标题太长（最多 {max} 字）                                          |
 | `speaker.not_found`         | 404           | —                | 这场会议里没有这个说话人                                           |
@@ -1317,21 +1392,30 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 从不存原始 cookie 或口令。`POST /api/auth/logout` 结束当前登录，`POST /api/auth/logout-all`
 结束本人的所有登录。
 
+**单点登录。** §5.7 的 OpenID Connect 身份提供方在会议访问模式下同样可用。通过身份提供方 `<id>` 登录的人是主体
+`oidc:<id>:<sub>`，`sub` 取自 ID 令牌，所以身份提供方那边改了用户名或显示名，会议授权也不变。每次登录都会把主体和显示名
+记进 `principals`，并在 `external_principals(principal_id, can_host)` 里记下它能否主持：用户名在该身份提供方的
+`host_users` 里，或者属于 `host_groups` 中的某个组时可以，每次登录重新判断。不要求站点口令，因为身份提供方已经认证过这个人；
+谁能进由 `allowed_users` 和 `allowed_groups` 决定。登录和本地账号一样记在 `login_sessions` 里，退出、全部退出、到期和撤权
+的效果都相同。把某个身份提供方从配置里删掉后，下次启动起经它登录的设备都失效，它的主体也不能再被授权。`GET /api/auth` 增加与 §5.7 相同的 `methods`，其中 `password` 总是真、`proxy` 总是假。反向代理传来的身份头
+不能和会议访问模式同时使用，两者都配置时配置检查报错。
+
 **角色。** 授权存在 `meeting_members(session_id, principal_id, role, allow_questions)` 中。创建会议时，
 创建者的 `host` 授权在同一个事务里写入；只有 `can_host` 的账号能创建会议。`watcher` 能读会议，
 `allow_questions` 为真时才能提问（默认假）。主持人还能录音和继续、改名、保留、结束和删除会议、改说话人、清除声纹片段、
-生成报告、取消任务，以及管理成员和分享。每场会议至少保留一位主持人，只有 `can_host` 的账号能被设为主持人。
+生成报告、取消任务，以及管理成员和分享。每场会议至少保留一位主持人，只有 `can_host` 的账号和能主持的单点登录主体能被设为主持人。
 角色从不取自请求数据。会议响应带上本人的 `access: {role, allow_questions, tool_enabled, share_expires_at}`，
 页面据此显示对应的控件；服务器仍会自己检查。
 
 | 方法与路径                                         | 权限   | 结果                                                             |
 | -------------------------------------------------- | ------ | ---------------------------------------------------------------- |
 | `GET /api/sessions/{id}/members`                   | 主持人 | `{items: [{principal_id, display_name, role, allow_questions}]}` |
-| `PUT /api/sessions/{id}/members/{principal_id}`    | 主持人 | 给配置里的账号设置 `{role, allow_questions}`                     |
+| `PUT /api/sessions/{id}/members/{principal_id}`    | 主持人 | 给已知的主体设置 `{role, allow_questions}`                       |
 | `DELETE /api/sessions/{id}/members/{principal_id}` | 主持人 | 撤销授权；不能移除最后一位主持人                                 |
 | `GET /api/sessions/{id}/access-log`                | 主持人 | 访问日志（§5.13）                                                |
 
-页面显示本人的主体 ID；主持人输入准确的 ID 来授权。没有用户目录。
+页面显示本人的主体 ID；主持人输入准确的 ID 来授权。已知的主体是配置里的账号，或者至少登录过一次的单点登录主体。
+没有用户目录。
 
 **开启前的会议。** 没有主人的会议在会议访问模式下看不到，也不会分给第一个访问的人。运维先停掉服务，
 运行 `agentic-meeting access list-unclaimed`，再对一个能主持的账号运行
@@ -1347,7 +1431,8 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 
 **连接与撤权。** 每个事件流和 WebRTC 连接都绑定一个登录、主体和会议。发起、继续连接和 ICE PATCH
 都会核对这个绑定；客户端送来的 `pc_id` 或角色不能代替授权。开始新的录音不能打断本人无权主持的会议，
-"忙"的回应也不透露正在录哪场会议。移除成员、注销（单个登录或全部）和登录到期会在一秒内生效，空闲的事件流也一样：
+"忙"的回应（409 `access.busy`）也不透露正在录哪场会议。只有 `session.max_live_meetings` 为 1 时才会顶替；
+上限更大时，新的录音从不打断别的会议，位置满了就在上面这些检查之后以 409 `session.capacity` 拒绝（§5.2）。移除成员、注销（单个登录或全部）和登录到期会在一秒内生效，空闲的事件流也一样：
 受影响的事件流结束并丢掉排队的事件，录音连接关闭，流式下载在下一块之前停止。已经发出去的字节无法撤回。
 
 §5.1 的事件流在会议访问模式下保留游标、快照和重放规则。游标只是位置，不代表权限：订阅前、发送快照或重放前、
@@ -1672,6 +1757,7 @@ class TaskManager:
 
 - 整个应用只有一个任务管理器；连接断开或更换会议之后，任务仍会继续运行。
 - 并发数由 `agent.max_concurrent_tasks` 限制，运行时间由 `agent.task_timeout_secs` 限制。
+  排队的任务在各场会议之间轮流：空出位置时，正在跑的任务最少的那场会议先上，同一场会议里按排队先后。
 - **编号。** 数据库主键是 `<会话 id>.t<序号>`，全库唯一。点号之后的部分是短编号（`TaskRecord.label`），
   用于口头指代、工具参数和界面；HTTP 接口使用完整编号。
 - `t_from`、`t_to` 和 `frame_ids_json` 记录交给 agent 的转录时间范围与截图，即该任务外发的内容。
@@ -1823,7 +1909,7 @@ llama-server -m <model_path> [--mmproj <mmproj_path>] -a <model>
 ```
 llama-server -m <model_path> --mmproj <mmproj_path>
              --host 127.0.0.1 --port <取自 base_url>
-             -c <ctx_size> -np 1 -ngl <gpu_layers>
+             -c <ctx_size × max_live_meetings> -np <session.max_live_meetings> -ngl <gpu_layers>
              --jinja --chat-template-file <data_dir>/run/asr_chat_template.jinja
              --cache-ram 0
              <extra_args...>
@@ -1885,12 +1971,12 @@ tts-server --model <model_path> --codec <codec_path> --alias <tts.model>
   `prctl(PR_SET_PDEATHSIG)` 登记「父进程死了给我发终止信号」；macOS 没有对应的机制，强杀之后要自己结束残留的推理进程。
 
 **应用向实时模型发请求时附带的字段**（放在 OpenAI SDK 的 `extra_body` 里）：一律取自
-`cfg.realtime_llm.request_extra_body(background=...)`：
+`cfg.realtime_llm.request_extra_body(background=..., lane=...)`：
 
-| 接入方式       | 内容                                                                                                                                                                                            |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `llama_server` | 配置中的 `extra_body` + `top_k`（若配置了）+ `{"id_slot": <槽位>, "cache_prompt": true}`；实时应答与预热用 `realtime_slot`，后台任务（画面摘要、纪要）传 `background=True` 用 `background_slot` |
-| `openai_api`   | 配置中的 `extra_body` + `top_k`（若配置了）。不带任何 llama.cpp 专有字段                                                                                                                        |
+| 接入方式       | 内容                                                                                                                                                                                                                                                              |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `llama_server` | 配置中的 `extra_body` + `top_k`（若配置了）+ `{"id_slot": <槽位>, "cache_prompt": true}`；实时应答与预热用 `realtime_slot + lane`（`lane` 是这场会议在进行中的会议里的位置，只有一场时为 0），后台任务（画面摘要、纪要）传 `background=True` 用 `background_slot` |
+| `openai_api`   | 配置中的 `extra_body` + `top_k`（若配置了）。不带任何 llama.cpp 专有字段                                                                                                                                                                                          |
 
 **语音合成接口**（qwentts.cpp `tts-server`）：
 

@@ -28,6 +28,9 @@ wake_aliases = []
 hotwords = ["Transformer", "LoRA", "ablation", "baseline"]
 # 成员名单，仅用于界面上给「说话人 1/2/3」改名时做候选。
 members = []
+# 同时进行的会议最多几场。1 = 新会议顶替正在进行的那一场；大于 1 时满了就拒绝新会议。
+# 每多一场：实时模型多用一个槽位（见 realtime_slot），识别服务多一个槽位，说话人区分多加载一份模型。
+max_live_meetings = 1
 
 # ----------------------------------------------------------------------------
 # 服务端
@@ -41,6 +44,9 @@ local_users = []
 
 host = "0.0.0.0"
 port = 7860
+# 浏览器访问本服务用的地址，例如 "https://meet.example.org"。单点登录的回调地址由它生成
+# （<public_url>/api/auth/oidc/<id>/callback）；留空时按请求推断。
+public_url = ""
 # 其他电脑的浏览器要访问，必须走 HTTPS（否则浏览器不允许采集麦克风/屏幕）。
 # 用 mkcert 生成证书后填在这里；只在本机用 http://localhost 访问可留空。
 tls_cert = ""
@@ -56,6 +62,22 @@ ice_servers = []
 # 留空 = 不需要登录，只适合本机或可信的局域网。
 password_env = ""
 auth_session_days = 7   # 登录一次的有效天数
+# 单点登录（OpenID Connect）：每个身份提供方一项，登录页上各有一个按钮。可以和访问口令同时开：
+# 身份提供方连不上时仍能用口令登录。客户端密钥写在 .env 里，这里只写变量名。见 docs/configuration.md。
+# oidc = [
+#   { id = "lab", display_name = "实验室账号", issuer = "https://id.example.org/realms/lab", client_id = "agentic-meeting", client_secret_env = "AGENTIC_MEETING_OIDC_SECRET", allowed_groups = ["lab-members"] },
+# ]
+# 开了 meeting_access 时，单点登录的人各有自己的身份；每项里的 host_users / host_groups 决定谁能开会和主持。
+oidc = []
+
+# 反向代理传来的身份头：只认 trusted_proxies 里的地址直接发来的请求。trusted_proxies 留空 = 不启用。
+[server.proxy_auth]
+trusted_proxies = []
+user_header = "X-Forwarded-User"
+name_header = ""
+groups_header = ""      # 逗号分隔的用户组
+allowed_users = []      # 两张名单都空 = 代理认证过的人都能进
+allowed_groups = []
 
 # ----------------------------------------------------------------------------
 # 实时应答模型
@@ -75,8 +97,8 @@ model = "realtime"          # 请求里的 model 字段；与启动参数 --alia
 supports_vision = true      # 模型不能识图就改 false，并留空 mmproj_path
 thinking = false            # 实时路径必须关思考（启动时对应 --reasoning off）
 extra_body = {}             # 个别模型还需要模板参数，例如 { chat_template_kwargs = { enable_thinking = false } }
-realtime_slot = 0           # 实时应答与缓存预热用的槽位
-background_slot = 1         # 画面摘要、滚动纪要用的槽位
+realtime_slot = 0           # 实时应答与缓存预热用的槽位；同时开 N 场会议时用 realtime_slot 起连续 N 个
+background_slot = 1         # 画面摘要、滚动纪要用的槽位；不能落在上面那 N 个里
 
 [realtime_llm.llama_server.sampling]
 max_tokens = 512
@@ -90,8 +112,8 @@ enabled = true              # false = llama-server 另行启动，应用只连�
 executable = ""             # 留空自动找 runtimes/llama_cpp/llama-server
 model_path = ""             # ← 必填：实时模型 GGUF，例如 "models/llm/xxx-Q8_0.gguf"
 mmproj_path = ""            # ← supports_vision = true 时必填
-ctx_size = 32768            # 两个槽位共用；显存紧张时调小
-parallel = 2                # 并发槽位数，至少要覆盖上面两个槽位号
+ctx_size = 32768            # 全部槽位共用（每个槽位分到 ctx_size / parallel）；显存紧张时调小
+parallel = 2                # 并发槽位数，至少要覆盖上面用到的全部槽位号
 gpu_layers = "all"
 env = {}                    # 多显卡：{ CUDA_VISIBLE_DEVICES = "0" }
 extra_args = []             # 原样追加，例如 ["--device", "CUDA0"]
@@ -136,7 +158,7 @@ enabled = true
 executable = ""
 model_path = ""             # ← 必填：ASR GGUF（建议 Q8_0）
 mmproj_path = ""            # ← 必填：ASR 的 mmproj GGUF
-ctx_size = 8192             # 识别服务固定单槽位（-np 1），没有 parallel 这一项
+ctx_size = 8192             # 每个槽位的上下文；槽位数等于 session.max_live_meetings，启动时 -c 按槽位数放大
 gpu_layers = "all"
 env = {}                    # 多显卡时可把 ASR 放到小卡：{ CUDA_VISIBLE_DEVICES = "1" }
 extra_args = []
@@ -171,6 +193,7 @@ model = "tts"               # 与 tts-server 的 --alias 对应
 voice = ""                  # ← 必填：音色名（取决于所选权重，见该权重的说明）
 language = "Chinese"
 sample_rate = 24000
+max_concurrent = 1          # 同时发给合成服务的请求数；同时开几场会议时各场的回答按句轮流合成
 
 [tts.launch]
 enabled = true

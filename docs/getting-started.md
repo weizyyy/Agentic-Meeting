@@ -221,8 +221,9 @@ deleting `data/auth_secret`, logs out every device. After 5 wrong attempts withi
 has to wait before trying again.
 
 Use the password together with HTTPS: over plain HTTP it crosses the network unencrypted. The
-password protects the whole application with one shared secret; per-person accounts are not
-available yet.
+password protects the whole application with one shared secret. To let people log in with their
+organization accounts instead, or in addition, see
+[Single sign-on](configuration.md#single-sign-on).
 
 ## Enable the code sandbox
 

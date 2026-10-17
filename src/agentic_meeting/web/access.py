@@ -13,16 +13,18 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from loguru import logger
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from agentic_meeting.config import AppConfig, secret
 from agentic_meeting.store.db import Store
+from agentic_meeting.web import sso as sso_module
 from agentic_meeting.web.auth import (
     COOKIE_NAME,
     CSRF_HEADER,
     MAX_LOGIN_BODY_BYTES,
+    PUBLIC_GET_PREFIX,
     PUBLIC_PATHS,
     SAFE_METHODS,
     AuthGuard,
@@ -46,6 +48,14 @@ class Identity:
     guest: bool = False
 
 
+@dataclass(frozen=True)
+class ExternalPrincipal:
+    """单点登录的主体：显示名和能否主持取自最近一次登录。"""
+
+    display_name: str
+    can_host: bool
+
+
 @dataclass(eq=False)
 class Lease:
     identity: Identity
@@ -60,7 +70,8 @@ class MeetingAccess:
         self.cfg = cfg
         self.users = {f"local:{user.id}": user for user in cfg.server.local_users}
         salt = load_or_create_secret(cfg.resolve(cfg.session.data_dir))
-        self.site = AuthGuard.from_config(cfg)
+        # 只有设了站点口令才要它；单点登录让 AuthGuard.from_config 也返回不带口令的 guard
+        self.site = AuthGuard.from_config(cfg) if cfg.server.password_env else None
         self.guards: dict[str, AuthGuard] = {}
         for principal, user in self.users.items():
             password = secret(user.password_env)
@@ -81,6 +92,15 @@ class MeetingAccess:
         self.guest_guard = AuthGuard(
             salt.hex(), guest_salt, session_secs=min(cfg.server.auth_session_days * 86400, 86400)
         )
+        # 单点登录的主体共用一个签名密钥；哪个登录属于谁由 login_sessions 决定
+        self.sso = sso_module.SingleSignOn.from_config(cfg)
+        sso_salt = hmac.new(
+            salt, b"sso" + (secret(cfg.server.password_env) or "").encode(), hashlib.sha256
+        ).digest()
+        self.sso_guard = AuthGuard(
+            None, sso_salt, session_secs=cfg.server.auth_session_days * 86400
+        )
+        self.external: dict[str, ExternalPrincipal] = {}
         self.pruned_at = time.monotonic()
         self.viewed: dict[tuple[str, str], float] = {}
         self.store: Store
@@ -96,6 +116,13 @@ class MeetingAccess:
         await store.register_principals(
             [(key, user.display_name) for key, user in self.users.items()]
         )
+        # 身份提供方从配置里删掉后，经它登录的人不再能登录，也不能再被授权
+        providers = self.sso.providers if self.sso is not None else {}
+        self.external = {
+            row["id"]: ExternalPrincipal(row["display_name"], row["can_host"])
+            for row in await store.external_principals()
+            if row["id"].split(":")[1] in providers
+        }
         await store.prune_shares()
         self.monitor = asyncio.create_task(self._monitor(), name="meeting-access")
 
@@ -116,10 +143,11 @@ class MeetingAccess:
             return None
         principal = row["principal_id"]
         guest = await self.store.is_guest_login(digest, principal)
-        guard = self.guest_guard if guest else self.guards.get(principal)
+        identity = Identity(digest, principal, cookie, guest)
+        guard = self._guard(identity)
         if guard is None or guard.verify(cookie) is None:
             return None
-        return Identity(digest, principal, cookie, guest)
+        return identity
 
     async def require(self, identity: Identity, session_id: str, action: str = "read") -> dict:
         if await self.authenticate(identity.cookie) is None:
@@ -147,7 +175,9 @@ class MeetingAccess:
         }
 
     def display_name(self, identity: Identity) -> str:
-        user = None if identity.guest else self.users.get(identity.principal)
+        if identity.guest:
+            return "Guest"
+        user = self.users.get(identity.principal) or self.external.get(identity.principal)
         return "Guest" if user is None else user.display_name
 
     async def audit(self, identity: Identity, session_id: str, action: str, **detail: Any) -> None:
@@ -172,11 +202,40 @@ class MeetingAccess:
             identity, session_id, "meeting.view", role=access["role"], sources=access["sources"]
         )
 
+    def _guard(self, identity: Identity) -> AuthGuard | None:
+        if identity.guest:
+            return self.guest_guard
+        if identity.principal in self.external:
+            return self.sso_guard
+        return self.guards.get(identity.principal)
+
     def guard(self, identity: Identity) -> AuthGuard:
-        return self.guest_guard if identity.guest else self.guards[identity.principal]
+        guard = self._guard(identity)
+        assert guard is not None
+        return guard
+
+    def principal_can_host(self, principal: str) -> bool | None:
+        """配置的账号或登录过的单点登录主体能否主持；不认识的主体返回 None。"""
+        user = self.users.get(principal) or self.external.get(principal)
+        return None if user is None else user.can_host
 
     def can_host(self, identity: Identity) -> bool:
-        return not identity.guest and self.users[identity.principal].can_host
+        return not identity.guest and bool(self.principal_can_host(identity.principal))
+
+    async def sign_in_external(self, identity: sso_module.ExternalIdentity) -> tuple[str, Identity]:
+        """单点登录认出人之后：记下主体，按配置判断能否主持，签发一个登录。返回 Cookie 和身份。"""
+        assert self.sso is not None
+        principal = f"{identity.source}:{identity.subject}"
+        provider = self.sso.providers[identity.source.removeprefix("oidc:")]
+        can_host = sso_module.allowed(identity, provider.cfg.host_users, provider.cfg.host_groups)
+        # 两张名单都空时 allowed 放行所有人；主持人名单要显式给出
+        can_host = can_host and bool(provider.cfg.host_users or provider.cfg.host_groups)
+        await self.store.save_external_principal(principal, identity.display_name, can_host)
+        self.external[principal] = ExternalPrincipal(identity.display_name, can_host)
+        cookie, _ = self.sso_guard.issue()
+        digest = hashlib.sha256(cookie.encode()).hexdigest()
+        await self.store.save_login(digest, principal, float(cookie.split(".")[0]))
+        return cookie, Identity(digest, principal, cookie)
 
     def track(
         self,
@@ -220,13 +279,14 @@ class MeetingAccess:
             "authenticated": identity is not None,
             "csrf_token": None,
         }
+        if self.sso is not None:
+            result["methods"] = {"password": True, **self.sso.methods(), "proxy": False}
         if identity is not None:
-            user = None if identity.guest else self.users[identity.principal]
             guard = self.guard(identity)
             result["principal"] = {
                 "id": identity.principal,
                 "guest": identity.guest,
-                "display_name": "Guest" if user is None else user.display_name,
+                "display_name": self.display_name(identity),
                 "can_host": self.can_host(identity),
             }
             result["csrf_token"] = guard.csrf_token(identity.cookie.split(".")[1])
@@ -299,8 +359,8 @@ async def current_session(request: Request):
     if res.access is None:
         return await res.sessions.current_session()
     identity = request.state.identity
-    live = res.sessions.live
-    if live is not None:
+    # 同时进行好几场时，取这个登录能看的、最近连上的那一场
+    for live in reversed(res.sessions.connections):
         try:
             await res.access.require(identity, live.session.id)
         except ApiError as exc:
@@ -363,6 +423,10 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
         digest = hashlib.sha256(cookie.encode()).hexdigest()
         await access.store.save_login(digest, principal, float(cookie.split(".")[0]))
         response = JSONResponse(access.status(Identity(digest, principal, cookie)))
+        set_cookie(request, response, cookie, guard)
+        return response
+
+    def set_cookie(request: Request, response: Response, cookie: str, guard: AuthGuard) -> None:
         response.set_cookie(
             COOKIE_NAME,
             cookie,
@@ -371,7 +435,17 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
             samesite="strict",
             secure=request.url.scheme == "https",
         )
-        return response
+
+    async def start_sso_session(
+        request: Request, response: Response, identity: sso_module.ExternalIdentity
+    ) -> None:
+        cookie, _ = await access.sign_in_external(identity)
+        set_cookie(request, response, cookie, access.sso_guard)
+
+    if access.sso is not None:
+        sso_module.register(
+            app, access.sso, start_session=start_sso_session, client_address=_client_address
+        )
 
     @app.post("/api/auth/logout")
     @app.post("/api/auth/logout-all")
@@ -413,9 +487,9 @@ def register(app: FastAPI, access: MeetingAccess) -> None:
                 raise invalid("role 必须是 host/watcher，allow_questions 必须是布尔值")
         async with access.lock:
             await authorize(request, session_id, "host")
-            user = access.users.get(principal_id)
+            can_host = access.principal_can_host(principal_id)
             # 移除不要求账号还在配置里：账号删掉之后，主持人仍要能把它从名单上去掉
-            if role is not None and (user is None or (role == "host" and not user.can_host)):
+            if role is not None and (can_host is None or (role == "host" and not can_host)):
                 raise ApiError(400, "access.invalid_member")
             if not await access.store.set_member(session_id, principal_id, role, questions):
                 raise ApiError(409, "access.last_host")
@@ -481,6 +555,7 @@ class AccessRequired:
             not (path == "/api" or path.startswith("/api/"))
             or (method, path) in PUBLIC_PATHS
             or (method, path) == ("POST", "/api/shares/exchange")
+            or (method == "GET" and path.startswith(PUBLIC_GET_PREFIX))
         ):
             await self.app(scope, receive, send)
             return

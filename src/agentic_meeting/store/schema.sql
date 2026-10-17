@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS login_sessions (
     expires_at REAL NOT NULL
 );
 
+-- 单点登录的主体（oidc:<id>:<sub>）：能否主持在每次登录时按配置重新判断。
+CREATE TABLE IF NOT EXISTS external_principals (
+    principal_id TEXT PRIMARY KEY REFERENCES principals(id),
+    can_host INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS meeting_members (
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     principal_id TEXT NOT NULL REFERENCES principals(id),

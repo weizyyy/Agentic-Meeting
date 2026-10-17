@@ -25,6 +25,7 @@ import pytest
 
 from agentic_meeting.config import EXAMPLE_CONFIG_PATH
 
+from .identity_provider import IdentityProviders
 from .inference import EMBEDDING_DIMENSIONS, Inference
 from .meeting_client import SPEECH_WAV, MeetingClient
 
@@ -46,6 +47,23 @@ def inference() -> Iterator[Inference]:
         yield fakes
     finally:
         fakes.stop()
+
+
+@pytest.fixture(scope="session")
+def identity_providers() -> Iterator[IdentityProviders]:
+    providers = IdentityProviders()
+    providers.start()
+    try:
+        yield providers
+    finally:
+        providers.stop()
+
+
+@pytest.fixture
+def identity(identity_providers: IdentityProviders) -> IdentityProviders:
+    """两个假身份提供方（``identity_provider.py``），每个测试开始时清掉上一个测试的安排。"""
+    identity_providers.reset()
+    return identity_providers
 
 
 @dataclass

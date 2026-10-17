@@ -123,18 +123,18 @@ The state is derived from `ended_at` in the database and whether a live connecti
 
 Operations:
 
-| Operation                      | Trigger                                                 | Behavior                                                                                                                                                                         |
-| ------------------------------ | ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Start                          | "Start meeting"; the connection carries no `session_id` | Creates a session whose timeline starts now. An existing live connection is taken over first and its meeting becomes interrupted. Other unfinished meetings are left as they are |
-| Disconnect                     | Page closed or refreshed, network lost                  | Only the connection is closed. `ended_at` is not written; the session becomes interrupted                                                                                        |
-| End                            | "End meeting"                                           | Disconnects, writes `ended_at` and produces the final running summary                                                                                                            |
-| Resume                         | "Resume"; the connection carries a `session_id`         | See below                                                                                                                                                                        |
-| Rename, delete, merge speakers | Meeting list                                            | Deletion asks for confirmation and is refused for a live meeting; it also removes screenshot files and task directories                                                          |
+| Operation                      | Trigger                                                 | Behavior                                                                                                                                                                                                                                                  |
+| ------------------------------ | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Start                          | "Start meeting"; the connection carries no `session_id` | Creates a session whose timeline starts now. When all places for live meetings are taken (§3.2), a single place is taken over (its meeting becomes interrupted) and several places refuse the new meeting. Other unfinished meetings are left as they are |
+| Disconnect                     | Page closed or refreshed, network lost                  | Only the connection is closed. `ended_at` is not written; the session becomes interrupted                                                                                                                                                                 |
+| End                            | "End meeting"                                           | Disconnects, writes `ended_at` and produces the final running summary                                                                                                                                                                                     |
+| Resume                         | "Resume"; the connection carries a `session_id`         | See below                                                                                                                                                                                                                                                 |
+| Rename, delete, merge speakers | Meeting list                                            | Deletion asks for confirmation and is refused for a live meeting; it also removes screenshot files and task directories                                                                                                                                   |
 
-**There is one live connection at a time.** ASR runs a single slot, diarization is one stream and the
-realtime LLM has one context. When a new connection arrives, the server cancels the old pipeline,
-waits for it to release its resources and then starts the new one. A page that is still connected
-receives a notice and returns to the disconnected state.
+**A meeting has one live connection at a time.** When a new connection arrives for a meeting that is
+already live (resuming on another device), the server cancels the old pipeline, waits for it to
+release its resources and then starts the new one. A page that is still connected receives a notice
+and returns to the disconnected state. How many meetings can be live at once is described in §3.2.
 
 **Resuming** (`session_id` travels in `requestData` of `POST /api/offer` and is validated before
 negotiation; an unknown id yields 404):
@@ -152,7 +152,9 @@ negotiation; an unknown id yields 404):
    are offset by the highest existing speaker number. A returning speaker may therefore appear as a
    new one, which can be merged in the UI, but two different people are never collapsed into one.
    The stream is owned by the session manager (`SessionDiarizer` in `diar/stream.py`) and is released
-   when another meeting starts, when this one is ended or deleted, or when the application exits.
+   when this meeting is ended or deleted, when the application exits, or when another meeting needs a
+   stream and the session manager already holds `session.max_live_meetings` of them (streams of
+   meetings without a connection go first).
 3. **Realtime LLM context.** A fresh `LLMContext` is rebuilt from the database: the latest running
    summary plus the transcript and screen lines of the last `keep_recent_minutes`. This is the same
    code as compaction (§6).
@@ -172,7 +174,36 @@ page, the first time it is pushed, to the watcher hub owned by the session manag
 captions, speakers, screenshots and tasks on to every stream of that meeting, and the session manager
 adds the meeting's state changes and sends the live page the list of watching devices. Answers to
 watchers' questions are text only, so a watcher cannot make the assistant speak in the room. Any
-number of devices can watch; there is still only one live connection.
+number of devices can watch; watching does not take a place among the live meetings.
+
+### 3.2 Parallel meetings
+
+`session.max_live_meetings` (default 1) sets how many meetings can be live at the same time. Each
+live meeting has its own connection, pipeline, meeting recorder and diarization stream; the session
+manager keeps them by session id, and every pipeline carries its own `LiveConnection`, so tools and
+background results always reach the meeting that produced them.
+
+Shared inference services are divided as follows:
+
+| Service      | Per live meeting                                                                                                                                                             |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Realtime LLM | The meeting in place `k` (0-based) answers in slot `realtime_slot + k` (llama.cpp mode), so meetings do not evict each other's prompt cache. A generic endpoint has no slots |
+| ASR          | The server is launched with one slot per meeting (`-np`), each with `asr.launch.ctx_size`                                                                                    |
+| Diarization  | One stream and one loaded model per meeting                                                                                                                                  |
+| TTS          | Requests from all meetings share `tts.max_concurrent`; answers are synthesized sentence by sentence in turn                                                                  |
+| Background   | One background slot for all meetings. It pauses while any meeting's assistant is answering and resumes when all are idle                                                     |
+
+Background work is fair across meetings: the running summary takes one round per meeting in turn,
+screen captioning keeps the newest pending screenshot of each meeting and serves meetings in the
+order they started waiting, and queued background tasks start with the meeting that has the fewest
+tasks running.
+
+**Admission.** A connection that resumes a meeting already live always gets through (it takes over
+that meeting's own connection). Otherwise, when every place is taken, `POST /api/offer` is refused
+before negotiation with 409 `session.capacity`; with a single place the new connection takes over the
+live meeting instead, as before. Several live meetings make "the current session" ambiguous, so the
+page uses the id from its `session` message, and screenshot uploads carry `session_id`
+(interfaces.md §5.3).
 
 ## 4. Pipeline
 
@@ -457,8 +488,8 @@ Measured values, including a full-meeting run through a chat completions endpoin
 
 | Component              | Measured        | Notes                                                                                                                                     |
 | ---------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| ASR (Q8, context 8192) | about 3.8 GB    | More than the file size suggests, mostly working memory of the audio encoder                                                              |
-| Diarization            | about 0.2 GB    |                                                                                                                                           |
+| ASR (Q8, context 8192) | about 3.8 GB    | More than the file size suggests, mostly working memory of the audio encoder. Each extra live meeting adds a slot's context cache         |
+| Diarization            | about 0.2 GB    | Per live meeting                                                                                                                          |
 | TTS (0.6B, Q8)         | about 2.4 GB    |                                                                                                                                           |
 | Embeddings             | 0               | With `--device none`                                                                                                                      |
 | Realtime LLM           | Model-dependent | Estimate: weights + vision projector + context cache (about 32 KB per token; 1 GB for a 32K context). None when a remote endpoint is used |
@@ -541,3 +572,8 @@ connection can use tools; everyone else's questions take a tool-free path with a
 so a watcher cannot pause or slow transcription. Access changes, exports and views are written to
 a per-meeting access log; a failed write is logged and never fails the request. Details are in
 [interfaces §5.11–§5.13](interfaces.md#511-meeting-access).
+
+With parallel meetings (§3.2) each recording connection is still bound to its own login and
+meeting: hosts record their own meetings side by side, the tools of each pipeline act only for the
+login that recorded it, and a new recording replaces only a meeting the caller hosts. A full server
+answers `session.capacity` only to callers who would be allowed to record.

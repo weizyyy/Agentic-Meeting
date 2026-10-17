@@ -33,6 +33,7 @@ interface Options {
   api: Api;
   /** 已连接：只有会议进行中才采集和上传 */
   connected: boolean;
+  /** 这个页面连着的会议；截图上传到它 */
   sessionId: string | null;
   config: ScreenConfig;
   dispatch: Dispatch<Action>;

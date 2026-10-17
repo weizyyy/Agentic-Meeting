@@ -60,6 +60,14 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Single sign-on: people can log in with their organization account through OpenID Connect
+  (authorization code flow with PKCE, any number of providers in `server.oidc`), or be recognized
+  from the user-name header of a trusted reverse proxy (`server.proxy_auth`). Who may log in can
+  be limited to listed users or groups. The access password keeps working next to it, also while
+  the provider is offline, and the login page shows a button per provider ([#24]). With
+  `server.meeting_access`, each person who signs in through OpenID Connect gets their own principal
+  next to the local accounts, and the provider's `host_users` and `host_groups` decide who may start
+  and host meetings; the reverse-proxy header cannot be combined with it.
 - Optional meeting access with local accounts ([#22]). With `server.meeting_access = true`, each
   person logs in with an account from `[[server.local_users]]` and sees only the meetings they host
   or were granted; hosts add watchers or other hosts by principal id. It needs no identity provider
@@ -76,6 +84,16 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The meeting page shows **N 条旁听连接** (N following connections) while other devices follow the
   meeting; clicking it lists each connection by platform and browser, such as _iPhone · Safari_, and
   since when it has been watching ([#21]).
+- Several meetings can run at the same time on one machine ([#23]). Set
+  `session.max_live_meetings` above 1: each live meeting gets its own pipeline, diarization stream
+  and realtime LLM slot (`realtime_slot + k`; move `background_slot` out of that range and raise
+  `launch.parallel`), and the ASR server is launched with one slot per meeting. When every place is
+  taken, starting another meeting is refused with a message saying how many are running; resuming
+  a meeting that is already live on another device still works. Speech synthesis
+  (`tts.max_concurrent`), screen summaries, the running summary and background tasks take turns
+  across meetings. With `server.meeting_access`, hosts record their own meetings side by side and
+  a new recording never replaces a meeting its caller does not host. With the default of 1, a new
+  meeting still takes over the live one.
 - First step towards remembering speakers across meetings ([#25]), off by default. With
   `speaker_memory.backend = "sherpa_onnx"` and a speaker-embedding model, the server cuts short
   clips in which only one person speaks, has a new local speaker service turn each into a
@@ -98,6 +116,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 [#21]: https://github.com/weizyyy/Agentic-Meeting/issues/21
 [#22]: https://github.com/weizyyy/Agentic-Meeting/issues/22
+[#23]: https://github.com/weizyyy/Agentic-Meeting/issues/23
+[#24]: https://github.com/weizyyy/Agentic-Meeting/issues/24
 [#25]: https://github.com/weizyyy/Agentic-Meeting/issues/25
 [#80]: https://github.com/weizyyy/Agentic-Meeting/pull/80
 

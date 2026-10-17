@@ -23,24 +23,24 @@ The source of truth is the pydantic model in
 [`config/config.example.toml`](../config/config.example.toml). Every key is described in
 [configuration.md](configuration.md).
 
-| Section          | Contents                                                                                                                          |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `session`        | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory                                                |
-| `server`         | Bind address and port, TLS certificate, ICE servers, access password, login duration, `meeting_access` and `local_users` (§5.11)  |
-| `realtime_llm`   | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`            |
-| `asr`            | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings                              |
-| `diarization`    | Backend, library path, model path, GPU index, segmentation thresholds                                                             |
-| `tts`            | Endpoint, model field, voice, language, launch settings                                                                           |
-| `embedding`      | Endpoint, model field, dimensions, query prefix, similarity floor, launch settings                                                |
-| `speaker_memory` | Remembering speakers across meetings: backend, address of the local speaker service, launch settings (§4.4)                       |
-| `audio`          | Input gain: switch, initial gain, limit, target level, noise floor, log interval                                                  |
-| `turn`           | Silence threshold, VAD volume gate, end-of-turn model, wake window, single activation                                             |
-| `realtime`       | Context budget, verbatim window after compaction, summary interval and provider, warm-up interval, direct MCP tools               |
-| `screen`         | Screenshot intervals and threshold, summaries and their provider                                                                  |
-| `transcript`     | Merging of adjacent segments into one caption                                                                                     |
-| `report`         | Report provider and input size per request                                                                                        |
-| `agent`          | Remote model endpoint, extra request fields, output budget, screenshot attachment, MCP servers, sandbox, concurrency and timeouts |
-| `retention`      | Independent retention periods and cleanup interval (§1.1)                                                                         |
+| Section          | Contents                                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `session`        | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory, number of meetings live at the same time                                 |
+| `server`         | Bind address and port, public URL, TLS certificate, ICE servers, access password, single sign-on, login duration, `meeting_access` and `local_users` (§5.11) |
+| `realtime_llm`   | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`                                       |
+| `asr`            | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings                                                         |
+| `diarization`    | Backend, library path, model path, GPU index, segmentation thresholds                                                                                        |
+| `tts`            | Endpoint, model field, voice, language, concurrent requests, launch settings                                                                                 |
+| `embedding`      | Endpoint, model field, dimensions, query prefix, similarity floor, launch settings                                                                           |
+| `speaker_memory` | Remembering speakers across meetings: backend, address of the local speaker service, launch settings (§4.4)                                                  |
+| `audio`          | Input gain: switch, initial gain, limit, target level, noise floor, log interval                                                                             |
+| `turn`           | Silence threshold, VAD volume gate, end-of-turn model, wake window, single activation                                                                        |
+| `realtime`       | Context budget, verbatim window after compaction, summary interval and provider, warm-up interval, direct MCP tools                                          |
+| `screen`         | Screenshot intervals and threshold, summaries and their provider                                                                                             |
+| `transcript`     | Merging of adjacent segments into one caption                                                                                                                |
+| `report`         | Report provider and input size per request                                                                                                                   |
+| `agent`          | Remote model endpoint, extra request fields, output budget, screenshot attachment, MCP servers, sandbox, concurrency and timeouts                            |
+| `retention`      | Independent retention periods and cleanup interval (§1.1)                                                                                                    |
 
 Rules:
 
@@ -51,14 +51,14 @@ Rules:
 - Relative paths are resolved against the repository root with `AppConfig.resolve()`.
 - Application code does not branch on the realtime LLM access mode. `RealtimeLLMConfig` exposes:
 
-  | Member                                 | Meaning                                                                                                  |
-  | -------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-  | `active`                               | The selected set of settings (`base_url`, `api_key_env`, `model`, `supports_vision`, `sampling`, …)      |
-  | `managed`                              | Whether the process supervisor launches the realtime LLM (`llama_server` mode with `launch.enabled`)     |
-  | `has_health_endpoint`                  | Whether read-only probes use the origin's dedicated `/health` endpoint; independent of process ownership |
-  | `request_extra_body(background=False)` | Fields to place in `extra_body` of each request, already merged for the mode                             |
-  | `cache_warm`                           | Whether to send warm-up requests                                                                         |
-  | `supports_developer_role`              | Whether the server accepts the `developer` role                                                          |
+  | Member                                         | Meaning                                                                                                                                                |
+  | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | `active`                                       | The selected set of settings (`base_url`, `api_key_env`, `model`, `supports_vision`, `sampling`, …)                                                    |
+  | `managed`                                      | Whether the process supervisor launches the realtime LLM (`llama_server` mode with `launch.enabled`)                                                   |
+  | `has_health_endpoint`                          | Whether read-only probes use the origin's dedicated `/health` endpoint; independent of process ownership                                               |
+  | `request_extra_body(background=False, lane=0)` | Fields to place in `extra_body` of each request, already merged for the mode. `lane` is the meeting's place among live meetings (architecture.md §3.2) |
+  | `cache_warm`                                   | Whether to send warm-up requests                                                                                                                       |
+  | `supports_developer_role`                      | Whether the server accepts the `developer` role                                                                                                        |
 
   Only the process supervisor reads `mode` and `llama_server.launch` directly.
 
@@ -655,24 +655,24 @@ All endpoints except signaling exchange JSON. Business errors are returned as
 `{"error": "<message>", "code", "params"}` with an appropriate status code; `error` is in Chinese and
 `code` says which error it is (§5.9). During development the client runs on port
 5173 and proxies `/api` to the application (`client/vite.config.ts`). Readiness 503 responses use
-the status snapshot in §5.8. When an access password is configured, the middleware guards `/api`
+the status snapshot in §5.8. When login is enabled, the middleware guards `/api`
 and paths below it, except the public authentication routes in §5.7. The three operational GET
 routes in §5.8 are outside `/api` and remain anonymous.
 
 ### 5.1 Sessions and clock synchronization
 
-| Method and path                                      | Request               | Response                                                                                                                |
-| ---------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/time`                                      | —                     | `{"server_time": <Unix seconds, float>}`                                                                                |
-| `GET /api/sessions?limit=20&before=<last_active_at>` | —                     | `{"items": [session summary]}`, newest `last_active_at` first; `before` pages backwards. `limit` is 1–500               |
-| `GET /api/sessions/{id}`                             | —                     | Session summary plus `screen` (the `[screen]` configuration), `members` and `connections`. 404 if unknown               |
-| `GET /api/session`                                   | —                     | The _current session_: the one with the live connection, otherwise the most recent unfinished one. 404 if there is none |
-| `PATCH /api/sessions/{id}`                           | `{"title"?, "keep"?}` | Updated summary; title is trimmed and limited to 200 characters; keep is a boolean                                      |
-| `POST /api/sessions/{id}/end`                        | —                     | `{"id", "ended_at"}`. A live session is disconnected first; the final running summary is produced in the background     |
-| `POST /api/session/end`                              | —                     | Same, for the current session                                                                                           |
-| `POST /api/sessions/{id}/text`                       | `{"text": "..."}`     | `{"accepted": <boolean>, "notice": <notice or null>}`. A typed question from a device following the meeting (below)     |
-| `GET /api/sessions/{id}/events`                      | —                     | A stream of server-sent events for a device following the meeting (below)                                               |
-| `DELETE /api/sessions/{id}`                          | —                     | `{"id"}` only after complete database/vector/file removal; 409 while busy, 500 on deletion failure (§8.4)               |
+| Method and path                                      | Request               | Response                                                                                                                                                                        |
+| ---------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/time`                                      | —                     | `{"server_time": <Unix seconds, float>}`                                                                                                                                        |
+| `GET /api/sessions?limit=20&before=<last_active_at>` | —                     | `{"items": [session summary]}`, newest `last_active_at` first; `before` pages backwards. `limit` is 1–500                                                                       |
+| `GET /api/sessions/{id}`                             | —                     | Session summary plus `screen` (the `[screen]` configuration), `members` and `connections`. 404 if unknown                                                                       |
+| `GET /api/session`                                   | —                     | The _current session_: the most recently connected live meeting, otherwise the most recent unfinished one. 404 if there is none. With several live meetings, pass an id instead |
+| `PATCH /api/sessions/{id}`                           | `{"title"?, "keep"?}` | Updated summary; title is trimmed and limited to 200 characters; keep is a boolean                                                                                              |
+| `POST /api/sessions/{id}/end`                        | —                     | `{"id", "ended_at"}`. A live session is disconnected first; the final running summary is produced in the background                                                             |
+| `POST /api/session/end`                              | —                     | Same, for the current session                                                                                                                                                   |
+| `POST /api/sessions/{id}/text`                       | `{"text": "..."}`     | `{"accepted": <boolean>, "notice": <notice or null>}`. A typed question from a device following the meeting (below)                                                             |
+| `GET /api/sessions/{id}/events`                      | —                     | A stream of server-sent events for a device following the meeting (below)                                                                                                       |
+| `DELETE /api/sessions/{id}`                          | —                     | `{"id"}` only after complete database/vector/file removal; 409 while busy, 500 on deletion failure (§8.4)                                                                       |
 
 **Session summary:** `{"id", "title", "keep": <boolean>, "deletion_pending": <boolean>, "started_at", "ended_at", "last_active_at",
 "state": "live" | "interrupted" | "ended", "duration_secs", "utterance_count", "speakers": [...],
@@ -791,12 +791,18 @@ The client may include `{"session_id": "<session to resume>"}` in `requestData`:
 - absent or `null` — a new session is created;
 - present and known — that session is resumed (an ended one is reopened); see architecture.md §3.1;
 - present and unknown — 404 before negotiation; not a string, or empty — 400;
-- an existing live connection is taken over by the new one.
+- if that session is live on another connection, that connection is taken over by the new one;
+- otherwise, if `session.max_live_meetings` meetings are already live: with a limit of 1 the live
+  meeting is taken over; with a higher limit the request is refused before negotiation with 409
+  `session.capacity` (`params.max` is the limit). A request carrying the `pc_id` of an existing
+  connection is a renegotiation and is not counted (architecture.md §3.2). With
+  `server.meeting_access`, the access checks of §5.11 come first, so a caller who may not record
+  gets 401, 403 or 404 rather than 409.
 
 `POST /api/offer` reads the raw JSON and passes it to `SmallWebRTCRequest.from_dict`, because the
 client SDK sends connection parameters in camel-case `requestData`. After negotiation
 `run_bot(connection, request_data, resources)` runs as a background task until the connection
-closes. On the server, `SessionManager.attach` takes over the old connection, reopens an ended
+closes. On the server, `SessionManager.attach` takes over the meeting's old connection, reopens an ended
 session, computes `base_secs = max(now − started_at, furthest point reached on the timeline)` and
 records the connection. The LLM context is rebuilt from the database (`build_context_messages`); if
 that fails, the context starts empty.
@@ -821,21 +827,23 @@ are stopped without starting capture or uploading a screenshot.
 
 `POST /api/frames`, `multipart/form-data`:
 
-| Field         | Type            | Description                                                             |
-| ------------- | --------------- | ----------------------------------------------------------------------- |
-| `captured_at` | float as string | Capture time in Unix seconds, **already converted to server time**      |
-| `image`       | file            | `image/webp` or `image/jpeg`, longest side at most `screen.max_side_px` |
+| Field         | Type             | Description                                                                                                                                                   |
+| ------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `captured_at` | float as string  | Capture time in Unix seconds, **already converted to server time**                                                                                            |
+| `image`       | file             | `image/webp` or `image/jpeg`, longest side at most `screen.max_side_px`                                                                                       |
+| `session_id`  | string, optional | The live meeting the screenshot belongs to. Required when several meetings are live or with `server.meeting_access`; without it the only live meeting is used |
 
 Response: `{"id": <screenshot id>, "t": <session timeline seconds>}`.
 
-| Status | Condition                                                                                                       |
-| ------ | --------------------------------------------------------------------------------------------------------------- |
-| 400    | Not an image, not WebP/JPEG, too large in pixels, `captured_at` not a number or more than 60 s from server time |
-| 403    | `screen.enabled = false`                                                                                        |
-| 404    | No live meeting                                                                                                 |
-| 413    | Larger than 4 MB                                                                                                |
-| 422    | Missing field                                                                                                   |
-| 500    | The file could not be written (the database row is rolled back)                                                 |
+| Status | Condition                                                                                                                                                                                             |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | Not an image, not WebP/JPEG, too large in pixels, `captured_at` not a number or more than 60 s from server time; `session_id` missing while several meetings are live or with `server.meeting_access` |
+| 403    | `screen.enabled = false`                                                                                                                                                                              |
+| 404    | `frames.no_live_session`: no `session_id` and no live meeting                                                                                                                                         |
+| 409    | `session.not_live`: the meeting named by `session_id` is not live                                                                                                                                     |
+| 413    | Larger than 4 MB                                                                                                                                                                                      |
+| 422    | Missing field                                                                                                                                                                                         |
+| 500    | The file could not be written (the database row is rolled back)                                                                                                                                       |
 
 `GET /api/frames/{id}/image` returns the image with `Cache-Control: private, no-cache`.
 `GET /api/frames?session_id=` returns
@@ -858,8 +866,9 @@ Behavior (`screen/ingest.py`, `screen/caption.py`):
   the comparison is with the last changed picture, slow cumulative drift eventually crosses the
   threshold. The reference picture lives in memory; after a restart the first picture counts as
   changed.
-- **Summaries.** Only the newest pending screenshot is summarized; older pending ones are marked
-  `skipped`. Summaries pause while the assistant is answering, and a cancelled one is retried
+- **Summaries.** Only the newest pending screenshot of each meeting is summarized; older pending
+  ones are marked `skipped`. With several live meetings, their pending screenshots are summarized in
+  the order the meetings started waiting. Summaries pause while the assistant is answering, and a cancelled one is retried
   afterwards unless a newer picture has arrived. A model error or an empty summary marks the
   screenshot `failed`. On success the summary is stored, `frame_caption` is pushed and
   `[画面 HH:MM:SS] <summary>` is appended to the LLM context without triggering the model. A summary
@@ -988,19 +997,29 @@ mode erasing needs the host role (§5.11) and is logged as `voice.erase` (§5.13
   the transcript will be sent to that endpoint.
 - The page polls `GET /api/sessions/{id}/report` every 2 s while a report is running.
 
-### 5.7 Access password
+### 5.7 Access password and single sign-on
 
-Opt-in. With `server.password_env` empty (the default) nothing below applies: `/api` is open and
-`GET /api/auth` reports `enabled: false`. With it set, the password is read from that environment
-variable at startup, and the middleware in `web/auth.py` guards every path under `/api/` except
-`GET /api/auth` and `POST /api/auth/login`. The static site (`/`, `/assets/…`) stays public; it
-contains no meeting data.
+Opt-in. Login is enabled when at least one of three methods is configured: the shared access
+password (`server.password_env`), one or more OpenID Connect providers (`server.oidc`), or identity
+headers from a trusted reverse proxy (`server.proxy_auth.trusted_proxies`). With none of them (the
+default) nothing below applies: `/api` is open and `GET /api/auth` reports `enabled: false`. With
+any of them, the middleware in `web/auth.py` guards every path under `/api/` except `GET /api/auth`,
+`POST /api/auth/login` and the two `GET /api/auth/oidc/…` routes. The static site (`/`,
+`/assets/…`) stays public; it contains no meeting data. The methods can be combined; every method
+leads to the same session cookie and CSRF token described below, so the rest of the API does not
+know how a device logged in.
 
-| Method and path         | Request               | Response                                                                                                                                                                                                                  |
-| ----------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/auth`         | —                     | `{"enabled", "authenticated", "csrf_token"}`; `csrf_token` is `null` when not logged in or when the password is disabled                                                                                                  |
-| `POST /api/auth/login`  | `{"password": "..."}` | `{"enabled": true, "authenticated": true, "csrf_token"}` and the session cookie. 401 wrong password; 429 too many attempts, with `Retry-After` in seconds; 413 body larger than 16 KiB; 404 when the password is disabled |
-| `POST /api/auth/logout` | —                     | `{"enabled": true, "authenticated": false, "csrf_token": null}`; the cookie is cleared                                                                                                                                    |
+| Method and path                          | Request                          | Response                                                                                                                                                                                                                                 |
+| ---------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/auth`                          | —                                | `{"enabled", "authenticated", "csrf_token", "methods"}`; `csrf_token` is `null` when not logged in or when login is disabled                                                                                                             |
+| `POST /api/auth/login`                   | `{"password": "..."}`            | The same object with `"authenticated": true` and the session cookie. 401 wrong password; 429 too many attempts, with `Retry-After` in seconds; 413 body larger than 16 KiB; 404 `auth.not_enabled` when no access password is configured |
+| `POST /api/auth/logout`                  | —                                | The same object with `"authenticated": false` and `"csrf_token": null`; the cookie is cleared                                                                                                                                            |
+| `GET /api/auth/oidc/{provider}/start`    | query `next` (optional)          | 302 to the provider's authorization endpoint; 404 `auth.provider_not_found` for an unknown `provider`. When the provider cannot be reached, 303 to the page with `#login_error=sso.unavailable`                                          |
+| `GET /api/auth/oidc/{provider}/callback` | query `code`, `state` or `error` | 303 to `next` with the session cookie; on failure 303 to `next` with `#login_error=<code>` and no session                                                                                                                                |
+
+`methods` is `{"password": bool, "oidc": [{"id", "display_name"}, …], "proxy": bool}` and lists
+what the login page can offer; it is present whether or not the device is logged in, and empty
+(`false`, `[]`, `false`) when login is disabled.
 
 **Guarded requests.** Without a valid session cookie the response is 401 `{"error": "请先登录"}`.
 `POST`, `PUT`, `PATCH` and `DELETE` additionally need the header `X-CSRF-Token` with the token of
@@ -1040,6 +1059,78 @@ They are not sent to the browser.
 
 A WebRTC connection that is already established is not interrupted when its cookie expires or the
 user logs out elsewhere; the next HTTP request is refused.
+
+#### Single sign-on with OpenID Connect
+
+Each entry of `server.oidc` is one provider, identified by its `id` in the URLs above. The flow is
+the authorization code flow with PKCE (`S256`) and a `nonce`, as a confidential client when
+`client_secret_env` names a secret and as a public client otherwise:
+
+1. `start` fetches `<issuer>/.well-known/openid-configuration` (cached for an hour; 10-second
+   timeout) and checks that its `issuer` equals the configured one exactly. It creates a random
+   `state`, `nonce` and code verifier and keeps them in memory for 10 minutes together with the
+   provider, the redirect URI and `next` (at most 1000 pending logins; the oldest is dropped
+   first). It sets the cookie `am_sso` (`HttpOnly; SameSite=Lax; Path=/api/auth/oidc/; Max-Age=600`,
+   `Secure` over HTTPS) holding a random value whose SHA-256 is stored with the pending login, and
+   redirects to the authorization endpoint with `response_type=code`, `client_id`, `redirect_uri`,
+   `scope`, `state`, `nonce`, `code_challenge` and `code_challenge_method=S256`.
+2. `callback` removes the pending login for `state` (each `state` works once), and fails unless it
+   exists, has not expired, belongs to this provider and matches the `am_sso` cookie of the same
+   browser. It exchanges `code` at the token endpoint with the code verifier and the same
+   redirect URI, authenticating with HTTP Basic (`client_secret_basic`) unless the provider
+   advertises only `client_secret_post`.
+3. The ID token must be signed with an asymmetric algorithm (`RS*`, `PS*`, `ES*`, `EdDSA`) that the
+   provider lists in `id_token_signing_alg_values_supported` (`RS256` when absent), with a key
+   from its `jwks_uri` (refetched at most every 30 seconds when the key id is unknown). `iss` must
+   equal the issuer, `aud` must contain the client id (and `azp` must equal it when present or
+   when there are several audiences), `exp`, `iat` and `sub` must be present, `nonce` must match,
+   and clocks may differ by up to 60 seconds. Unsigned tokens and HMAC algorithms are rejected.
+4. The user name is the claim named by `username_claim` (default `preferred_username`; `sub` when
+   it is missing), the display name is `name` (or the user name), and the groups are the claim
+   named by `groups_claim` (a list of strings or one string). When the ID token lacks the user name
+   or groups claim and the provider has a `userinfo_endpoint`, the claims are completed from it
+   with the access token; its `sub` must equal the ID token's.
+5. When `allowed_users` or `allowed_groups` is not empty, the user name must be in the first list
+   or one of the groups in the second. Otherwise every user the provider authenticates is let in.
+
+The redirect URI is `<public_url>/api/auth/oidc/<id>/callback`, where `public_url` is
+`server.public_url` or, when that is empty, the scheme and host of the request (which include
+`X-Forwarded-Proto` and `Host` only when uvicorn trusts the proxy, as for client addresses above).
+Register exactly that URI with the provider. All provider endpoints must use HTTPS unless the
+issuer is a loopback address. The ID token, access token and claims are not stored; only the
+session cookie is issued.
+
+`next` must be a path on this site (starting with one `/`, at most 2000 characters); anything else
+is replaced by `/`. Failures are reported to the page in the URL fragment, which the server never
+sees again and the page removes after reading:
+
+| `login_error`     | Cause                                                                           |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `sso.unavailable` | The discovery document, keys, token or userinfo endpoint could not be reached   |
+| `sso.cancelled`   | The provider returned `error=access_denied` (the user declined or cancelled)    |
+| `sso.expired`     | Unknown or expired `state`, or the `am_sso` cookie is missing or does not match |
+| `sso.denied`      | Signed in at the provider, but not in `allowed_users` or `allowed_groups`       |
+| `sso.failed`      | Any other error: a rejected token, an error response from the provider          |
+
+The reason is logged on the server. Single sign-on needs the provider only while logging in:
+a device that is already logged in keeps working when the provider is offline, and the access
+password keeps working throughout.
+
+#### Identity headers from a reverse proxy
+
+When `server.proxy_auth.trusted_proxies` lists addresses or networks, a request whose direct peer
+is one of them and that carries a non-empty `user_header` (default `X-Forwarded-User`) is logged in
+as that user, without a cookie. The direct peer is the TCP peer before uvicorn applies
+`X-Forwarded-For`, so a client cannot claim a proxy address through that header. The header is
+ignored on requests from any other address. Optional `name_header` and `groups_header` give the
+display name and the groups (comma-separated); header values are read as UTF-8. `allowed_users` and
+`allowed_groups` restrict who is accepted, as for OpenID Connect; a refused user is treated as not
+logged in.
+
+`GET /api/auth` reports such a request as authenticated, with a CSRF token derived from the user
+name under the same key as session tokens; modifying requests need it as usual. Logging out has no
+effect while the proxy keeps sending the header. The proxy must remove the header from requests
+that it does not authenticate itself.
 
 ### 5.8 Health checks and basic metrics
 
@@ -1144,6 +1235,11 @@ All numeric values are finite; seconds and counts are nonnegative; `null` never 
       "minimum": 0,
       "maximum": 1
     },
+    "at_most_meetings": {
+      "type": ["integer","null"],
+      "minimum": 0,
+      "maximum": 16
+    },
     "lifecycle": {
       "enum": ["starting","running","stopping"]
     },
@@ -1178,7 +1274,7 @@ All numeric values are finite; seconds and counts are nonnegative; `null` never 
       "type": "object",
       "additionalProperties": false,
       "required": ["enabled","depth"],
-      "properties": {"enabled":{"type":"boolean"},"depth":{"$ref":"#/$defs/zero_or_one"}}
+      "properties": {"enabled":{"type":"boolean"},"depth":{"$ref":"#/$defs/at_most_meetings"}}
     },
     "queues": {
       "type": "object",
@@ -1205,7 +1301,7 @@ All numeric values are finite; seconds and counts are nonnegative; `null` never 
       "type": "object",
       "additionalProperties": false,
       "required": ["status","lifecycle","live_connections","caption_lag_seconds","caption_sample_age_seconds","queues","task_counts","task_counts_age_seconds","services","service_snapshot_age_seconds"],
-      "properties": {"status":{"enum":["ok","partial"]},"lifecycle":{"$ref":"#/$defs/lifecycle"},"live_connections":{"$ref":"#/$defs/zero_or_one"},"caption_lag_seconds":{"$ref":"#/$defs/seconds"},"caption_sample_age_seconds":{"$ref":"#/$defs/seconds"},"queues":{"$ref":"#/$defs/queues"},"task_counts":{"$ref":"#/$defs/task_counts"},"task_counts_age_seconds":{"$ref":"#/$defs/seconds"},"services":{"$ref":"#/$defs/services"},"service_snapshot_age_seconds":{"$ref":"#/$defs/seconds"}}
+      "properties": {"status":{"enum":["ok","partial"]},"lifecycle":{"$ref":"#/$defs/lifecycle"},"live_connections":{"$ref":"#/$defs/at_most_meetings"},"caption_lag_seconds":{"$ref":"#/$defs/seconds"},"caption_sample_age_seconds":{"$ref":"#/$defs/seconds"},"queues":{"$ref":"#/$defs/queues"},"task_counts":{"$ref":"#/$defs/task_counts"},"task_counts_age_seconds":{"$ref":"#/$defs/seconds"},"services":{"$ref":"#/$defs/services"},"service_snapshot_age_seconds":{"$ref":"#/$defs/seconds"}}
     }
   }
 }
@@ -1215,19 +1311,19 @@ All numeric values are finite; seconds and counts are nonnegative; `null` never 
 Local fields are read from the current resources on each request; cached DB/service fields expose
 their own age.
 
-| Field                           | Exact meaning and reset/failure behavior                                                                                                                                                                                                                                                                                                  |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `live_connections`              | Number of current connections whose worker and recorder have been registered with `SessionManager`: 0 or 1. A connection still being assembled or a takeover gap is 0; missing/unreadable resources is `null`. Never count historical connection rows                                                                                     |
-| `caption_lag_seconds`           | At the first successful send of a non-blank `CaptionUpdate` for a new `ASRDelta`, compute `raw_lag = recorder.elapsed_secs - delta.audio_end_secs` on the shared session audio timeline. Accept a finite value only when `raw_lag >= -1 / ASR_SAMPLE_RATE`, and then store `max(0, raw_lag)`                                              |
-| `caption_sample_age_seconds`    | Seconds since that successful sample, measured with a monotonic clock. No sample means both caption fields are `null`                                                                                                                                                                                                                     |
-| `queues.transcript_retry`       | Number of unsaved utterances waiting for the active recorder's next storage retry; idle instance is 0, missing/unreadable recorder for a registered connection is `null`                                                                                                                                                                  |
-| `queues.screen_caption.enabled` | Whether the screen-caption worker is enabled, with the pre-start configuration fallback described above                                                                                                                                                                                                                                   |
-| `queues.screen_caption.depth`   | Pending new-screen slot count: 0 or 1, excluding the currently processed screen and summary-reuse followers. Disabled is 0; enabled but unavailable/unreadable worker is `null`                                                                                                                                                           |
-| `queues.agent_tasks`            | The `queued` count from the same DB aggregate as `task_counts`; `null` whenever that aggregate is unavailable                                                                                                                                                                                                                             |
-| `task_counts`                   | Counts over **all retained DB tasks**, grouped by `queued/running/succeeded/failed/cancelled`. Empty DB gives five zeros; disabling the agent does not hide retained tasks; deletion can reduce counts; restart recovery is reflected in the next snapshot. Query failure makes the whole group `null`; do not use `TaskManager._running` |
-| `task_counts_age_seconds`       | Monotonic age of the successful count snapshot. Valid for less than 5 seconds; `null` with unavailable counts                                                                                                                                                                                                                             |
-| `services`                      | The same fixed-name snapshot and state semantics used by readiness                                                                                                                                                                                                                                                                        |
-| `service_snapshot_age_seconds`  | Monotonic age since the completed service refresh. Valid for less than 5 seconds; `null` when the current snapshot has any enabled `unknown` service or no refresh has completed                                                                                                                                                          |
+| Field                           | Exact meaning and reset/failure behavior                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `live_connections`              | Number of current connections whose worker and recorder have been registered with `SessionManager`: 0 up to `session.max_live_meetings`. A connection still being assembled or a takeover gap is not counted; missing/unreadable resources is `null`. Never count historical connection rows                                                                                                  |
+| `caption_lag_seconds`           | At the first successful send of a non-blank `CaptionUpdate` for a new `ASRDelta`, compute `raw_lag = recorder.elapsed_secs - delta.audio_end_secs` on the shared session audio timeline. Accept a finite value only when `raw_lag >= -1 / ASR_SAMPLE_RATE`, and then store `max(0, raw_lag)`. With several live meetings the largest lag is reported, together with that meeting's sample age |
+| `caption_sample_age_seconds`    | Seconds since that successful sample, measured with a monotonic clock. No sample means both caption fields are `null`                                                                                                                                                                                                                                                                         |
+| `queues.transcript_retry`       | Number of unsaved utterances waiting for the active recorders' next storage retry, summed over live meetings; idle instance is 0, missing/unreadable recorder for a registered connection is `null`                                                                                                                                                                                           |
+| `queues.screen_caption.enabled` | Whether the screen-caption worker is enabled, with the pre-start configuration fallback described above                                                                                                                                                                                                                                                                                       |
+| `queues.screen_caption.depth`   | Pending new-screen slot count: at most one per live meeting, excluding the currently processed screen and summary-reuse followers. Disabled is 0; enabled but unavailable/unreadable worker is `null`                                                                                                                                                                                         |
+| `queues.agent_tasks`            | The `queued` count from the same DB aggregate as `task_counts`; `null` whenever that aggregate is unavailable                                                                                                                                                                                                                                                                                 |
+| `task_counts`                   | Counts over **all retained DB tasks**, grouped by `queued/running/succeeded/failed/cancelled`. Empty DB gives five zeros; disabling the agent does not hide retained tasks; deletion can reduce counts; restart recovery is reflected in the next snapshot. Query failure makes the whole group `null`; do not use `TaskManager._running`                                                     |
+| `task_counts_age_seconds`       | Monotonic age of the successful count snapshot. Valid for less than 5 seconds; `null` with unavailable counts                                                                                                                                                                                                                                                                                 |
+| `services`                      | The same fixed-name snapshot and state semantics used by readiness                                                                                                                                                                                                                                                                                                                            |
+| `service_snapshot_age_seconds`  | Monotonic age since the completed service refresh. Valid for less than 5 seconds; `null` when the current snapshot has any enabled `unknown` service or no refresh has completed                                                                                                                                                                                                              |
 
 Attempt to sample each delta at most once, even when it appears in both interim/final frames or produces
 multiple caption splits. Sample only after a nonempty caption message has successfully entered
@@ -1401,6 +1497,12 @@ translated. `request.failed` covers errors raised outside this application's han
 | `auth.wrong_password`       | 401           | —                | 口令不对                                                           |
 | `auth.too_many`             | 429           | —                | 尝试次数过多，请稍后再试                                           |
 | `auth.not_enabled`          | 404           | —                | 没有启用访问口令                                                   |
+| `auth.provider_not_found`   | 404           | —                | 没有这个登录方式                                                   |
+| `sso.unavailable`           | — (§5.7)      | —                | 暂时连不上身份提供方，请稍后再试或改用其他登录方式                 |
+| `sso.cancelled`             | — (§5.7)      | —                | 登录已取消                                                         |
+| `sso.expired`               | — (§5.7)      | —                | 登录请求已过期，请重新登录                                         |
+| `sso.denied`                | — (§5.7)      | —                | 这个账号没有被允许登录                                             |
+| `sso.failed`                | — (§5.7)      | —                | 单点登录没有完成，请重试                                           |
 | `access.denied`             | 403           | —                | 无权执行此操作                                                     |
 | `access.invalid_member`     | 400           | —                | 成员不存在或不能主持会议                                           |
 | `access.last_host`          | 409           | —                | 会议必须保留一位主持人                                             |
@@ -1416,6 +1518,7 @@ translated. `request.failed` covers errors raised outside this application's han
 | `session.none`              | 404           | —                | 现在没有会议                                                       |
 | `session.busy`              | 409           | —                | 会议正在处理或等待删除，请稍后重试                                 |
 | `session.not_live`          | 409           | —                | 这场会议现在没有在进行，消息没有发送                               |
+| `session.capacity`          | 409           | `max`: number    | 已经有 {max} 场会议在同时进行，请等其中一场结束或断开后再开始      |
 | `session.delete_incomplete` | 500           | —                | 删除未完成，会议待删除，请稍后重试                                 |
 | `session.title_too_long`    | 400           | `max`: number    | 标题太长（最多 {max} 字）                                          |
 | `speaker.not_found`         | 404           | —                | 这场会议里没有这个说话人                                           |
@@ -1500,12 +1603,28 @@ nothing. `GET /api/auth` adds `meeting_access` and, when logged in, the caller's
 principal and expiry, never as the raw cookie or password. `POST /api/auth/logout` ends one login,
 and `POST /api/auth/logout-all` ends every login of the caller.
 
+**Single sign-on.** The OpenID Connect providers of §5.7 also work in access mode. Signing in
+through provider `<id>` logs in the principal `oidc:<id>:<sub>`, where `sub` comes from the ID
+token, so a person keeps their meetings when their user name or display name changes at the
+provider. Each login records the principal with its display name in `principals`, and in
+`external_principals(principal_id, can_host)` whether it may host: it may when its user name is in
+the provider's `host_users` or one of its groups is in `host_groups`, evaluated again at every
+login. The site password is not asked for, because the provider has authenticated the person;
+`allowed_users` and `allowed_groups` decide who gets in. The login is stored in `login_sessions`
+like a local one, so logout, logout-all, expiry and revocation work the same way. After a provider
+is removed from the configuration, the logins made through it stop working at the next start and
+its principals can no longer be granted access. `GET /api/auth`
+adds `methods` as in §5.7, where `password` is always true and `proxy` always false. Identity
+headers from a reverse proxy cannot be combined with access mode; a configuration with both is
+rejected.
+
 **Roles.** `meeting_members(session_id, principal_id, role, allow_questions)` holds the grants.
 Creating a meeting grants its creator `host` in the same transaction; only accounts with
 `can_host` may create meetings. A `watcher` reads the meeting and may ask questions only when
 `allow_questions` is true (default false). A host may also record and resume, rename, keep, end
 and delete the meeting, edit speakers, erase voice clips, generate reports, cancel tasks, and manage members and
-shares. A meeting always keeps at least one host, and only `can_host` accounts can be made hosts.
+shares. A meeting always keeps at least one host, and only `can_host` accounts and single sign-on
+principals that may host can be made hosts.
 Roles are never taken from request data. Session responses carry the caller's
 `access: {role, allow_questions, tool_enabled, share_expires_at}` so the page can show the right
 controls; the server enforces them regardless.
@@ -1513,12 +1632,13 @@ controls; the server enforces them regardless.
 | Method and path                                    | Access | Result                                                           |
 | -------------------------------------------------- | ------ | ---------------------------------------------------------------- |
 | `GET /api/sessions/{id}/members`                   | Host   | `{items: [{principal_id, display_name, role, allow_questions}]}` |
-| `PUT /api/sessions/{id}/members/{principal_id}`    | Host   | Set `{role, allow_questions}` for a configured account           |
+| `PUT /api/sessions/{id}/members/{principal_id}`    | Host   | Set `{role, allow_questions}` for a known principal              |
 | `DELETE /api/sessions/{id}/members/{principal_id}` | Host   | Remove the grant; the last host cannot be removed                |
 | `GET /api/sessions/{id}/access-log`                | Host   | Access log (§5.13)                                               |
 
-The page shows the caller's own principal id; a host types the exact id to grant access. There is
-no user directory.
+The page shows the caller's own principal id; a host types the exact id to grant access. A known
+principal is a configured account or a single sign-on principal that has signed in at least once.
+There is no user directory.
 
 **Meetings from before access mode.** Meetings without an owner are invisible in access mode and
 are never given to the first visitor. With the server stopped, an operator runs
@@ -1541,7 +1661,10 @@ login; the §5.8 health routes stay anonymous and carry no meeting content.
 **Connections and revocation.** Every event stream and WebRTC connection is bound to one login,
 principal and meeting. Offers, resumes and ICE PATCH verify that binding; a `pc_id` or role sent by
 the client is never enough. Starting a new recording cannot interrupt a meeting the caller cannot
-host, and the busy answer does not reveal which meeting is recording. Removing a member, logging
+host, and the busy answer (409 `access.busy`) does not reveal which meeting is recording. This
+takeover only happens when `session.max_live_meetings` is 1; with a higher limit a new recording
+never interrupts another meeting, and when every place is taken the offer gets 409
+`session.capacity` after the checks above (§5.2). Removing a member, logging
 out (one login or all) and login expiry are noticed within one second, even on an idle stream:
 affected event streams end and drop their queued events, recording connections close, and
 streaming downloads stop before their next chunk. Bytes already sent cannot be recalled.
@@ -1913,6 +2036,8 @@ class TaskManager:
 - One manager serves the whole application; tasks keep running after a disconnect or a change of
   meeting.
 - Concurrency is limited by `agent.max_concurrent_tasks` and run time by `agent.task_timeout_secs`.
+  Queued tasks are started fairly across meetings: when a place frees up, the meeting with the
+  fewest running tasks goes first, and within a meeting tasks start in the order they were queued.
 - **Ids.** The primary key is `<session id>.t<n>`, unique across the database. The part after the
   dot is the label (`TaskRecord.label`) used in speech, tool parameters and the UI; the HTTP API uses
   the full id.
@@ -2100,7 +2225,7 @@ differ in which routes they implement; only a connection failure or timeout coun
 ```
 llama-server -m <model_path> --mmproj <mmproj_path>
              --host 127.0.0.1 --port <from base_url>
-             -c <ctx_size> -np 1 -ngl <gpu_layers>
+             -c <ctx_size × max_live_meetings> -np <session.max_live_meetings> -ngl <gpu_layers>
              --jinja --chat-template-file <data_dir>/run/asr_chat_template.jinja
              --cache-ram 0
              <extra_args...>
@@ -2165,12 +2290,12 @@ General rules:
   manually.
 
 **Extra request fields for the realtime LLM** always come from
-`cfg.realtime_llm.request_extra_body(background=...)`:
+`cfg.realtime_llm.request_extra_body(background=..., lane=...)`:
 
-| Mode           | Contents                                                                                                                                                                                                         |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `llama_server` | The configured `extra_body`, `top_k` if set, and `{"id_slot": <slot>, "cache_prompt": true}`. Live answers and warm-ups use `realtime_slot`; background work passes `background=True` and uses `background_slot` |
-| `openai_api`   | The configured `extra_body` and `top_k` if set. No llama.cpp-specific fields                                                                                                                                     |
+| Mode           | Contents                                                                                                                                                                                                                                                                                              |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `llama_server` | The configured `extra_body`, `top_k` if set, and `{"id_slot": <slot>, "cache_prompt": true}`. Live answers and warm-ups use `realtime_slot + lane`, where `lane` is the meeting's place among live meetings (0 with one meeting); background work passes `background=True` and uses `background_slot` |
+| `openai_api`   | The configured `extra_body` and `top_k` if set. No llama.cpp-specific fields                                                                                                                                                                                                                          |
 
 **Speech synthesis endpoint** (qwentts.cpp `tts-server`):
 
