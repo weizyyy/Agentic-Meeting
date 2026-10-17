@@ -32,6 +32,9 @@ export const captions = defineMessages(
       mergeInto: "合并到…",
       chipHint: "点击改名，或合并到另一个说话人",
       members: "成员名单",
+      voice: "声纹…",
+      voiceHint: "记住这位说话人的声音，或管理声纹档案",
+      voiceLinked: (name: string) => `已关联声纹档案「${name}」`,
     },
   },
   {
@@ -67,6 +70,9 @@ export const captions = defineMessages(
       mergeInto: "Merge into…",
       chipHint: "Click to rename, or merge into another speaker",
       members: "Members",
+      voice: "Voice…",
+      voiceHint: "Remember this speaker's voice, or manage voice profiles",
+      voiceLinked: (name: string) => `Linked to the voice profile “${name}”`,
     },
   },
 );

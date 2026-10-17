@@ -103,6 +103,15 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   transcript (hosts only when meeting access is on, recorded in the access log). The service needs `uv sync --extra speaker`, runs on the CPU, listens only on a
   loopback address and is started by `serve --with-services`. Recognizing people in later meetings
   comes in a later release.
+- Hosts can remember a speaker's voice as a voice profile ([#25]). With speaker memory on, a
+  speaker chip offers **声纹…** (Voice…): after the speaker has said `speaker_memory.min_enroll_secs`
+  (20 s by default) in the meeting, the host names a new profile or picks an existing one and must
+  confirm that the person agreed. The speaker is linked to the profile and takes its name. The same
+  dialog unlinks a speaker and lists every profile to rename or delete; deleting a profile also
+  deletes that person's voice clips in every meeting. The new `/api/voice-profiles` and
+  `/api/speakers/{idx}/voice-profile` routes exist only while the feature is on; in meeting access
+  mode enrolling and unlinking need the host role and are recorded in the access log, and guests
+  cannot see profiles.
 
 ### Fixed
 

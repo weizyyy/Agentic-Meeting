@@ -237,6 +237,7 @@ extra_args = ["--pooling", "last", "--device", "none"]
 [speaker_memory]
 backend = "none"            # "none" = 关闭 | "sherpa_onnx"
 base_url = "http://127.0.0.1:8084"   # 声纹服务；只允许本机地址
+min_enroll_secs = 20        # 记住一位说话人的声音（录入声纹档案）至少要他在这场会议里说这么多秒
 
 [speaker_memory.launch]
 enabled = true

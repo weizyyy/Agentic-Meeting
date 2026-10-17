@@ -476,14 +476,19 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         if cfg.speaker_memory.backend != "none":
             # 跨会议记住说话人开启时：每位说话人已经采集到多少秒声纹（录入要够一定时长）
             secs = await store.voice_secs(session.id)
+            links = await store.voice_links(session.id)
             for item in items:
                 item["voice_secs"] = round(secs.get(item["idx"], 0.0), 1)
+                profile = links.get(item["idx"])
+                item["voice_profile"] = (
+                    None if profile is None else {"id": profile.id, "name": profile.name}
+                )
         return {"items": items}
 
     @app.put("/api/speakers/{idx}")
     @host_write
     async def rename_speaker(request: Request, idx: int) -> dict[str, Any]:
-        store, manager = parts(request)
+        _, manager = parts(request)
         body = await _json_body(request)
         name = body.get("display_name")
         if not isinstance(name, str) or not name.strip():
@@ -495,13 +500,8 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         if given is not None and not isinstance(given, str):
             raise invalid("session_id 必须是字符串")
         session = await resolve(request, given, action="host")
-        if not await store.rename_speaker(session.id, idx, name):
+        if not await manager.rename_speaker(session.id, idx, name):
             raise ApiError(404, "speaker.not_found")
-        live = manager.live_for(session.id)
-        if live is not None:
-            if live.recorder is not None:
-                live.recorder.set_speaker_name(idx, name)
-        await manager.push_to(session.id, {"type": "speaker", "idx": idx, "display_name": name})
         return {"idx": idx, "display_name": name}
 
     @app.post("/api/speakers/{idx}/merge")

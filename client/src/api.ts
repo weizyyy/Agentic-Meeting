@@ -50,6 +50,20 @@ export interface SessionDetail extends SessionSummary {
 export interface SpeakerInfo {
   idx: number;
   display_name: string;
+  /** 这位说话人已采集的声纹语音秒数；没开说话人记忆时没有这一项 */
+  voice_secs?: number;
+  /** 关联的声纹档案；没开说话人记忆时没有这一项 */
+  voice_profile?: { id: number; name: string } | null;
+}
+
+/** 声纹档案（docs/interfaces.md §5.14），只有名字和时长，没有向量 */
+export interface VoiceProfile {
+  id: number;
+  name: string;
+  samples: number;
+  secs: number;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface SpeakerMerge {
@@ -123,6 +137,19 @@ export interface Api {
     ids: readonly number[],
     target: { speakerIdx: number } | { newSpeaker: string },
   ): Promise<{ speaker: SpeakerInfo; ids: number[] }>;
+  /** 全部声纹档案，和录入需要的最少语音秒数 */
+  listVoiceProfiles(): Promise<{ items: VoiceProfile[]; min_enroll_secs: number }>;
+  renameVoiceProfile(id: number, name: string): Promise<VoiceProfile>;
+  /** 删除档案；返回一并删掉的声纹片段数 */
+  deleteVoiceProfile(id: number): Promise<{ id: number; clips: number }>;
+  /** 记住说话人 idx 的声音：新建档案（name），或者录进已有的档案（profileId）。本人须已同意 */
+  enrollVoice(
+    sessionId: string,
+    idx: number,
+    target: { name: string } | { profileId: number },
+  ): Promise<{ speaker: SpeakerInfo; voice_profile: VoiceProfile }>;
+  /** 取消说话人和档案的关联，档案保留 */
+  unlinkVoice(sessionId: string, idx: number): Promise<void>;
   /** 服务端时钟（Unix 秒），对时用 */
   serverTime(): Promise<number>;
   /** 建立 WebRTC 连接时用的 ICE 服务器（docs/interfaces.md §5.2），原样交给 SDK */
@@ -271,6 +298,29 @@ export function createApi(
             : { speaker_idx: target.speakerIdx }),
         }),
       ),
+    listVoiceProfiles: () =>
+      request<{ items: VoiceProfile[]; min_enroll_secs: number }>("/api/voice-profiles"),
+    renameVoiceProfile: (id, name) =>
+      request<VoiceProfile>(`/api/voice-profiles/${id}`, json("PATCH", { name })),
+    deleteVoiceProfile: (id) =>
+      request<{ id: number; clips: number }>(`/api/voice-profiles/${id}`, { method: "DELETE" }),
+    enrollVoice: (sessionId, idx, target) =>
+      request<{ speaker: SpeakerInfo; voice_profile: VoiceProfile }>(
+        `/api/speakers/${idx}/voice-profile`,
+        json("POST", {
+          session_id: sessionId,
+          consent: true,
+          ...("profileId" in target ? { profile_id: target.profileId } : { name: target.name }),
+        }),
+      ),
+    async unlinkVoice(sessionId, idx) {
+      await request<unknown>(
+        `/api/speakers/${idx}/voice-profile${query({ session_id: sessionId })}`,
+        {
+          method: "DELETE",
+        },
+      );
+    },
     async serverTime() {
       const body = await request<{ server_time: number }>("/api/time");
       return body.server_time;

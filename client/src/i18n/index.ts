@@ -19,6 +19,7 @@ import { serverFailures, serverFailureText } from "./serverFailures.ts";
 import { serverNotices, serverNoticeText, type NoticeParams } from "./serverNotices.ts";
 import { session } from "./session.ts";
 import { tasks } from "./tasks.ts";
+import { voice } from "./voice.ts";
 import {
   currentChoice,
   currentLanguage,
@@ -38,6 +39,7 @@ const areas = {
   report,
   login,
   sharing,
+  voice,
   notices,
   serverNotices,
   serverErrors,

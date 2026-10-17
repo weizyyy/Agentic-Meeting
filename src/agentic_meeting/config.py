@@ -571,6 +571,8 @@ class SpeakerMemoryConfig(_Model):
     backend: Literal["none", "sherpa_onnx"] = "none"
     # 声纹服务的地址。声纹是生物特征数据，只允许本机回环地址。
     base_url: str = "http://127.0.0.1:8084"
+    # 录入声纹档案至少要有这么多秒的单人语音（声纹片段的总时长）。
+    min_enroll_secs: float = Field(default=20.0, ge=1.0, le=600.0)
     launch: SpeakerLaunch = Field(default_factory=SpeakerLaunch)
 
     @field_validator("base_url")

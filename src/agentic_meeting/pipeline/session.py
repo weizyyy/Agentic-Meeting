@@ -387,6 +387,19 @@ class SessionManager:
         self._streams[session_id] = stream
         return stream
 
+    async def rename_speaker(self, session_id: str, idx: int, name: str) -> bool:
+        """改说话人的显示名；说话人不存在返回 ``False``。
+
+        改的是正在进行的会议时，之后的字幕和上下文行也用新名字；页面收到一条 ``speaker`` 消息。
+        """
+        if not await self._store.rename_speaker(session_id, idx, name):
+            return False
+        live = self._live.get(session_id)
+        if live is not None and live.recorder is not None:
+            live.recorder.set_speaker_name(idx, name)
+        await self.push_to(session_id, {"type": "speaker", "idx": idx, "display_name": name})
+        return True
+
     async def merge_speakers(self, session_id: str, src: int, dst: int) -> dict | None:
         """把说话人 ``src`` 并入 ``dst``。两个说话人有一个不存在（或不能合并）返回 ``None``。
 

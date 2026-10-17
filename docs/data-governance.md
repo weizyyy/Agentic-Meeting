@@ -14,6 +14,7 @@ recordings. Transcription status means transcription, not an audio-file recordin
 | Screenshot timestamps, descriptions and file references                                        | Database; images in `<data_dir>/sessions/<id>/frames/` |
 | Running summaries (digests) and meeting reports                                                | Database                                               |
 | Voiceprints of speech clips, when `speaker_memory` is enabled                                  | Database (`voice_clips`)                               |
+| Voice profiles that a host enrolled with the person's consent                                  | Database (`voice_profiles` and its samples)            |
 | Task goals, results, sources, progress events and outbound metadata                            | Database                                               |
 | Persistent task input copies and fetched artifacts                                             | `<data_dir>/sessions/<id>/tasks/<label>/`              |
 | Service/application logs                                                                       | `<data_dir>/logs/`                                     |
@@ -31,9 +32,15 @@ cuts single-speaker clips of up to 6 s from the meeting audio in memory, has a l
 turn each into a vector and stores the vector with the caption it belongs to. The audio of the clips
 is not stored. The speaker service must listen on a loopback address of the meeting server, so
 voiceprints never leave it. Erase a meeting's voiceprints without touching its transcript with
-`DELETE /api/sessions/{id}/voice` ([interfaces.md §5.4](interfaces.md)). Recognizing people across
-meetings is not part of this release; the plan, including consent, is in
-[design/speaker-memory.md](design/speaker-memory.md).
+`DELETE /api/sessions/{id}/voice` ([interfaces.md §5.4](interfaces.md)).
+
+A host can remember a speaker's voice as a **voice profile** only after confirming that the person
+agreed ([interfaces.md §5.14](interfaces.md)). A profile holds a name and up to eight voiceprints,
+one per meeting; they are copies, so deleting the meeting they came from does not delete them.
+Deleting the profile (**声纹…** on a speaker, or `DELETE /api/voice-profiles/{id}`) removes its
+voiceprints and, in every meeting, the clips of the speakers linked to it, and keeps the captions.
+Profiles have no retention period yet; they stay until deleted. Recognizing people in later meetings
+is not part of this release; the plan is in [design/speaker-memory.md](design/speaker-memory.md).
 
 Downloaded exports are separate copies wherever the operator/browser saves them. Logs and task
 results can also contain meeting content; they are not equivalent to the utterance table.
