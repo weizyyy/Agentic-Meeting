@@ -132,7 +132,15 @@ class MeetingAccess:
             await asyncio.gather(self.monitor, return_exceptions=True)
         for lease in list(self.leases):
             self.leases.discard(lease)
-            await lease.close()
+            try:
+                await lease.close()
+            except (asyncio.CancelledError, Exception):
+                # 浏览器刚断开时连接可能正被别处关到一半，aiortc 的关闭等待会连带抛出
+                # CancelledError。不能因此跳过后面的收尾（数据库要正常关上）；自身被取消时仍传播。
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    raise
+                logger.opt(exception=True).warning("停止服务时断开会议连接失败")
 
     async def authenticate(self, cookie: str | None) -> Identity | None:
         if not cookie:
