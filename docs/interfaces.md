@@ -1531,12 +1531,28 @@ nothing. `GET /api/auth` adds `meeting_access` and, when logged in, the caller's
 principal and expiry, never as the raw cookie or password. `POST /api/auth/logout` ends one login,
 and `POST /api/auth/logout-all` ends every login of the caller.
 
+**Single sign-on.** The OpenID Connect providers of §5.7 also work in access mode. Signing in
+through provider `<id>` logs in the principal `oidc:<id>:<sub>`, where `sub` comes from the ID
+token, so a person keeps their meetings when their user name or display name changes at the
+provider. Each login records the principal with its display name in `principals`, and in
+`external_principals(principal_id, can_host)` whether it may host: it may when its user name is in
+the provider's `host_users` or one of its groups is in `host_groups`, evaluated again at every
+login. The site password is not asked for, because the provider has authenticated the person;
+`allowed_users` and `allowed_groups` decide who gets in. The login is stored in `login_sessions`
+like a local one, so logout, logout-all, expiry and revocation work the same way. After a provider
+is removed from the configuration, the logins made through it stop working at the next start and
+its principals can no longer be granted access. `GET /api/auth`
+adds `methods` as in §5.7, where `password` is always true and `proxy` always false. Identity
+headers from a reverse proxy cannot be combined with access mode; a configuration with both is
+rejected.
+
 **Roles.** `meeting_members(session_id, principal_id, role, allow_questions)` holds the grants.
 Creating a meeting grants its creator `host` in the same transaction; only accounts with
 `can_host` may create meetings. A `watcher` reads the meeting and may ask questions only when
 `allow_questions` is true (default false). A host may also record and resume, rename, keep, end
 and delete the meeting, edit speakers, generate reports, cancel tasks, and manage members and
-shares. A meeting always keeps at least one host, and only `can_host` accounts can be made hosts.
+shares. A meeting always keeps at least one host, and only `can_host` accounts and single sign-on
+principals that may host can be made hosts.
 Roles are never taken from request data. Session responses carry the caller's
 `access: {role, allow_questions, tool_enabled, share_expires_at}` so the page can show the right
 controls; the server enforces them regardless.
@@ -1544,12 +1560,13 @@ controls; the server enforces them regardless.
 | Method and path                                    | Access | Result                                                           |
 | -------------------------------------------------- | ------ | ---------------------------------------------------------------- |
 | `GET /api/sessions/{id}/members`                   | Host   | `{items: [{principal_id, display_name, role, allow_questions}]}` |
-| `PUT /api/sessions/{id}/members/{principal_id}`    | Host   | Set `{role, allow_questions}` for a configured account           |
+| `PUT /api/sessions/{id}/members/{principal_id}`    | Host   | Set `{role, allow_questions}` for a known principal              |
 | `DELETE /api/sessions/{id}/members/{principal_id}` | Host   | Remove the grant; the last host cannot be removed                |
 | `GET /api/sessions/{id}/access-log`                | Host   | Access log (§5.13)                                               |
 
-The page shows the caller's own principal id; a host types the exact id to grant access. There is
-no user directory.
+The page shows the caller's own principal id; a host types the exact id to grant access. A known
+principal is a configured account or a single sign-on principal that has signed in at least once.
+There is no user directory.
 
 **Meetings from before access mode.** Meetings without an owner are invisible in access mode and
 are never given to the first visitor. With the server stopped, an operator runs

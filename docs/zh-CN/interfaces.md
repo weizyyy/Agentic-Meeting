@@ -1335,21 +1335,30 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 从不存原始 cookie 或口令。`POST /api/auth/logout` 结束当前登录，`POST /api/auth/logout-all`
 结束本人的所有登录。
 
+**单点登录。** §5.7 的 OpenID Connect 身份提供方在会议访问模式下同样可用。通过身份提供方 `<id>` 登录的人是主体
+`oidc:<id>:<sub>`，`sub` 取自 ID 令牌，所以身份提供方那边改了用户名或显示名，会议授权也不变。每次登录都会把主体和显示名
+记进 `principals`，并在 `external_principals(principal_id, can_host)` 里记下它能否主持：用户名在该身份提供方的
+`host_users` 里，或者属于 `host_groups` 中的某个组时可以，每次登录重新判断。不要求站点口令，因为身份提供方已经认证过这个人；
+谁能进由 `allowed_users` 和 `allowed_groups` 决定。登录和本地账号一样记在 `login_sessions` 里，退出、全部退出、到期和撤权
+的效果都相同。把某个身份提供方从配置里删掉后，下次启动起经它登录的设备都失效，它的主体也不能再被授权。`GET /api/auth` 增加与 §5.7 相同的 `methods`，其中 `password` 总是真、`proxy` 总是假。反向代理传来的身份头
+不能和会议访问模式同时使用，两者都配置时配置检查报错。
+
 **角色。** 授权存在 `meeting_members(session_id, principal_id, role, allow_questions)` 中。创建会议时，
 创建者的 `host` 授权在同一个事务里写入；只有 `can_host` 的账号能创建会议。`watcher` 能读会议，
 `allow_questions` 为真时才能提问（默认假）。主持人还能录音和继续、改名、保留、结束和删除会议、改说话人、
-生成报告、取消任务，以及管理成员和分享。每场会议至少保留一位主持人，只有 `can_host` 的账号能被设为主持人。
+生成报告、取消任务，以及管理成员和分享。每场会议至少保留一位主持人，只有 `can_host` 的账号和能主持的单点登录主体能被设为主持人。
 角色从不取自请求数据。会议响应带上本人的 `access: {role, allow_questions, tool_enabled, share_expires_at}`，
 页面据此显示对应的控件；服务器仍会自己检查。
 
 | 方法与路径                                         | 权限   | 结果                                                             |
 | -------------------------------------------------- | ------ | ---------------------------------------------------------------- |
 | `GET /api/sessions/{id}/members`                   | 主持人 | `{items: [{principal_id, display_name, role, allow_questions}]}` |
-| `PUT /api/sessions/{id}/members/{principal_id}`    | 主持人 | 给配置里的账号设置 `{role, allow_questions}`                     |
+| `PUT /api/sessions/{id}/members/{principal_id}`    | 主持人 | 给已知的主体设置 `{role, allow_questions}`                       |
 | `DELETE /api/sessions/{id}/members/{principal_id}` | 主持人 | 撤销授权；不能移除最后一位主持人                                 |
 | `GET /api/sessions/{id}/access-log`                | 主持人 | 访问日志（§5.13）                                                |
 
-页面显示本人的主体 ID；主持人输入准确的 ID 来授权。没有用户目录。
+页面显示本人的主体 ID；主持人输入准确的 ID 来授权。已知的主体是配置里的账号，或者至少登录过一次的单点登录主体。
+没有用户目录。
 
 **开启前的会议。** 没有主人的会议在会议访问模式下看不到，也不会分给第一个访问的人。运维先停掉服务，
 运行 `agentic-meeting access list-unclaimed`，再对一个能主持的账号运行

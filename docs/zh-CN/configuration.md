@@ -79,7 +79,8 @@ ice_servers = [
 身份提供方连不上时口令照常可用。已经登录的设备在登录到期（`auth_session_days`）之前不再需要身份提供方。
 协议细节见[接口](interfaces.md#57-访问口令与单点登录)。
 
-单点登录暂时不能和[会议身份](#会议身份)（`meeting_access`）同时开启，两者都配置时配置检查会报错。
+开启[会议身份](#会议身份)（`meeting_access`）时，用 OpenID Connect 登录的人在本地账号之外各有自己的身份，
+`host_users` 和 `host_groups` 决定谁能开会。反向代理传来的身份头不能和 `meeting_access` 同时开启，两者都配置时配置检查会报错。
 
 **OpenID Connect。** 在身份提供方（Keycloak、Authentik、Microsoft Entra ID、Google 等）登记本应用，类型选 Web
 应用、授权码流程，回调地址填 `<public_url>/api/auth/oidc/<id>/callback`。然后每个身份提供方写一项：
@@ -104,6 +105,8 @@ oidc = [
 | `groups_claim`      | `"groups"`                       | 列出用户组的声明                                                                     |
 | `allowed_users`     | `[]`                             | 允许登录的用户名                                                                     |
 | `allowed_groups`    | `[]`                             | 允许登录的用户组。两张名单都空时，身份提供方认可的人都能登录                         |
+| `host_users`        | `[]`                             | 开启 `meeting_access` 时：能开会并主持的用户名                                       |
+| `host_groups`       | `[]`                             | 开启 `meeting_access` 时：组内成员能开会并主持                                       |
 
 `client_secret_env` 填了变量名却没设置时，`agentic-meeting check` 会列为缺项。只有有人登录时才连身份提供方，启动时不连，
 所以它离线时应用照常启动。

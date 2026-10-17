@@ -85,8 +85,10 @@ the password field, and the password keeps working while the provider is unreach
 is already logged in does not need the provider again until its login expires
 (`auth_session_days`). The protocol details are in [interfaces](interfaces.md#57-access-password-and-single-sign-on).
 
-Single sign-on cannot yet be combined with [meeting identities](#meeting-identities)
-(`meeting_access`); the configuration is rejected when both are set.
+With [meeting identities](#meeting-identities) (`meeting_access`), people who sign in through
+OpenID Connect get their own identity next to the local accounts, and `host_users` and
+`host_groups` decide who may start meetings. Identity headers from a reverse proxy cannot be
+combined with `meeting_access`; the configuration is rejected when both are set.
 
 **OpenID Connect.** Register this application at the provider (Keycloak, Authentik, Microsoft Entra
 ID, Google and others) as a web application with the authorization code flow, and give it the
@@ -112,6 +114,8 @@ oidc = [
 | `groups_claim`      | `"groups"`                       | Claim that lists the user's groups                                                                                   |
 | `allowed_users`     | `[]`                             | User names allowed to log in                                                                                         |
 | `allowed_groups`    | `[]`                             | Groups whose members are allowed to log in. With both lists empty, everyone the provider accepts can log in          |
+| `host_users`        | `[]`                             | With `meeting_access`: user names that may start and host meetings                                                   |
+| `host_groups`       | `[]`                             | With `meeting_access`: groups whose members may start and host meetings                                              |
 
 `agentic-meeting check` reports a `client_secret_env` that is named but not set. The provider is
 contacted only when someone logs in, not at startup, so the application starts while it is offline.

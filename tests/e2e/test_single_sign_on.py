@@ -8,6 +8,7 @@ from __future__ import annotations
 import httpx
 
 from .identity_provider import CLIENT_SECRET
+from .meeting_client import MeetingClient
 
 PASSWORD = "e2e-password-123"
 SECRET_ENV = {"E2E_OIDC_SECRET": CLIENT_SECRET, "E2E_ACCESS_PASSWORD": PASSWORD}
@@ -205,3 +206,114 @@ async def test_identity_headers_count_only_from_the_trusted_proxy(start_app, tmp
         headers = {"X-Forwarded-User": "carol"}
         assert (await http.get("/api/auth", headers=headers)).json()["authenticated"] is False
         assert (await http.get("/api/sessions", headers=headers)).status_code == 401
+
+
+async def test_organization_accounts_next_to_local_accounts_in_meeting_access(start_app, identity):
+    keys = identity.keys
+    settings = {
+        "server.password_env": "E2E_ACCESS_PASSWORD",
+        "server.meeting_access": True,
+        "server.local_users": [
+            {
+                "id": "alpha",
+                "display_name": "Alpha",
+                "password_env": "E2E_LOCAL_PASSWORD",
+                "can_host": True,
+            }
+        ],
+        "server.oidc": [identity.config(keys, allowed_groups=["lab"], host_groups=["lab-hosts"])],
+    }
+    env = {**SECRET_ENV, "E2E_LOCAL_PASSWORD": "e2e-local-password"}
+    app = await start_app(settings, env=env)
+    carol = {"sub": "u-carol", "preferred_username": "carol", "name": "Carol"}
+    dave = {"sub": "u-dave", "preferred_username": "dave", "name": "Dave"}
+
+    async def sign_in_as(http: httpx.AsyncClient, user: dict) -> dict:
+        keys.user = user
+        assert login_error(await sign_in(http, "keys")) is None
+        status = (await http.get("/api/auth")).json()
+        assert status["authenticated"] is True
+        http.headers["X-CSRF-Token"] = status["csrf_token"]
+        return status
+
+    async with app.http() as host, app.http() as watcher:
+        status = (await host.get("/api/auth")).json()
+        assert status["meeting_access"] is True and status["site_password_required"] is True
+        assert status["methods"] == {
+            "password": True,
+            "oidc": [{"id": "keys", "display_name": "keys 账号"}],
+            "proxy": False,
+        }
+
+        # 用单位账号登录不需要站点口令；主持权限来自用户组
+        status = await sign_in_as(host, {**carol, "groups": ["lab", "lab-hosts"]})
+        assert status["principal"] == {
+            "id": "oidc:keys:u-carol",
+            "guest": False,
+            "display_name": "Carol",
+            "can_host": True,
+        }
+        status = await sign_in_as(watcher, {**dave, "groups": ["lab"]})
+        assert status["principal"]["id"] == "oidc:keys:u-dave"
+        assert status["principal"]["can_host"] is False
+        offer = await watcher.post("/api/offer", json={"sdp": "v=0", "type": "offer"})
+        assert offer.status_code == 403 and offer.json()["code"] == "access.denied"
+
+        client = MeetingClient(host)
+        try:
+            sid = (await client.connect())["id"]
+            members = (await host.get(f"/api/sessions/{sid}/members")).json()["items"]
+            assert [(m["principal_id"], m["display_name"], m["role"]) for m in members] == [
+                ("oidc:keys:u-carol", "Carol", "host")
+            ]
+            # Dave 还看不到这场会议；主持人按主体 ID 授权之后才能看
+            assert (await watcher.get(f"/api/sessions/{sid}")).status_code == 404
+            member = f"/api/sessions/{sid}/members/oidc:keys:u-dave"
+            refused = await host.put(member, json={"role": "host"})
+            assert refused.status_code == 400
+            assert refused.json()["code"] == "access.invalid_member"
+            unknown = await host.put(
+                f"/api/sessions/{sid}/members/oidc:keys:u-nobody", json={"role": "watcher"}
+            )
+            assert unknown.status_code == 400
+            assert (await host.put(member, json={"role": "watcher"})).status_code == 200
+            assert (await watcher.get(f"/api/sessions/{sid}")).status_code == 200
+            # 本地账号和单点登录的人互不相干：没有授权的本地账号同样看不到
+            async with app.http() as local:
+                login = await local.post(
+                    "/api/auth/login",
+                    json={
+                        "user_id": "alpha",
+                        "password": "e2e-local-password",
+                        "site_password": PASSWORD,
+                    },
+                )
+                assert login.status_code == 200, login.text
+                assert (await local.get(f"/api/sessions/{sid}")).status_code == 404
+        finally:
+            await client.close()
+
+        # Dave 退出后，同一个 Cookie 不再能用
+        old = dict(watcher.cookies)
+        assert (await watcher.post("/api/auth/logout")).status_code == 200
+        watcher.cookies.update(old)
+        assert (await watcher.get(f"/api/sessions/{sid}")).status_code == 401
+        cookies = dict(host.cookies)
+
+    # 重启后已经登录的设备照常可用，主持权限也还在
+    await app.shutdown()
+    resumed = await start_app(settings, env=env, data_dir=app.data_dir)
+    async with resumed.http() as host, resumed.http() as again:
+        host.cookies.update(cookies)
+        status = (await host.get("/api/auth")).json()
+        assert status["principal"]["id"] == "oidc:keys:u-carol"
+        assert status["principal"]["can_host"] is True
+        assert (await host.get(f"/api/sessions/{sid}")).status_code == 200
+
+        # 主持组被拿掉、用户名也改了：还是同一个人，已经授权的会议照旧能看，但下次登录起不能再开会
+        status = await sign_in_as(
+            again, {**carol, "preferred_username": "c.lee", "groups": ["lab"]}
+        )
+        assert status["principal"]["id"] == "oidc:keys:u-carol"
+        assert status["principal"]["can_host"] is False
+        assert (await again.get(f"/api/sessions/{sid}")).status_code == 200

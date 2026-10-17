@@ -284,7 +284,9 @@ def register(app: FastAPI, guard: AuthGuard | None, sso: SingleSignOn | None = N
             secure=request.url.scheme == "https",
         )
 
-    def start_session(request: Request, response: Response) -> None:
+    async def start_session(
+        request: Request, response: Response, _identity: sso_module.ExternalIdentity
+    ) -> None:
         """单点登录认出人之后：签发会话，Cookie 写进跳转响应（页面随后从 GET /api/auth 取令牌）。"""
         assert guard is not None
         set_session_cookie(request, response, guard.issue()[0])

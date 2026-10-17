@@ -218,6 +218,9 @@ class OidcProviderConfig(_Model):
     # 都留空 = 身份提供方认证过的人都能登录；否则用户名在前者里或属于后者中的某个组
     allowed_users: list[str] = Field(default_factory=list)
     allowed_groups: list[str] = Field(default_factory=list)
+    # 会议权限模式下能开会、能被设为主持人的用户名和用户组；每次登录时重新判断
+    host_users: list[str] = Field(default_factory=list)
+    host_groups: list[str] = Field(default_factory=list)
 
     @field_validator("issuer")
     @classmethod
@@ -293,11 +296,9 @@ class ServerConfig(_Model):
             raise ValueError("server.local_users 的 id 不能重复")
         if self.meeting_access and not any(user.can_host for user in self.local_users):
             raise ValueError("会议权限模式至少需要一个 can_host 的本地账号")
-        # 单点登录的人还没有映射到会议权限模式的账号和角色上：宁可起不来，也不让人以为它已经生效
-        if self.meeting_access and (self.oidc or self.proxy_auth.enabled):
-            raise ValueError(
-                "server.oidc / server.proxy_auth 暂时不能和 server.meeting_access 同时开启"
-            )
+        # 代理身份头每个请求都带、没有登录记录，接不上会议权限模式的登录、撤权和分享
+        if self.meeting_access and self.proxy_auth.enabled:
+            raise ValueError("server.proxy_auth 不能和 server.meeting_access 同时开启")
         return self
 
     @field_validator("public_url")
