@@ -250,6 +250,27 @@ directly to the ASR backend:
 | Labels behind audio (low-latency preset, 320 ms chunks) | median 0.64 s, max 1.12 s                                                         |
 | Sentence attribution in the simulated meeting           | 9 of 10; the miss was a voice's first short question, merged into another speaker |
 
+### Speaker embeddings and the match threshold
+
+`speaker_memory.match_threshold` (default 0.6) has not been calibrated on a real model yet. To
+measure it, put a few recordings per person in a directory, one subdirectory per person and one
+16 kHz mono WAV file per meeting, start the speaker service and run:
+
+```bash
+uv run python scripts/calibrate_speaker_threshold.py data/voices --lengths 10,30,0
+```
+
+The script embeds the recordings the way the server does: silence removed, windows of at most 6 s,
+and a duration-weighted voiceprint per file. Each file then plays a speaker in a new meeting. The
+profiles are built from the person's other files. The script reports three things for the first
+10 s, the first 30 s and the whole file:
+
+- the scores against the right person and against other people;
+- what the suggestion rules of the server would do with the configured threshold and margin;
+- the threshold that gives the most correct suggestions with no wrong one.
+
+Results will be recorded here once they have been measured on the chosen model.
+
 ### Embeddings and vector search
 
 | Metric                              | Result                                                                                                       |

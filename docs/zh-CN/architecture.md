@@ -444,6 +444,7 @@ Agentic-Meeting/
 │   ├── runtimes.py            获取/构建推理程序
 │   ├── soak.py                长会议压力测试（不经过浏览器）
 │   ├── eval_realtime_model.py 实时模型对比
+│   ├── calibrate_speaker_threshold.py 声纹比对门限的标定
 │   └── mic_check.py           麦克风电平诊断
 ├── src/agentic_meeting/
 │   ├── config.py              配置加载与校验

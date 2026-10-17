@@ -130,6 +130,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The application image includes the `speaker` extra, and `compose.yaml` has a `speaker` service
   (profile `speaker`, model in `SPEAKER_MODEL`) that runs the speaker service on the host network
   at `127.0.0.1:8084` ([#25]).
+- `scripts/calibrate_speaker_threshold.py` measures how a speaker-embedding model scores the same
+  person and different people on your own recordings, and suggests a `speaker_memory.match_threshold`
+  ([#25]).
 
 ### Fixed
 

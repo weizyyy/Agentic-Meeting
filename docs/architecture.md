@@ -517,6 +517,7 @@ Agentic-Meeting/
 │   ├── runtimes.py            Fetch or build inference runtimes
 │   ├── soak.py                Headless end-to-end replay and soak test
 │   ├── eval_realtime_model.py Tool-selection and latency checks for a realtime LLM
+│   ├── calibrate_speaker_threshold.py Score distributions for the speaker match threshold
 │   └── mic_check.py           Microphone level diagnosis
 ├── src/agentic_meeting/
 │   ├── config.py              Configuration loading and validation
