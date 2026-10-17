@@ -1,4 +1,5 @@
-# Agentic-Meeting 的应用镜像：应用、网页客户端和说话人区分的动态库（说话人区分在应用进程里运行）。
+# Agentic-Meeting 的应用镜像：应用、网页客户端、说话人区分的动态库（说话人区分在应用进程里运行），
+# 以及声纹服务要用的 sherpa-onnx（speaker 附加依赖，CPU 上运行）。
 # 推理服务各有各的镜像，由 compose.yaml 组合，见 docs/containers.md。
 #
 # 镜像里没有任何模型权重，构建和启动时也不下载：权重由用户挂载到 /app/models。
@@ -66,7 +67,7 @@ ENV UV_PYTHON=/usr/bin/python3.12 \
 # 依赖单独一层：只改源码时不必重装
 COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN --mount=type=bind,from=uv,source=/uv,target=/usr/local/bin/uv \
-    uv sync --locked --no-dev --extra agent --no-install-project
+    uv sync --locked --no-dev --extra agent --extra speaker --no-install-project
 
 # 说话人区分的动态库，解压到 runtimes/nemo_speech/（与本机运行 scripts/runtimes.py fetch 的结果相同）
 COPY runtimes.lock.toml ./
@@ -87,7 +88,7 @@ COPY config/prompts/ config/prompts/
 COPY scripts/ scripts/
 COPY src/ src/
 RUN --mount=type=bind,from=uv,source=/uv,target=/usr/local/bin/uv \
-    uv sync --locked --no-dev --extra agent
+    uv sync --locked --no-dev --extra agent --extra speaker
 
 # 以基础镜像自带的 ubuntu 用户（uid 1000）运行。会议数据写在 /app/data，平时挂成宿主机的 data/。
 RUN mkdir data && chown 1000:1000 data

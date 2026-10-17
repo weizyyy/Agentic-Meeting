@@ -23,6 +23,7 @@
 | `realtime`              | llama.cpp 官方的 `llama-server` 镜像              | `127.0.0.1:8080`                | 是                      | profile `realtime`  |
 | `tts`                   | `agentic-meeting-tts`（qwentts.cpp `tts-server`） | `127.0.0.1:8082`                | 是                      | profile `tts`       |
 | `embedding`             | llama.cpp 官方的 `llama-server` 镜像（CPU）       | `127.0.0.1:8083`                | 否                      | profile `embedding` |
+| `speaker`               | `agentic-meeting`（声纹服务，CPU）                | `127.0.0.1:8084`，宿主机网络    | 否                      | profile `speaker`   |
 | `app`                   | `agentic-meeting`（应用、网页客户端）             | `server.port`（7860），所有网卡 | 是（说话人区分）        | 是                  |
 | `asr-template`          | `agentic-meeting`，写出识别服务的对话模板         | —                               | 否                      | 是，写完即退出      |
 
@@ -33,6 +34,8 @@
 - `app` 使用宿主机网络。WebRTC 的媒体对每个连接走一个随机 UDP 端口（[deployment.md §1](deployment.md#1-哪些东西要能连通)），
   桥接网络无法把这些端口映射出去。所以应用容器只支持 Linux（§7）。
 - 说话人区分是加载进应用进程的动态库，所以 `app` 容器也要用显卡。
+- `speaker_memory` 用的声纹服务（[配置](configuration.md#speaker_memory)）只肯监听回环地址，所以和 `app` 一样用宿主机网络，
+  监听 `127.0.0.1:8084`，即 `speaker_memory.base_url` 的默认值。
 - `asr` 健康后 `app` 才启动；已启动的可选服务也会等它们就绪。
 
 ## 2. 环境要求
@@ -79,19 +82,20 @@ docker compose -f compose.yaml -f docker/compose.cuda.yaml up -d    # NVIDIA 显
 
 Compose 从 `.env` 读取的变量：
 
-| 变量                                                                                  | 默认值                      | 含义                                                          |
-| ------------------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------- |
-| `COMPOSE_PROFILES`                                                                    | —                           | 要启动的可选服务：`realtime`、`tts`、`embedding`，逗号分隔    |
-| `COMPOSE_FILE`                                                                        | `compose.yaml`              | 要叠加的文件，用 `:` 分隔                                     |
-| `ASR_MODEL`、`ASR_MMPROJ`                                                             | —                           | 识别模型及其音频投影，例如 `models/asr/….gguf`                |
-| `ASR_CTX_SIZE`、`ASR_GPU_LAYERS`                                                      | `8192`、`all`               | 即 `asr.launch.ctx_size` 和 `gpu_layers`                      |
-| `REALTIME_MODEL`、`REALTIME_MMPROJ`                                                   | —                           | 实时模型及其视觉投影；不能识图的模型把 `REALTIME_MMPROJ` 留空 |
-| `REALTIME_CTX_SIZE`、`REALTIME_PARALLEL`、`REALTIME_GPU_LAYERS`、`REALTIME_REASONING` | `32768`、`2`、`all`、`off`  | `realtime_llm.llama_server` 里对应的设置                      |
-| `TTS_MODEL`、`TTS_CODEC`、`TTS_LANGUAGE`                                              | —、—、`Chinese`             | talker 和 codec 的 GGUF，`tts.launch.default_language`        |
-| `EMBEDDING_MODEL`、`EMBEDDING_POOLING`                                                | —、`last`                   | 嵌入模型 GGUF 及其池化方式                                    |
-| `AGENTIC_MEETING_UID`、`AGENTIC_MEETING_GID`                                          | `1000`                      | 应用容器里的用户                                              |
-| `AGENTIC_MEETING_TAG`、`AGENTIC_MEETING_TTS_TAG`                                      | `cpu`，或叠加文件对应的版本 | 镜像标签，例如 `0.4.0-cuda` 可固定在某个发布版本              |
-| `LLAMA_SERVER_TAG`、`LLAMA_SERVER_CUDA_TAG`、`LLAMA_SERVER_VULKAN_TAG`                | 锁定的构建号                | llama.cpp 镜像的标签                                          |
+| 变量                                                                                  | 默认值                      | 含义                                                                  |
+| ------------------------------------------------------------------------------------- | --------------------------- | --------------------------------------------------------------------- |
+| `COMPOSE_PROFILES`                                                                    | —                           | 要启动的可选服务：`realtime`、`tts`、`embedding`、`speaker`，逗号分隔 |
+| `COMPOSE_FILE`                                                                        | `compose.yaml`              | 要叠加的文件，用 `:` 分隔                                             |
+| `ASR_MODEL`、`ASR_MMPROJ`                                                             | —                           | 识别模型及其音频投影，例如 `models/asr/….gguf`                        |
+| `ASR_CTX_SIZE`、`ASR_GPU_LAYERS`                                                      | `8192`、`all`               | 即 `asr.launch.ctx_size` 和 `gpu_layers`                              |
+| `REALTIME_MODEL`、`REALTIME_MMPROJ`                                                   | —                           | 实时模型及其视觉投影；不能识图的模型把 `REALTIME_MMPROJ` 留空         |
+| `REALTIME_CTX_SIZE`、`REALTIME_PARALLEL`、`REALTIME_GPU_LAYERS`、`REALTIME_REASONING` | `32768`、`2`、`all`、`off`  | `realtime_llm.llama_server` 里对应的设置                              |
+| `TTS_MODEL`、`TTS_CODEC`、`TTS_LANGUAGE`                                              | —、—、`Chinese`             | talker 和 codec 的 GGUF，`tts.launch.default_language`                |
+| `EMBEDDING_MODEL`、`EMBEDDING_POOLING`                                                | —、`last`                   | 嵌入模型 GGUF 及其池化方式                                            |
+| `SPEAKER_MODEL`、`SPEAKER_THREADS`                                                    | —、`1`                      | 声纹模型（ONNX），`speaker_memory.launch.num_threads`                 |
+| `AGENTIC_MEETING_UID`、`AGENTIC_MEETING_GID`                                          | `1000`                      | 应用容器里的用户                                                      |
+| `AGENTIC_MEETING_TAG`、`AGENTIC_MEETING_TTS_TAG`                                      | `cpu`，或叠加文件对应的版本 | 镜像标签，例如 `0.4.0-cuda` 可固定在某个发布版本                      |
+| `LLAMA_SERVER_TAG`、`LLAMA_SERVER_CUDA_TAG`、`LLAMA_SERVER_VULKAN_TAG`                | 锁定的构建号                | llama.cpp 镜像的标签                                                  |
 
 用 `-a`、`--alias` 传的请求名 `realtime`、`tts`、`embedding` 与 `realtime_llm.llama_server.model`、`tts.model`、
 `embedding.model` 的默认值一致；改了这几项，`compose.yaml` 里的命令也要一起改。没有对应变量的选项（例如
@@ -121,12 +125,12 @@ docker compose run --rm --no-deps app check
 
 ## 5. 镜像
 
-| 镜像                                      | 标签                                                          | 内容                                                            |
-| ----------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------- |
-| `ghcr.io/weizyyy/agentic-meeting`         | `cpu`、`cuda`、`vulkan`；`<版本>-<变体>`                      | 应用、构建好的网页客户端、说话人区分用的 NeMo-Speech.cpp 动态库 |
-| `ghcr.io/weizyyy/agentic-meeting-tts`     | `cpu`、`cuda`、`vulkan`；`<版本>-<变体>`                      | 从钉住的 qwentts.cpp 源码构建的 `tts-server` 和 `qwen-tts`      |
-| `ghcr.io/weizyyy/agentic-meeting-sandbox` | `latest`；`<版本>`                                            | 代码沙箱：带 numpy、pandas、matplotlib 的 Python                |
-| `ghcr.io/ggml-org/llama.cpp`（上游）      | `server-b11429`、`server-cuda-b11429`、`server-vulkan-b11429` | `runtimes.lock.toml` 钉住的构建号的 `llama-server`              |
+| 镜像                                      | 标签                                                          | 内容                                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `ghcr.io/weizyyy/agentic-meeting`         | `cpu`、`cuda`、`vulkan`；`<版本>-<变体>`                      | 应用、构建好的网页客户端、说话人区分用的 NeMo-Speech.cpp 动态库，以及声纹服务用的 `sherpa-onnx` |
+| `ghcr.io/weizyyy/agentic-meeting-tts`     | `cpu`、`cuda`、`vulkan`；`<版本>-<变体>`                      | 从钉住的 qwentts.cpp 源码构建的 `tts-server` 和 `qwen-tts`                                      |
+| `ghcr.io/weizyyy/agentic-meeting-sandbox` | `latest`；`<版本>`                                            | 代码沙箱：带 numpy、pandas、matplotlib 的 Python                                                |
+| `ghcr.io/ggml-org/llama.cpp`（上游）      | `server-b11429`、`server-cuda-b11429`、`server-vulkan-b11429` | `runtimes.lock.toml` 钉住的构建号的 `llama-server`                                              |
 
 发版流程每个版本都把本项目的三个镜像发布到 GHCR；不带版本号的标签跟随最新的发布版本。应用镜像和语音合成镜像与本机安装
 一样，用 `runtimes.lock.toml` 和子模块里的运行时版本。CUDA 镜像基于 CUDA 12.8；语音合成镜像为 Pascal 到 Blackwell 的

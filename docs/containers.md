@@ -18,14 +18,15 @@ image contains weights, and nothing downloads them at start.
 
 ## 1. What runs where
 
-| Service in `compose.yaml` | Image                                            | Port on the host          | GPU (CUDA override) | Started by default         |
-| ------------------------- | ------------------------------------------------ | ------------------------- | ------------------- | -------------------------- |
-| `asr`                     | llama.cpp's own `llama-server` image             | `127.0.0.1:8081`          | Yes                 | Yes                        |
-| `realtime`                | llama.cpp's own `llama-server` image             | `127.0.0.1:8080`          | Yes                 | Profile `realtime`         |
-| `tts`                     | `agentic-meeting-tts` (qwentts.cpp `tts-server`) | `127.0.0.1:8082`          | Yes                 | Profile `tts`              |
-| `embedding`               | llama.cpp's own `llama-server` image (CPU)       | `127.0.0.1:8083`          | No                  | Profile `embedding`        |
-| `app`                     | `agentic-meeting` (application, web client)      | `server.port` (7860), all | Yes (diarization)   | Yes                        |
-| `asr-template`            | `agentic-meeting`; writes the ASR chat template  | —                         | No                  | Yes, exits when it is done |
+| Service in `compose.yaml` | Image                                            | Port on the host               | GPU (CUDA override) | Started by default         |
+| ------------------------- | ------------------------------------------------ | ------------------------------ | ------------------- | -------------------------- |
+| `asr`                     | llama.cpp's own `llama-server` image             | `127.0.0.1:8081`               | Yes                 | Yes                        |
+| `realtime`                | llama.cpp's own `llama-server` image             | `127.0.0.1:8080`               | Yes                 | Profile `realtime`         |
+| `tts`                     | `agentic-meeting-tts` (qwentts.cpp `tts-server`) | `127.0.0.1:8082`               | Yes                 | Profile `tts`              |
+| `embedding`               | llama.cpp's own `llama-server` image (CPU)       | `127.0.0.1:8083`               | No                  | Profile `embedding`        |
+| `speaker`                 | `agentic-meeting` (speaker service, CPU)         | `127.0.0.1:8084`, host network | No                  | Profile `speaker`          |
+| `app`                     | `agentic-meeting` (application, web client)      | `server.port` (7860), all      | Yes (diarization)   | Yes                        |
+| `asr-template`            | `agentic-meeting`; writes the ASR chat template  | —                              | No                  | Yes, exits when it is done |
 
 - The inference services listen on port 8080 inside their containers and are published on the
   host's loopback addresses at the ports that `config/config.toml` uses by default. Other machines
@@ -38,6 +39,9 @@ image contains weights, and nothing downloads them at start.
   bridge network. This is why the application container runs on Linux only (§7).
 - Speaker diarization is a library loaded into the application process, so the `app` container
   needs the GPU too.
+- The speaker service for `speaker_memory` ([configuration](configuration.md#speaker_memory))
+  refuses to listen on anything but a loopback address, so like `app` it uses the host network and
+  listens on `127.0.0.1:8084`, the default of `speaker_memory.base_url`.
 - `app` starts once `asr` is healthy, and waits for the optional services that are started.
 
 ## 2. Requirements
@@ -89,19 +93,20 @@ devices, set up HTTPS as in [getting started](getting-started.md#access-from-oth
 
 Variables in `.env` that Compose reads:
 
-| Variable                                                                              | Default                                    | Meaning                                                                             |
-| ------------------------------------------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `COMPOSE_PROFILES`                                                                    | —                                          | Optional services to start: `realtime`, `tts`, `embedding`, comma-separated         |
-| `COMPOSE_FILE`                                                                        | `compose.yaml`                             | Files to combine, separated by `:`                                                  |
-| `ASR_MODEL`, `ASR_MMPROJ`                                                             | —                                          | ASR model and its audio projector, e.g. `models/asr/….gguf`                         |
-| `ASR_CTX_SIZE`, `ASR_GPU_LAYERS`                                                      | `8192`, `all`                              | `asr.launch.ctx_size` and `gpu_layers`                                              |
-| `REALTIME_MODEL`, `REALTIME_MMPROJ`                                                   | —                                          | Realtime LLM and its vision projector; leave `REALTIME_MMPROJ` empty without vision |
-| `REALTIME_CTX_SIZE`, `REALTIME_PARALLEL`, `REALTIME_GPU_LAYERS`, `REALTIME_REASONING` | `32768`, `2`, `all`, `off`                 | The corresponding `realtime_llm.llama_server` settings                              |
-| `TTS_MODEL`, `TTS_CODEC`, `TTS_LANGUAGE`                                              | —, —, `Chinese`                            | Talker and codec GGUF, `tts.launch.default_language`                                |
-| `EMBEDDING_MODEL`, `EMBEDDING_POOLING`                                                | —, `last`                                  | Embedding GGUF and its pooling                                                      |
-| `AGENTIC_MEETING_UID`, `AGENTIC_MEETING_GID`                                          | `1000`                                     | User of the application container                                                   |
-| `AGENTIC_MEETING_TAG`, `AGENTIC_MEETING_TTS_TAG`                                      | `cpu`, or the variant of the override file | Image tags, for example `0.4.0-cuda` to stay on a release                           |
-| `LLAMA_SERVER_TAG`, `LLAMA_SERVER_CUDA_TAG`, `LLAMA_SERVER_VULKAN_TAG`                | the locked build                           | Tags of the llama.cpp images                                                        |
+| Variable                                                                              | Default                                    | Meaning                                                                                |
+| ------------------------------------------------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------- |
+| `COMPOSE_PROFILES`                                                                    | —                                          | Optional services to start: `realtime`, `tts`, `embedding`, `speaker`, comma-separated |
+| `COMPOSE_FILE`                                                                        | `compose.yaml`                             | Files to combine, separated by `:`                                                     |
+| `ASR_MODEL`, `ASR_MMPROJ`                                                             | —                                          | ASR model and its audio projector, e.g. `models/asr/….gguf`                            |
+| `ASR_CTX_SIZE`, `ASR_GPU_LAYERS`                                                      | `8192`, `all`                              | `asr.launch.ctx_size` and `gpu_layers`                                                 |
+| `REALTIME_MODEL`, `REALTIME_MMPROJ`                                                   | —                                          | Realtime LLM and its vision projector; leave `REALTIME_MMPROJ` empty without vision    |
+| `REALTIME_CTX_SIZE`, `REALTIME_PARALLEL`, `REALTIME_GPU_LAYERS`, `REALTIME_REASONING` | `32768`, `2`, `all`, `off`                 | The corresponding `realtime_llm.llama_server` settings                                 |
+| `TTS_MODEL`, `TTS_CODEC`, `TTS_LANGUAGE`                                              | —, —, `Chinese`                            | Talker and codec GGUF, `tts.launch.default_language`                                   |
+| `EMBEDDING_MODEL`, `EMBEDDING_POOLING`                                                | —, `last`                                  | Embedding GGUF and its pooling                                                         |
+| `SPEAKER_MODEL`, `SPEAKER_THREADS`                                                    | —, `1`                                     | Speaker-embedding model (ONNX), `speaker_memory.launch.num_threads`                    |
+| `AGENTIC_MEETING_UID`, `AGENTIC_MEETING_GID`                                          | `1000`                                     | User of the application container                                                      |
+| `AGENTIC_MEETING_TAG`, `AGENTIC_MEETING_TTS_TAG`                                      | `cpu`, or the variant of the override file | Image tags, for example `0.4.0-cuda` to stay on a release                              |
+| `LLAMA_SERVER_TAG`, `LLAMA_SERVER_CUDA_TAG`, `LLAMA_SERVER_VULKAN_TAG`                | the locked build                           | Tags of the llama.cpp images                                                           |
 
 The request names `realtime`, `tts` and `embedding` passed with `-a` and `--alias` match the
 defaults of `realtime_llm.llama_server.model`, `tts.model` and `embedding.model`. If you change
@@ -136,12 +141,12 @@ docker compose run --rm --no-deps app check
 
 ## 5. Images
 
-| Image                                     | Tags                                                          | Contents                                                               |
-| ----------------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `ghcr.io/weizyyy/agentic-meeting`         | `cpu`, `cuda`, `vulkan`; `<version>-<variant>`                | Application, built web client, NeMo-Speech.cpp library for diarization |
-| `ghcr.io/weizyyy/agentic-meeting-tts`     | `cpu`, `cuda`, `vulkan`; `<version>-<variant>`                | `tts-server` and `qwen-tts`, built from the pinned qwentts.cpp source  |
-| `ghcr.io/weizyyy/agentic-meeting-sandbox` | `latest`; `<version>`                                         | Python with numpy, pandas and matplotlib for the code sandbox          |
-| `ghcr.io/ggml-org/llama.cpp` (upstream)   | `server-b11429`, `server-cuda-b11429`, `server-vulkan-b11429` | `llama-server` at the build pinned in `runtimes.lock.toml`             |
+| Image                                     | Tags                                                          | Contents                                                                                                          |
+| ----------------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `ghcr.io/weizyyy/agentic-meeting`         | `cpu`, `cuda`, `vulkan`; `<version>-<variant>`                | Application, built web client, NeMo-Speech.cpp library for diarization, and `sherpa-onnx` for the speaker service |
+| `ghcr.io/weizyyy/agentic-meeting-tts`     | `cpu`, `cuda`, `vulkan`; `<version>-<variant>`                | `tts-server` and `qwen-tts`, built from the pinned qwentts.cpp source                                             |
+| `ghcr.io/weizyyy/agentic-meeting-sandbox` | `latest`; `<version>`                                         | Python with numpy, pandas and matplotlib for the code sandbox                                                     |
+| `ghcr.io/ggml-org/llama.cpp` (upstream)   | `server-b11429`, `server-cuda-b11429`, `server-vulkan-b11429` | `llama-server` at the build pinned in `runtimes.lock.toml`                                                        |
 
 The release workflow publishes the three images of this project to GHCR for every version; the tags
 without a version follow the latest release. The application and speech synthesis images use the
