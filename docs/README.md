@@ -26,4 +26,12 @@
 | [Pipecat integration notes](pipecat-notes.md)       | How the project uses Pipecat 1.12                                                  |
 | [Agents SDK integration notes](agents-sdk-notes.md) | How the background agent uses the OpenAI Agents SDK                                |
 
+## Design proposals
+
+| Document                                                         | Contents                                        |
+| ---------------------------------------------------------------- | ----------------------------------------------- |
+| [Remembering speakers across meetings](design/speaker-memory.md) | Voice profiles, matching, privacy rules ([#25]) |
+
 The English and Chinese editions share file names and section numbers.
+
+[#25]: https://github.com/weizyyy/Agentic-Meeting/issues/25
