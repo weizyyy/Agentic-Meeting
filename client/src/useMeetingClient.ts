@@ -17,7 +17,7 @@ import {
   unsupportedText,
   type UnsupportedReason,
 } from "./browserSupport.ts";
-import { messages, type Messages } from "./i18n/index.ts";
+import { errorText as serverErrorText, messages, type Messages } from "./i18n/index.ts";
 import { backfillAfterId, firstUtteranceId } from "./captions.ts";
 import { MeetingTransport } from "./meetingTransport.ts";
 import { parseMeetingEnvelope, parseMeetingSnapshot } from "./meetingEvents.ts";
@@ -75,6 +75,17 @@ function errorText(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   if (typeof error === "string") return error;
   return messages().common.unknownError;
+}
+
+/** 服务端拒绝了连接请求（比如同时进行的会议满了，interfaces.md §5.2）：取出它说的原因；不是这种失败返回 null。 */
+async function offerRefusal(error: unknown): Promise<string | null> {
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  if (typeof Response === "undefined" || !(cause instanceof Response)) return null;
+  try {
+    return serverErrorText(await cause.clone().json());
+  } catch {
+    return null; // 响应不是 JSON
+  }
 }
 
 /** 服务端消息 → 界面状态。会议连接的数据通道和旁观的事件流（interfaces.md §5.1）共用。 */
@@ -378,10 +389,22 @@ export function useMeetingClient(initialSessionId: string | null = null): Meetin
     [api, fail],
   );
 
+  /** 这个页面连着的那场会议。知道是哪一场就按编号取：同时进行好几场会议时，「当前会话」不一定是它。 */
+  const ownSession = useCallback(async (): Promise<SessionDetail | null> => {
+    const id = latest.current.liveSessionId ?? lastSessionId.current;
+    if (!id) return api.currentSession();
+    try {
+      return await api.getSession(id);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
+  }, [api]);
+
   /** 连接建立后与服务端对一遍：字幕区显示的是不是进行中的这场；是的话补上断线期间错过的发言。 */
   const syncAfterConnect = useCallback(async () => {
     try {
-      const current = await api.currentSession();
+      const current = await ownSession();
       if (!current) return;
       if (current.deletion_pending) {
         await loadView(current.id);
@@ -409,7 +432,7 @@ export function useMeetingClient(initialSessionId: string | null = null): Meetin
     } catch (error) {
       fail("syncSession", error);
     }
-  }, [api, fail, loadView, rememberSession]);
+  }, [api, fail, loadView, ownSession, rememberSession]);
 
   // 页面一打开（包括刷新、换设备）：不需要点「开始」，先看到会议列表和最近的对话。
   useEffect(() => {
@@ -436,12 +459,11 @@ export function useMeetingClient(initialSessionId: string | null = null): Meetin
     }
   }, [state.connection, syncAfterConnect, refreshSessions]);
 
-  // 连接期间每隔几秒确认一次字幕区显示的还是进行中的这场（服务重启后 SDK 会自己重连，那时会话已经换了）。
+  // 连接期间每隔几秒确认一次字幕区显示的还是进行中的这场（服务重启后 SDK 会自己重连，那时会话可能已经换了）。
   useEffect(() => {
     if (state.connection !== "connected") return;
     const timer = window.setInterval(() => {
-      void api
-        .currentSession()
+      void ownSession()
         .then((current) => {
           if (!current) return;
           if (current.state === "live") rememberSession(current.id);
@@ -452,7 +474,7 @@ export function useMeetingClient(initialSessionId: string | null = null): Meetin
         .catch(() => undefined);
     }, SESSION_CHECK_MS);
     return () => window.clearInterval(timer);
-  }, [state.connection, api, loadView, rememberSession]);
+  }, [state.connection, ownSession, loadView, rememberSession]);
 
   /** 连接。``sessionId`` 给了就是继续那一场，不给是新建。返回是否连上了。 */
   const connectTo = useCallback(
@@ -489,7 +511,7 @@ export function useMeetingClient(initialSessionId: string | null = null): Meetin
           dispatch({
             type: "notice",
             level: "error",
-            text: messages().notices.connectFailed(errorText(error)),
+            text: messages().notices.connectFailed((await offerRefusal(error)) ?? errorText(error)),
           });
         }
         dispatch({ type: "transport", transport: "error" });
@@ -937,8 +959,8 @@ export function useMeetingClient(initialSessionId: string | null = null): Meetin
   );
   const screenShare = useScreenShare({
     api,
-    sessionId: state.liveSessionId,
     connected: state.connection === "connected",
+    sessionId: state.liveSessionId,
     config: state.screen,
     dispatch,
     sendState: sendScreenState,

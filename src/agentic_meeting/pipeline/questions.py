@@ -32,8 +32,8 @@ class Questions:
             raise ApiError(503, "report.no_model")
         if identity.principal in self.pending or len(self.pending) >= 5:
             raise ApiError(429, "text.busy")
-        live = res.sessions.live
-        if live is None or live.session.id != session_id or live.stop_requested:
+        live = res.sessions.live_for(session_id)
+        if live is None or live.stop_requested:
             raise ApiError(409, "session.not_live")
         # 集合操作与预约之间没有 await，避免两个同主体请求都穿过容量检查。
         self.pending.add(identity.principal)

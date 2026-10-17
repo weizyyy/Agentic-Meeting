@@ -1,21 +1,24 @@
-"""会话管理（docs/architecture.md §3.1）。
+"""会话管理（docs/architecture.md §3.1、§3.2）。
 
-* **同一时刻只有一路活动连接**：语音识别固定单槽位，说话人区分是一条流，实时模型的上下文也只有一份。
-  新连接到来时，先取消旧连接的管线、等它收尾（有超时），再启动新的；被顶替的会话顺手结束。
+* **同时进行的会议有上限**（``session.max_live_meetings``，默认 1）：每场进行中的会议有自己的连接、管线、
+  会议记录器和说话人区分流，实时模型各用一个槽位（``LiveConnection.lane``）。上限是 1 时，新连接顶替正在进行的
+  那一场（和以前一样）；上限大于 1 时，满了就拒绝新会议（``MeetingsFull``），不去顶替别人的会议。
+  同一场会议换设备继续，始终是顶替这场会议自己的旧连接：先取消旧连接的管线、等它收尾（有超时），再启动新的。
 * **断开不等于结束**：连接断开（关页面、刷新、断网）只关闭这一路连接的记录，会话仍然「未结束」，也就是「已中断」；
   只有 ``end()``（用户点「结束会议」或在列表里结束）才写 ``ended_at``。
 * **继续**（``attach``）：同一场会议再挂上一路连接。时间轴接着走（``base_secs`` 在连接建立那一刻
   对一次表），已结束的先重新打开。新建不再顺手结束别的会议——已中断的会议留着，随时可以继续。
 * **旁观**（``watchers``）：别的设备只看不连时开事件流（``pipeline/watchers.py``）。会议状态变了（连接就绪、断开、
   结束）在这里告诉它们；同一场会议换了设备接管，只发一次「进行中」，中间不发「已中断」。
-* **说话人区分的流比连接活得长**（``diarizer_for``）：同一进程内继续时复用同一条流，说话人编号不变；
-  换到别的会议、结束会议、应用退出时才释放。服务重启后只能新开一条，编号加上已有的最大编号作偏移。
+* **说话人区分的流比连接活得长**（``diarizer_for``）：同一进程内继续时复用同一条流，说话人编号不变。
+  每条流占一份模型，所以手里最多留 ``max_live_meetings`` 条：要开新流而位置满了，先释放没有连接的会议的流；
+  结束会议、删除会议、应用退出时也释放。服务重启后只能新开一条，编号加上已有的最大编号作偏移。
 
 ``run_bot`` 的用法::
 
-    live = await manager.begin()                   # 建会话、登记；顶替旧连接（继续则是 attach(session_id)）
+    live = await manager.begin()                   # 建会话、登记；位置不够时顶替或拒绝（继续则是 attach(session_id)）
     diarizer = await manager.diarizer_for(live, build, notice)
-    ...                                            # 造管线
+    ...                                            # 造管线，实时模型用 live.lane 对应的槽位
     await manager.register(live, worker, recorder)
     try:
         await runner.run()
@@ -54,11 +57,12 @@ class SessionNotFound(LookupError):
 
 @dataclass(eq=False)
 class LiveConnection:
-    """当前活动的那一路连接。``worker`` / ``recorder`` 在管线造好后由 ``register`` 填上。"""
+    """一路活动的连接。``worker`` / ``recorder`` 在管线造好后由 ``register`` 填上。"""
 
     session: Session
     connection_id: int
     connected_at: float
+    lane: int = 0  # 第几个会议位置（0 起）：实时模型用对应的槽位（config.request_extra_body）
     worker: Any = None  # PipelineWorker：要用到 queue_frame / cancel
     recorder: Any = None  # MeetingRecorder：要用到 set_speaker_name / elapsed_secs
     gate: Any = None  # ModalityGate：工具要知道当前这次请求是文字还是语音
@@ -75,21 +79,31 @@ class LiveConnection:
     quiet: bool = False  # 由会话管理器停掉的：收尾时不再告诉旁观的设备「已中断」，停它的地方自己说
 
 
+class MeetingsFull(RuntimeError):
+    """同时进行的会议已经到了上限（``session.max_live_meetings``），新会议不能开始。"""
+
+    def __init__(self, limit: int) -> None:
+        super().__init__(f"同时进行的会议已经有 {limit} 场")
+        self.limit = limit
+
+
 class SessionManager:
     def __init__(
         self,
         store: Store,
         *,
+        max_live: int = 1,
         now: Callable[[], float] = time.time,
         notify_grace_secs: float = NOTIFY_GRACE_SECS,
         takeover_timeout_secs: float = TAKEOVER_TIMEOUT_SECS,
     ) -> None:
         self._store = store
+        self._max = max(1, max_live)
         self._now = now
         self._grace = notify_grace_secs
         self._timeout = takeover_timeout_secs
-        self._live: LiveConnection | None = None
-        self._stream: SessionDiarizer | None = None  # 当前这场会议的说话人区分流
+        self._live: dict[str, LiveConnection] = {}  # 会议编号 → 它正在用的那一路连接
+        self._streams: dict[str, SessionDiarizer] = {}  # 会议编号 → 它的说话人区分流
         self._lock = asyncio.Lock()
         self._unfinished: set[LiveConnection] = set()
         # 连接结束（断开或会议结束）之后调用，参数是会话编号。滚动纪要用它做收尾。出错只记日志。
@@ -102,11 +116,30 @@ class SessionManager:
     # ------------------------------------------------------------------ #
 
     @property
-    def live(self) -> LiveConnection | None:
-        return self._live
+    def max_live(self) -> int:
+        return self._max
+
+    @property
+    def connections(self) -> list[LiveConnection]:
+        """全部活动的连接，先连上的在前。"""
+        return sorted(self._live.values(), key=lambda live: live.connected_at)
+
+    def live_session_ids(self) -> list[str]:
+        """正在进行的会议，先连上的在前。"""
+        return [live.session.id for live in self.connections]
+
+    def live_for(self, session_id: str) -> LiveConnection | None:
+        return self._live.get(session_id)
 
     def is_live(self, session_id: str) -> bool:
-        return self._live is not None and self._live.session.id == session_id
+        return session_id in self._live
+
+    def has_room(self, session_id: str | None = None) -> bool:
+        """这时候来一路连接能不能开始：继续一场正在进行的会议（换设备）总可以；位置没满可以；
+        上限是 1 时顶替正在进行的那一场，也可以。只是预检，真正的判定在 ``begin`` / ``attach`` 里。"""
+        if session_id is not None and session_id in self._live:
+            return True
+        return self._max == 1 or len(self._live) < self._max
 
     async def claim_cleanup(
         self, session_id: str, policy: RetentionConfig, now: float, *, manual: bool = False
@@ -130,30 +163,17 @@ class SessionManager:
             return updated
 
     async def current_session(self) -> Session | None:
-        """「当前会话」：活动连接所在的会话；没有就取最近一个未结束的；都没有返回 ``None``。"""
-        if self._live is not None:
-            return await self._store.get_session(self._live.session.id)
+        """「当前会话」：有进行中的会议就取最近连上的那一场；没有就取最近一个未结束的；都没有返回 ``None``。
+
+        同时进行好几场时这只是个默认值，页面和接口应当带上明确的会议编号。
+        """
+        connections = self.connections
+        if connections:
+            return await self._store.get_session(connections[-1].session.id)
         return await self._store.latest_unended_session()
 
     def publish(self, session_id: str, data: dict) -> None:
         self.watchers.publish(session_id, data)
-
-    async def push(self, data: dict) -> bool:
-        if self._live is not None:
-            self.publish(self._live.session.id, data)
-        return await self._push_media(data)
-
-    async def _push_media(self, data: dict) -> bool:
-        """向活动连接的浏览器推一条数据通道消息；没有活动连接返回 ``False``。"""
-        live = self._live
-        if live is None or live.worker is None:
-            return False
-        try:
-            await live.worker.queue_frame(RTVIServerMessageFrame(data=data))
-        except Exception:
-            logger.exception("向浏览器推送消息失败")
-            return False
-        return True
 
     async def _watchers_changed(self, session_id: str) -> None:
         """旁观名单变了：告诉正在进行的这场会议的页面（interfaces.md §6.1 ``watchers``）。"""
@@ -163,16 +183,25 @@ class SessionManager:
         return {"type": "watchers", "items": self.watchers.items(session_id)}
 
     async def push_to(self, session_id: str, data: dict) -> bool:
-        """只在 ``session_id`` 这场会议正在进行时推消息（后台任务完成时，会议可能已经换了）。"""
+        """向 ``session_id`` 这场会议的页面推一条数据通道消息，也抄给旁观它的设备。
+
+        它没有在进行（或管线还没登记好）返回 ``False``（后台任务完成时，会议可能已经结束了）。
+        """
         self.publish(session_id, data)
-        if not self.is_live(session_id):
+        live = self._live.get(session_id)
+        if live is None or live.worker is None:
             return False
-        return await self._push_media(data)
+        try:
+            await live.worker.queue_frame(RTVIServerMessageFrame(data=data))
+        except Exception:
+            logger.exception("向浏览器推送消息失败")
+            return False
+        return True
 
     async def queue_frame_to(self, session_id: str, frame: Any) -> bool:
         """只在 ``session_id`` 这场会议正在进行时，向它的管线送一帧（比如往实时模型的上下文追加一行）。"""
-        live = self._live
-        if live is None or live.worker is None or live.session.id != session_id:
+        live = self._live.get(session_id)
+        if live is None or live.worker is None:
             return False
         try:
             await live.worker.queue_frame(frame)
@@ -186,8 +215,8 @@ class SessionManager:
 
         经过会议记录器（``append_context_line``），和发言的追加、上下文的重建排在同一个顺序里。
         """
-        live = self._live
-        if live is None or live.session.id != session_id:
+        live = self._live.get(session_id)
+        if live is None:
             return False
         append = getattr(live.recorder, "append_context_line", None)
         if append is None:
@@ -204,8 +233,8 @@ class SessionManager:
 
         这场会议没有活动连接、或管线还没登记好时返回 ``None``。
         """
-        live = self._live
-        if live is None or live.session.id != session_id or live.text_input is None:
+        live = self._live.get(session_id)
+        if live is None or live.text_input is None:
             return None
         notices: list[tuple[str, Message]] = []
 
@@ -217,11 +246,11 @@ class SessionManager:
 
     async def wait_idle(self, wait_secs: float = 5.0) -> None:
         """应用关闭时：等活动连接把连接记录写完（有超时）。"""
-        live = self._live
-        if live is None:
+        pending = [live.done.wait() for live in self._live.values()]
+        if not pending:
             return
         try:
-            await asyncio.wait_for(live.done.wait(), wait_secs)
+            await asyncio.wait_for(asyncio.gather(*pending), wait_secs)
         except TimeoutError:
             logger.warning("应用关闭时活动连接没有及时收尾")
 
@@ -236,29 +265,27 @@ class SessionManager:
     # ------------------------------------------------------------------ #
 
     async def begin(self, *, owner: str | None = None) -> LiveConnection:
-        """新连接、新会议：顶替旧连接，建新会话和连接记录，登记为当前连接。
+        """新连接、新会议：建新会话和连接记录，登记为活动连接。
 
+        位置满了：上限是 1 时顶替正在进行的那一场；否则抛 ``MeetingsFull``。
         别的没结束的会议（已中断的）原样留着，之后还能继续。
         """
         async with self._lock:
-            old = self._live
-            if old is not None:
-                await self._stop(old, "taken_over")
-                self.watchers.state(old.session.id, "interrupted")
-            await self._drop_stream()
+            await self._make_room(None)
             now = self._now()
             session = await self._store.create_session(now=now, owner=owner)
             connection_id = await self._store.open_connection(
                 session.id, connected_at=now, t_from=0.0
             )
-            live = LiveConnection(session, connection_id, now)
+            live = LiveConnection(session, connection_id, now, lane=self._free_lane())
             self._unfinished.add(live)
-            self._live = live
+            self._live[session.id] = live
             return live
 
     async def attach(self, session_id: str) -> LiveConnection:
-        """新连接、继续一场已有的会议：顶替旧连接（哪怕就是这场会议的），已结束的重新打开，登记为当前连接。
+        """新连接、继续一场已有的会议：顶替这场会议自己的旧连接（如果有），已结束的重新打开，登记为活动连接。
 
+        这场会议没有在进行而位置满了：上限是 1 时顶替正在进行的那一场；否则抛 ``MeetingsFull``。
         ``base_secs`` = 此刻 − 会议的 0 点，在这里对一次表，之后只按采样数推进。它不会早于时间轴已经用到的地方
         （上一次连接的终点、最后一条发言的终点）：音频时钟和墙上时钟有细微出入，马上重连时不能让时间倒着走。
         会议不存在抛 ``SessionNotFound``。
@@ -268,13 +295,7 @@ class SessionManager:
             if session is None:
                 raise SessionNotFound(session_id)
             await self._store.require_available(session_id)
-            old = self._live
-            if old is not None:
-                await self._stop(old, "taken_over")
-                if old.session.id != session_id:
-                    self.watchers.state(old.session.id, "interrupted")
-            if self._stream is not None and self._stream.session_id != session_id:
-                await self._drop_stream()
+            await self._make_room(session_id)
             if session.ended_at is not None:
                 session = await self._store.reopen_session(session_id) or session
             now = self._now()
@@ -282,10 +303,51 @@ class SessionManager:
             connection_id = await self._store.open_connection(
                 session_id, connected_at=now, t_from=base_secs
             )
-            live = LiveConnection(session, connection_id, now, base_secs=base_secs, resumed=True)
+            live = LiveConnection(
+                session,
+                connection_id,
+                now,
+                lane=self._free_lane(),
+                base_secs=base_secs,
+                resumed=True,
+            )
             self._unfinished.add(live)
-            self._live = live
+            self._live[session_id] = live
             return live
+
+    async def _make_room(self, session_id: str | None) -> None:
+        """在锁里调用：给一路要开始的连接腾位置。
+
+        继续的会议正在别的设备上进行：停掉那一路（换设备）。位置满了：上限是 1 时顶替正在进行的那一场，
+        否则抛 ``MeetingsFull``。
+        """
+        own = self._live.get(session_id) if session_id is not None else None
+        if own is not None:
+            await self._stop(own, "taken_over")
+            return
+        if len(self._live) < self._max:
+            return
+        if self._max > 1:
+            raise MeetingsFull(self._max)
+        for old in list(self._live.values()):
+            await self._stop(old, "taken_over")
+            self.watchers.state(old.session.id, "interrupted")
+
+    def displaced_by(self, session_id: str | None) -> list[LiveConnection]:
+        """一路要开始的连接（继续 ``session_id``，``None`` 是新会议）会停掉哪些进行中的连接（不改动什么）。
+
+        和 ``_make_room`` 的规则一致；位置满了而上限大于 1 时返回空表，那种情况会被拒绝而不是顶替。
+        """
+        own = self._live.get(session_id) if session_id is not None else None
+        if own is not None:
+            return [own]
+        if self._max == 1:
+            return list(self._live.values())
+        return []
+
+    def _free_lane(self) -> int:
+        used = {live.lane for live in self._live.values()}
+        return next((lane for lane in range(self._max) if lane not in used), 0)
 
     async def diarizer_for(
         self,
@@ -297,27 +359,32 @@ class SessionManager:
 
         手里有这场会议的流、而且它没出过错：接着用（记下这次连接的接续点）。否则用 ``build`` 新开一条；
         继续一场已经有说话人的会议时，新流的编号加上已有的最大编号作偏移，并通过 ``notice`` 说明。
+        开新流之前，手里的流已经有 ``max_live`` 条的话，先释放没有连接的会议的流（每条流占一份模型）。
         ``build`` 给出的是 ``NullDiarizer``（没开、或启动失败已降级）时原样返回，不留着。
         """
-        stream = self._stream
-        if stream is not None and stream.session_id == live.session.id and not stream.failed:
+        session_id = live.session.id
+        stream = self._streams.get(session_id)
+        if stream is not None and not stream.failed:
             stream.begin_connection(live.base_secs)
             return stream
-        await self._drop_stream()
+        await self._drop_stream(session_id)
+        idle = [sid for sid in self._streams if sid not in self._live]
+        while idle and len(self._streams) >= self._max:
+            await self._drop_stream(idle.pop(0))
         inner = await build()
         if isinstance(inner, NullDiarizer):
             return inner
         offset = 0
         if live.resumed:
             try:
-                offset = await self._store.max_speaker_idx(live.session.id)
+                offset = await self._store.max_speaker_idx(session_id)
             except Exception:
                 logger.exception("读取已有的说话人编号失败，新流的编号不加偏移")
             if offset > 0 and notice is not None:
                 await notice("info", message("speakers.renumbered"))
-        stream = SessionDiarizer(inner, session_id=live.session.id, speaker_offset=offset)
+        stream = SessionDiarizer(inner, session_id=session_id, speaker_offset=offset)
         stream.begin_connection(live.base_secs)
-        self._stream = stream
+        self._streams[session_id] = stream
         return stream
 
     async def merge_speakers(self, session_id: str, src: int, dst: int) -> dict | None:
@@ -330,11 +397,12 @@ class SessionManager:
         if moved is None:
             return None
         name = await self._store.speaker_name(session_id, dst)
-        if self._stream is not None and self._stream.session_id == session_id:
-            self._stream.merge(src, dst)
+        stream = self._streams.get(session_id)
+        if stream is not None:
+            stream.merge(src, dst)
         result = {"from": src, "into": dst, "display_name": name, "moved": moved}
-        live = self._live
-        if live is not None and live.session.id == session_id:
+        live = self._live.get(session_id)
+        if live is not None:
             if live.recorder is not None:
                 live.recorder.set_speaker_name(src, name)  # 已经在路上的字幕也用合并后的名字
         await self.push_to(
@@ -345,16 +413,20 @@ class SessionManager:
     async def forget(self, session_id: str) -> None:
         """这场会议被删掉了：结束旁观它的事件流；手里要是还留着它的说话人区分流，释放掉。"""
         self.watchers.close_session(session_id)
-        if self._stream is not None and self._stream.session_id == session_id:
-            await self._drop_stream()
+        await self._drop_stream(session_id)
 
     async def shutdown(self, wait_secs: float = SHUTDOWN_TIMEOUT_SECS) -> None:
-        """应用退出：告诉页面「服务正在停止」并停掉活动连接（最多等 ``wait_secs`` 秒），释放说话人区分流。"""
+        """应用退出：告诉页面「服务正在停止」并停掉全部活动连接（最多等 ``wait_secs`` 秒），释放说话人区分流。"""
         self.watchers.close_all()
         async with self._lock:
-            if self._live is not None:
-                await self._stop(self._live, "server_stopping", wait_secs=wait_secs)
-            await self._drop_stream()
+            await asyncio.gather(
+                *(
+                    self._stop(live, "server_stopping", wait_secs=wait_secs)
+                    for live in list(self._live.values())
+                )
+            )
+            for session_id in list(self._streams):
+                await self._drop_stream(session_id)
 
     async def register(
         self,
@@ -396,8 +468,7 @@ class SessionManager:
         except Exception:
             logger.exception("关闭连接记录失败")
         finally:
-            if self._live is live:
-                self._live = None
+            self._release(live)
             live.done.set()
         if not live.quiet:
             self.watchers.state(live.session.id, "interrupted")
@@ -412,11 +483,10 @@ class SessionManager:
     async def end(self, session_id: str) -> Session | None:
         """结束会议：写 ``ended_at``；它正在进行的话先停掉连接。会话不存在返回 ``None``。"""
         async with self._lock:
-            live = self._live
-            if live is not None and live.session.id == session_id:
+            live = self._live.get(session_id)
+            if live is not None:
                 await self._stop(live, "ended")
-            if self._stream is not None and self._stream.session_id == session_id:
-                await self._drop_stream()
+            await self._drop_stream(session_id)
             ended = await self._store.end_session(session_id, now=self._now())
             if ended is not None:
                 self.watchers.state(session_id, "ended")
@@ -426,8 +496,13 @@ class SessionManager:
     # 内部
     # ------------------------------------------------------------------ #
 
-    async def _drop_stream(self) -> None:
-        stream, self._stream = self._stream, None
+    def _release(self, live: LiveConnection) -> None:
+        """把这路连接从活动连接里去掉（它还是这场会议的活动连接的话）。"""
+        if self._live.get(live.session.id) is live:
+            del self._live[live.session.id]
+
+    async def _drop_stream(self, session_id: str) -> None:
+        stream = self._streams.pop(session_id, None)
         if stream is not None:
             try:
                 await stream.shutdown()
@@ -457,5 +532,4 @@ class SessionManager:
             await asyncio.wait_for(live.done.wait(), timeout)
         except TimeoutError:
             logger.warning(f"旧连接在 {timeout:.0f} 秒内没有收尾，不再等它")
-            if self._live is live:
-                self._live = None
+            self._release(live)

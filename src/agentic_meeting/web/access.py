@@ -299,8 +299,8 @@ async def current_session(request: Request):
     if res.access is None:
         return await res.sessions.current_session()
     identity = request.state.identity
-    live = res.sessions.live
-    if live is not None:
+    # 同时进行好几场时，取这个登录能看的、最近连上的那一场
+    for live in reversed(res.sessions.connections):
         try:
             await res.access.require(identity, live.session.id)
         except ApiError as exc:

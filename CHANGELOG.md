@@ -82,6 +82,16 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The meeting page shows **N 条旁听连接** (N following connections) while other devices follow the
   meeting; clicking it lists each connection by platform and browser, such as _iPhone · Safari_, and
   since when it has been watching ([#21]).
+- Several meetings can run at the same time on one machine ([#23]). Set
+  `session.max_live_meetings` above 1: each live meeting gets its own pipeline, diarization stream
+  and realtime LLM slot (`realtime_slot + k`; move `background_slot` out of that range and raise
+  `launch.parallel`), and the ASR server is launched with one slot per meeting. When every place is
+  taken, starting another meeting is refused with a message saying how many are running; resuming
+  a meeting that is already live on another device still works. Speech synthesis
+  (`tts.max_concurrent`), screen summaries, the running summary and background tasks take turns
+  across meetings. With `server.meeting_access`, hosts record their own meetings side by side and
+  a new recording never replaces a meeting its caller does not host. With the default of 1, a new
+  meeting still takes over the live one.
 
 ### Fixed
 
@@ -95,6 +105,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 [#21]: https://github.com/weizyyy/Agentic-Meeting/issues/21
 [#22]: https://github.com/weizyyy/Agentic-Meeting/issues/22
+[#23]: https://github.com/weizyyy/Agentic-Meeting/issues/23
 [#24]: https://github.com/weizyyy/Agentic-Meeting/issues/24
 [#80]: https://github.com/weizyyy/Agentic-Meeting/pull/80
 

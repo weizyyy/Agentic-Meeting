@@ -18,13 +18,14 @@ variable; the value goes in `.env` (see [`.env.example`](../.env.example)).
 
 ## `[session]`
 
-| Key              | Default  | Description                                                                                                                                                                                          |
-| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `data_dir`       | `"data"` | Where the database, screenshots, task files and logs are stored                                                                                                                                      |
-| `assistant_name` | —        | The assistant's name and wake word. An English word (letters and digits, starting with a letter)                                                                                                     |
-| `wake_aliases`   | `[]`     | Other spellings that also wake the assistant: English words, or strings of two or more Chinese characters. Useful when ASR keeps writing the name a certain way, e.g. `["Novel", "诺瓦"]` for `Nova` |
-| `hotwords`       | `[]`     | Terms passed to ASR as hints: member names, project jargon, abbreviations                                                                                                                            |
-| `members`        | `[]`     | Names offered as suggestions when renaming speakers                                                                                                                                                  |
+| Key                 | Default  | Description                                                                                                                                                                                                                           |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data_dir`          | `"data"` | Where the database, screenshots, task files and logs are stored                                                                                                                                                                       |
+| `assistant_name`    | —        | The assistant's name and wake word. An English word (letters and digits, starting with a letter)                                                                                                                                      |
+| `wake_aliases`      | `[]`     | Other spellings that also wake the assistant: English words, or strings of two or more Chinese characters. Useful when ASR keeps writing the name a certain way, e.g. `["Novel", "诺瓦"]` for `Nova`                                  |
+| `hotwords`          | `[]`     | Terms passed to ASR as hints: member names, project jargon, abbreviations                                                                                                                                                             |
+| `members`           | `[]`     | Names offered as suggestions when renaming speakers                                                                                                                                                                                   |
+| `max_live_meetings` | `1`      | How many meetings can be live at the same time (1–16). With `1`, a new meeting takes over the live one; above `1`, a new meeting is refused while all places are taken. See [architecture §3.2](architecture.md#32-parallel-meetings) |
 
 `recording_notice` defaults to `true` and controls the start notice after the connection is ready. Setting it to `false` does not hide the fixed transcription status or disable transcription. This is not a consent dialog. New meetings and manual resumes show it once when actually ready; SDK automatic reconnection does not repeat it.
 
@@ -182,11 +183,11 @@ Keys common to `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`:
 
 Only for `llama_server`:
 
-| Key                                | Default  | Description                                                                                                         |
-| ---------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------- |
-| `thinking`                         | `false`  | Maps to `--reasoning on/off`. Keep it off for low latency                                                           |
-| `realtime_slot`, `background_slot` | `0`, `1` | Server slots for live answers and for background work (screen summaries, running summary)                           |
-| `launch.*`                         |          | See [Launch settings](#launch-settings). `ctx_size` is shared by all slots; `parallel` must cover both slot numbers |
+| Key                                | Default  | Description                                                                                                                                                                                                                            |
+| ---------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `thinking`                         | `false`  | Maps to `--reasoning on/off`. Keep it off for low latency                                                                                                                                                                              |
+| `realtime_slot`, `background_slot` | `0`, `1` | Server slots for live answers and for background work (screen summaries, running summary). With `session.max_live_meetings = N`, live answers use the N slots starting at `realtime_slot`, and `background_slot` must lie outside them |
+| `launch.*`                         |          | See [Launch settings](#launch-settings). `ctx_size` is shared by all slots, each getting `ctx_size / parallel`; `parallel` must cover every slot number in use                                                                         |
 
 Only for `openai_api`:
 
@@ -203,18 +204,18 @@ Only for `openai_api`:
 
 Streaming speech recognition through `llama-server`'s audio input.
 
-| Key                               | Default                                      | Description                                                                                                                         |
-| --------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `backend`                         | `"llama_server"`                             | Recognition backend                                                                                                                 |
-| `profile`                         | `"config/asr_profiles/confucius4_r2t2.toml"` | Prompt-format profile of the ASR model. Add a new profile to use a different model family                                           |
-| `base_url`                        | `"http://127.0.0.1:8081"`                    | ASR server address                                                                                                                  |
-| `language`                        | `"Chinese"`                                  | Language hint; empty lets the model decide                                                                                          |
-| `chunk_ms`                        | `320`                                        | Audio added per step (80–2000). Smaller means lower latency and more GPU load                                                       |
-| `window_secs`, `window_drop_secs` | `16.0`, `8.0`                                | Rolling audio window and how much is dropped when it fills                                                                          |
-| `unfixed_tokens`                  | `1`                                          | Trailing tokens held back as provisional at each step                                                                               |
-| `max_new_tokens`                  | `32`                                         | Generation cap when a segment is finalized                                                                                          |
-| `preroll_ms`                      | `1500`                                       | Audio from before speech was detected that is still sent to ASR. A short wake word followed by a pause is lost if this is too small |
-| `launch.*`                        |                                              | See [Launch settings](#launch-settings). The ASR server always runs a single slot                                                   |
+| Key                               | Default                                      | Description                                                                                                                                                                                |
+| --------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `backend`                         | `"llama_server"`                             | Recognition backend                                                                                                                                                                        |
+| `profile`                         | `"config/asr_profiles/confucius4_r2t2.toml"` | Prompt-format profile of the ASR model. Add a new profile to use a different model family                                                                                                  |
+| `base_url`                        | `"http://127.0.0.1:8081"`                    | ASR server address                                                                                                                                                                         |
+| `language`                        | `"Chinese"`                                  | Language hint; empty lets the model decide                                                                                                                                                 |
+| `chunk_ms`                        | `320`                                        | Audio added per step (80–2000). Smaller means lower latency and more GPU load                                                                                                              |
+| `window_secs`, `window_drop_secs` | `16.0`, `8.0`                                | Rolling audio window and how much is dropped when it fills                                                                                                                                 |
+| `unfixed_tokens`                  | `1`                                          | Trailing tokens held back as provisional at each step                                                                                                                                      |
+| `max_new_tokens`                  | `32`                                         | Generation cap when a segment is finalized                                                                                                                                                 |
+| `preroll_ms`                      | `1500`                                       | Audio from before speech was detected that is still sent to ASR. A short wake word followed by a pause is lost if this is too small                                                        |
+| `launch.*`                        |                                              | See [Launch settings](#launch-settings). The ASR server runs one slot per live meeting (`session.max_live_meetings`); `ctx_size` is per slot and is multiplied by the slot count at launch |
 
 ## `[diarization]`
 
@@ -232,15 +233,16 @@ Streaming speech recognition through `llama-server`'s audio input.
 
 Speech synthesis through an OpenAI-compatible `/v1/audio/speech` endpoint that streams PCM.
 
-| Key           | Default                      | Description                                                                          |
-| ------------- | ---------------------------- | ------------------------------------------------------------------------------------ |
-| `enabled`     | `true`                       | `false` gives text-only answers                                                      |
-| `base_url`    | `"http://127.0.0.1:8082/v1"` | TTS server address                                                                   |
-| `model`       | `"tts"`                      | Request `model` field; matches the server's `--alias`                                |
-| `voice`       | —                            | Voice name supported by the chosen weights                                           |
-| `language`    | `"Chinese"`                  | Synthesis language                                                                   |
-| `sample_rate` | `24000`                      | Output sample rate in Hz                                                             |
-| `launch.*`    |                              | `model_path` (talker), `codec_path`, `default_language`, plus the common launch keys |
+| Key              | Default                      | Description                                                                                                                              |
+| ---------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`        | `true`                       | `false` gives text-only answers                                                                                                          |
+| `base_url`       | `"http://127.0.0.1:8082/v1"` | TTS server address                                                                                                                       |
+| `model`          | `"tts"`                      | Request `model` field; matches the server's `--alias`                                                                                    |
+| `voice`          | —                            | Voice name supported by the chosen weights                                                                                               |
+| `language`       | `"Chinese"`                  | Synthesis language                                                                                                                       |
+| `sample_rate`    | `24000`                      | Output sample rate in Hz                                                                                                                 |
+| `max_concurrent` | `1`                          | Requests sent to the TTS server at the same time. With several live meetings, their answers are synthesized sentence by sentence in turn |
+| `launch.*`       |                              | `model_path` (talker), `codec_path`, `default_language`, plus the common launch keys                                                     |
 
 ## `[embedding]`
 
@@ -359,16 +361,16 @@ model's context window.
 
 Each locally launched service has a `launch` table.
 
-| Key                         | Description                                                                                    |
-| --------------------------- | ---------------------------------------------------------------------------------------------- |
-| `enabled`                   | `false` means the service is started elsewhere and the application only connects to `base_url` |
-| `executable`                | Path to the server binary; empty searches the default locations                                |
-| `model_path`, `mmproj_path` | Weights and, where applicable, the multimodal projector                                        |
-| `ctx_size`                  | Context size passed to the server                                                              |
-| `parallel`                  | Number of slots (realtime LLM only)                                                            |
-| `gpu_layers`                | Passed to `-ngl`: a number, `"auto"` or `"all"`; `"0"` runs on CPU                             |
-| `env`                       | Extra environment variables, e.g. `{ CUDA_VISIBLE_DEVICES = "1" }`                             |
-| `extra_args`                | Arguments appended verbatim, e.g. `["--device", "CUDA0"]`                                      |
+| Key                         | Description                                                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `enabled`                   | `false` means the service is started elsewhere and the application only connects to `base_url`       |
+| `executable`                | Path to the server binary; empty searches the default locations                                      |
+| `model_path`, `mmproj_path` | Weights and, where applicable, the multimodal projector                                              |
+| `ctx_size`                  | Context size passed to the server                                                                    |
+| `parallel`                  | Number of slots (realtime LLM only; the ASR server's slot count follows `session.max_live_meetings`) |
+| `gpu_layers`                | Passed to `-ngl`: a number, `"auto"` or `"all"`; `"0"` runs on CPU                                   |
+| `env`                       | Extra environment variables, e.g. `{ CUDA_VISIBLE_DEVICES = "1" }`                                   |
+| `extra_args`                | Arguments appended verbatim, e.g. `["--device", "CUDA0"]`                                            |
 
 The exact command lines are documented in [interfaces.md §9](interfaces.md), and multi-GPU layouts
 in [runtimes.md §5](runtimes.md).

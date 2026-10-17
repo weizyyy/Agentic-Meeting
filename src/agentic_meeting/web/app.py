@@ -47,7 +47,7 @@ from agentic_meeting.pipeline.services import (
     build_realtime_llm,
     caption_provider,
 )
-from agentic_meeting.pipeline.session import SessionManager
+from agentic_meeting.pipeline.session import MeetingsFull, SessionManager
 from agentic_meeting.screen.attach import FrameAttacher
 from agentic_meeting.screen.caption import CaptionWorker
 from agentic_meeting.screen.ingest import FrameIngestor
@@ -161,7 +161,7 @@ def create_app(
         assert the_store is not None
         # 上次崩溃或被强杀时没来得及关闭的连接记录，补关。
         await the_store.close_dangling_connections()
-        sessions = SessionManager(the_store)
+        sessions = SessionManager(the_store, max_live=cfg.session.max_live_meetings)
         if access is not None:
             await access.start(the_store)
         frames = FrameIngestor(
@@ -228,10 +228,6 @@ def create_app(
         )
         captions.start()
 
-        def live_session_id() -> str | None:
-            live = sessions.live
-            return live.session.id if live is not None else None
-
         # 交给后台 agent 那个模型的请求要不要带截图原图（agent.attach_frames）
         attacher = (
             FrameAttacher(frames.path_of, cfg.agent.max_attached_frames)
@@ -248,7 +244,7 @@ def create_app(
                 "digest", previous_digest=previous, new_transcript=new
             ),
             interval_secs=cfg.realtime.digest_interval_minutes * 60.0,
-            current_session=live_session_id,
+            live_sessions=sessions.live_session_ids,
         )
         digests.start()
         sessions.on_finished.append(digests.finalize)  # 断开或结束时把纪要补到最后
@@ -304,6 +300,7 @@ def create_app(
             background_models=models,
             digests=digests,
             retention=retention,
+            tts_slots=asyncio.Semaphore(cfg.tts.max_concurrent),
             access=access,
         )
         if access is not None:
@@ -434,18 +431,27 @@ def create_app(
             request = SmallWebRTCRequest.from_dict(payload)
         except (ValueError, TypeError) as e:
             raise invalid(f"WebRTC 请求格式有误：{e}") from e
+        wanted: str | None = None
         if isinstance(request.request_data, dict) and "session_id" in request.request_data:
             # 继续一场会议：协商之前就校验，找不到直接 404，而不是悄悄新建一场（interfaces.md §5.2）。
-            wanted = request.request_data["session_id"]
-            if wanted is not None:
+            given = request.request_data["session_id"]
+            if given is not None:
                 store_ = http_request.app.state.resources.store
-                if not isinstance(wanted, str) or not wanted.strip():
+                if not isinstance(given, str) or not given.strip():
                     raise invalid("session_id 必须是非空的字符串")
+                wanted = given.strip()
                 if access is not None:
-                    await access.require(http_request.state.identity, wanted.strip(), "host")
-                if store_ is None or await store_.get_session(wanted.strip()) is None:
+                    await access.require(http_request.state.identity, wanted, "host")
+                if store_ is None or await store_.get_session(wanted) is None:
                     raise ApiError(404, "session.not_found")
-                await store_.require_available(wanted.strip())
+                await store_.require_available(wanted)
+        manager = http_request.app.state.resources.sessions
+
+        def check_capacity() -> None:
+            # 同时进行的会议满了：协商之前就拒绝，页面能显示原因（architecture.md §3.2）。
+            # 带着 pc_id 的是已有连接的重新协商，不占新位置。
+            if manager is not None and not request.pc_id and not manager.has_room(wanted):
+                raise ApiError(409, "session.capacity", max=manager.max_live)
 
         async def on_connection(connection: Any) -> None:
             state = http_request.app.state
@@ -468,11 +474,17 @@ def create_app(
                     elif await access.authenticate(identity.cookie) is None:
                         await connection.disconnect()
                         raise ApiError(401, "auth.required")
-                    live = await (
-                        resources.sessions.attach(wanted.strip())
-                        if wanted
-                        else resources.sessions.begin(owner=identity.principal)
-                    )
+                    try:
+                        live = await (
+                            resources.sessions.attach(wanted.strip())
+                            if wanted
+                            else resources.sessions.begin(owner=identity.principal)
+                        )
+                    except MeetingsFull:
+                        # 协商之前查过，走到这里说明这一瞬间别的会议占了最后一个位置
+                        logger.warning("同时进行的会议已满，断开这次连接")
+                        await connection.disconnect()
+                        return
                 live.identity = identity
                 await access.audit(
                     identity, live.session.id, "recording.resume" if wanted else "recording.start"
@@ -506,6 +518,7 @@ def create_app(
             task.add_done_callback(_bot_done(state.bots))
 
         if access is None:
+            check_capacity()
             return await http_request.app.state.handler.handle_web_request(
                 request=request, webrtc_connection_callback=on_connection
             )
@@ -524,8 +537,10 @@ def create_app(
                 await access.require(identity, wanted.strip(), "host")
             elif not access.can_host(identity):
                 raise ApiError(403, "access.denied")
-            live = http_request.app.state.resources.sessions.live
-            if live is not None:
+            check_capacity()
+            # 只能顶替自己主持的会议：上限是 1 时新连接会顶替正在进行的那一场
+            displaced = [] if request.pc_id or manager is None else manager.displaced_by(wanted)
+            for live in displaced:
                 membership = await access.store.membership(live.session.id, identity.principal)
                 if membership is None or membership["role"] != "host":
                     raise ApiError(409, "access.busy")

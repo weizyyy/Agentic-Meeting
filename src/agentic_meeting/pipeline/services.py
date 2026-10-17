@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -121,12 +122,14 @@ def build_realtime_llm(
     system_prompt: str,
     *,
     background: bool = False,
+    lane: int = 0,
     http_client: Any = None,
 ) -> RealtimeLLMService:
     """按配置创建实时模型服务。
 
     ``background=True`` 用于后台任务（画面摘要、纪要）：另建一个实例，``extra_body`` 里的槽位号不同，
     llama.cpp 部署方式下两者各占一个槽位、互不冲掉对方的前缀缓存。采样参数为 ``None`` 的不发送。
+    ``lane`` 是这场会议在同时进行的会议里占的位置（0 起），llama.cpp 部署方式下决定实时应答用哪个槽位。
     后台实例不带配置里的 ``max_tokens``：那是给口头应答定的上限，后台请求每次自己给
     （``run_inference(max_tokens=…)`` 写的是 ``max_completion_tokens``，两个同时发出去含义就不明确了）。
     """
@@ -146,7 +149,7 @@ def build_realtime_llm(
         settings=RealtimeLLMService.Settings(
             model=endpoint.model,
             system_instruction=system_prompt,
-            extra={"extra_body": rt.request_extra_body(background=background)},
+            extra={"extra_body": rt.request_extra_body(background=background, lane=lane)},
             **sampling,
         ),
     )
@@ -197,13 +200,15 @@ class LocalTTSService(OpenAITTSService):
     首包到达时结束首字节延迟的计时。
     """
 
-    def __init__(self, *, language: str = "", **kwargs):
+    def __init__(self, *, language: str = "", limiter: asyncio.Semaphore | None = None, **kwargs):
         # Pipecat 默认在「连续 3 句没有产出音频」后把服务判为不可用，此后整个会话都不再给它活干。
         # 本地 tts-server 重启一下就能恢复，所以关掉这条自动判死（0 = 只逐句报告，不判死）；
         # 400 / 404 这类配置错误仍会由错误类别判为永久。
         kwargs.setdefault("max_consecutive_zero_audio_contexts", 0)
         super().__init__(**kwargs)
         self._language = language
+        # 整个应用共用的并发上限（tts.max_concurrent）：同时进行的几场会议轮流占用合成服务
+        self._limiter = limiter or asyncio.Semaphore(1)
         # 一句话的合成失败就让它失败：SDK 默认的重试（带退避）只会让这一句更晚才报错，
         # 下一句本来就是一次新的尝试。
         self._client = self._client.with_options(max_retries=0)
@@ -228,7 +233,10 @@ class LocalTTSService(OpenAITTSService):
             params["extra_body"] = {"language": self._language}
 
         try:
-            async with self._client.audio.speech.with_streaming_response.create(**params) as r:
+            async with (
+                self._limiter,
+                self._client.audio.speech.with_streaming_response.create(**params) as r,
+            ):
                 await self.start_tts_usage_metrics(text)
                 async for chunk in r.iter_bytes(self.chunk_size):
                     if chunk:
@@ -241,8 +249,15 @@ class LocalTTSService(OpenAITTSService):
             yield ErrorFrame(error=f"语音合成请求失败：{e}", exception=e)
 
 
-def build_tts(cfg: AppConfig, *, http_client: Any = None, **kwargs: Any) -> LocalTTSService:
-    """按配置创建语音合成服务。``kwargs`` 原样交给 ``TTSService``（调参、测试用）。"""
+def build_tts(
+    cfg: AppConfig,
+    *,
+    http_client: Any = None,
+    limiter: asyncio.Semaphore | None = None,
+    **kwargs: Any,
+) -> LocalTTSService:
+    """按配置创建语音合成服务。``limiter`` 是应用共用的并发上限（``tts.max_concurrent``），
+    不给就是这一个实例自己的。``kwargs`` 原样交给 ``TTSService``（调参、测试用）。"""
     tts = cfg.tts
     return LocalTTSService(
         base_url=tts.base_url,
@@ -251,5 +266,6 @@ def build_tts(cfg: AppConfig, *, http_client: Any = None, **kwargs: Any) -> Loca
         settings=LocalTTSService.Settings(model=tts.model, voice=tts.voice),
         sample_rate=tts.sample_rate,
         language=tts.language,
+        limiter=limiter,
         **kwargs,
     )

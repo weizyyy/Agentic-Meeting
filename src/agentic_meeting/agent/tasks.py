@@ -6,6 +6,8 @@
 
 * 任务属于一场会议，但管理器是整个应用一个：连接断开、会议换了，任务照样跑完，结果在库里。
 * 并发上限 ``agent.max_concurrent_tasks``，超出的排队；单个任务限时 ``agent.task_timeout_secs``。
+  排队时按会议轮流（``FairSlots``）：同时进行的几场会议里，正在跑的任务少的那场先上，一场会议委托得多也不会
+  让别的会议一直等着。
 * 应用启动时（``recover``）把上次遗留的排队中 / 运行中的任务标为失败——它们的执行已经不在了。
 * 任务编号：库里是 ``<会话 id>.t<序号>``（全库唯一），口头和界面上用点号后面的短编号（``t3``）。
 
@@ -17,7 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +59,55 @@ class RunnerError(Exception):
     def __init__(self, code: str, **params: str | int) -> None:
         self.message = message(code, **params)
         super().__init__(self.message.text)
+
+
+class FairSlots:
+    """并发上限，排队时按会议轮流：空出位置时，正在跑的任务最少的那场会议里排得最早的先上。"""
+
+    def __init__(self, limit: int) -> None:
+        self._limit = max(1, limit)
+        self._running: dict[str, int] = {}  # 会议编号 → 正在跑的任务数
+        self._waiting: list[tuple[str, asyncio.Future[None]]] = []
+
+    @asynccontextmanager
+    async def slot(self, key: str) -> AsyncIterator[None]:
+        if not self._waiting and sum(self._running.values()) < self._limit:
+            self._take(key)
+        else:
+            waiter: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+            self._waiting.append((key, waiter))
+            try:
+                await waiter
+            except BaseException:
+                if waiter.done() and not waiter.cancelled():
+                    self._give_back(key)  # 已经分到位置、还没用上就被取消：让给下一个
+                else:
+                    self._waiting = [(k, w) for k, w in self._waiting if w is not waiter]
+                raise
+        try:
+            yield
+        finally:
+            self._give_back(key)
+
+    def _take(self, key: str) -> None:
+        self._running[key] = self._running.get(key, 0) + 1
+
+    def _give_back(self, key: str) -> None:
+        left = self._running.get(key, 0) - 1
+        if left > 0:
+            self._running[key] = left
+        else:
+            self._running.pop(key, None)
+        while self._waiting and sum(self._running.values()) < self._limit:
+            index = min(
+                range(len(self._waiting)),
+                key=lambda i: (self._running.get(self._waiting[i][0], 0), i),
+            )
+            key_, waiter = self._waiting.pop(index)
+            if waiter.done():
+                continue
+            self._take(key_)
+            waiter.set_result(None)
 
 
 def task_dir(data_dir: Path, task: TaskRecord) -> Path:
@@ -97,7 +149,7 @@ class TaskManager:
         self._notify = notify
         self._timeout = timeout_secs
         self._now = now
-        self._slots = asyncio.Semaphore(max(1, max_concurrent))
+        self._slots = FairSlots(max_concurrent)
         self._running: dict[str, asyncio.Task] = {}
         self._done: dict[str, asyncio.Event] = {}
         self._cancel_requested: set[str] = set()
@@ -281,7 +333,7 @@ class TaskManager:
         async with self._store.session_work(task.session_id):
             try:
                 try:
-                    async with self._slots:  # 超出并发上限的在这里排队
+                    async with self._slots.slot(task.session_id):  # 超出并发上限的在这里排队
                         await self._execute(task)
                 except asyncio.CancelledError:
                     # 还在排队时就被取消了（或应用正在关闭）
