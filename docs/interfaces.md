@@ -23,24 +23,24 @@ The source of truth is the pydantic model in
 [`config/config.example.toml`](../config/config.example.toml). Every key is described in
 [configuration.md](configuration.md).
 
-| Section          | Contents                                                                                                                                                                        |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `session`        | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory, number of meetings live at the same time                                                    |
-| `server`         | Bind address and port, public URL, TLS certificate, ICE servers, access password, single sign-on, login duration, `meeting_access` and `local_users` (§5.11)                    |
-| `realtime_llm`   | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`                                                          |
-| `asr`            | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings                                                                            |
-| `diarization`    | Backend, library path, model path, GPU index, segmentation thresholds                                                                                                           |
-| `tts`            | Endpoint, model field, voice, language, concurrent requests, launch settings                                                                                                    |
-| `embedding`      | Endpoint, model field, dimensions, query prefix, similarity floor, launch settings                                                                                              |
-| `speaker_memory` | Remembering speakers across meetings: backend, address of the local speaker service, speech needed for enrollment and matching, match thresholds, launch settings (§4.4, §5.14) |
-| `audio`          | Input gain: switch, initial gain, limit, target level, noise floor, log interval                                                                                                |
-| `turn`           | Silence threshold, VAD volume gate, end-of-turn model, wake window, single activation                                                                                           |
-| `realtime`       | Context budget, verbatim window after compaction, summary interval and provider, warm-up interval, direct MCP tools                                                             |
-| `screen`         | Screenshot intervals and threshold, summaries and their provider                                                                                                                |
-| `transcript`     | Merging of adjacent segments into one caption                                                                                                                                   |
-| `report`         | Report provider and input size per request                                                                                                                                      |
-| `agent`          | Remote model endpoint, extra request fields, output budget, screenshot attachment, MCP servers, sandbox, concurrency and timeouts                                               |
-| `retention`      | Independent retention periods and cleanup interval (§1.1)                                                                                                                       |
+| Section          | Contents                                                                                                                                                                                                  |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `session`        | Assistant name (the wake word), aliases, ASR hotwords, member list, data directory, number of meetings live at the same time                                                                              |
+| `server`         | Bind address and port, public URL, TLS certificate, ICE servers, access password, single sign-on, login duration, `meeting_access` and `local_users` (§5.11)                                              |
+| `realtime_llm`   | Access `mode` and one complete set of settings per mode: `[realtime_llm.llama_server]` and `[realtime_llm.openai_api]`                                                                                    |
+| `asr`            | Backend, prompt-format profile, step and window sizes, provisional tokens, pre-roll, launch settings                                                                                                      |
+| `diarization`    | Backend, library path, model path, GPU index, segmentation thresholds                                                                                                                                     |
+| `tts`            | Endpoint, model field, voice, language, concurrent requests, launch settings                                                                                                                              |
+| `embedding`      | Endpoint, model field, dimensions, query prefix, similarity floor, launch settings                                                                                                                        |
+| `speaker_memory` | Remembering speakers across meetings: backend, address of the local speaker service, speech needed for enrollment and matching, match thresholds, whether clips are stored, launch settings (§4.4, §5.14) |
+| `audio`          | Input gain: switch, initial gain, limit, target level, noise floor, log interval                                                                                                                          |
+| `turn`           | Silence threshold, VAD volume gate, end-of-turn model, wake window, single activation                                                                                                                     |
+| `realtime`       | Context budget, verbatim window after compaction, summary interval and provider, warm-up interval, direct MCP tools                                                                                       |
+| `screen`         | Screenshot intervals and threshold, summaries and their provider                                                                                                                                          |
+| `transcript`     | Merging of adjacent segments into one caption                                                                                                                                                             |
+| `report`         | Report provider and input size per request                                                                                                                                                                |
+| `agent`          | Remote model endpoint, extra request fields, output budget, screenshot attachment, MCP servers, sandbox, concurrency and timeouts                                                                         |
+| `retention`      | Independent retention periods and cleanup interval (§1.1)                                                                                                                                                 |
 
 Rules:
 
@@ -278,6 +278,13 @@ A clip belongs to a caption, not to a speaker. Its speaker is always the caption
 `speaker_idx`, so reassigning captions and merging speakers (§5.4) carry the clips along, and
 deleting captions (retention, meeting deletion) deletes them. A write is skipped when the meeting is
 pending deletion or the caption no longer exists or did not come from ASR.
+
+With `speaker_memory.store_session_voice = false` the clips go into `temp.live_voice_clips` instead:
+a table with the same columns in SQLite's in-memory temporary store of the application's connection,
+never written to the database file. When a recording connection ends, its meeting's rows there are
+deleted. Enrolling and suggestions then work only while the meeting is being recorded, and
+`voice_secs` drops to 0 afterwards. Clips stored in `voice_clips` before the setting was turned off
+stay there and are not used; erasing the meeting's voice and deleting a profile still remove them.
 
 ### 2.8 Voice profiles
 
@@ -661,7 +668,10 @@ most 5 s); when it is cancelled, for example by a dropped connection, they are d
 
 At most 32 captions wait for processing; beyond that the oldest is dropped. Every failure (service
 unreachable, a request over 5 s, invalid answer, storage error) drops that window and is logged once
-per outage; captions and recognition continue (hard rule 7).
+per outage; captions and recognition continue (hard rule 7). When the speaker service stops
+answering, the recording page gets one `voice.unavailable` notice, and one `voice.recovered` when a
+request succeeds again (§6.1.1). On connecting, the recording page gets `voice.active` after
+`recording.active`, so everyone knows voiceprints are being computed.
 
 **Speaker service** (`voice/service.py`). A separate process of this project that listens on a
 loopback address only. `speaker_memory.base_url` must also be a loopback address with a port; the
@@ -1972,6 +1982,9 @@ three list the same codes.
 | `asr.recovered`       | info    | —                                                    | 识别服务已恢复                                                                |
 | `diar.unavailable`    | warn    | `error`: string                                      | 说话人区分不可用，所有发言将记为「未知」，不分说话人：{error}                 |
 | `diar.failed`         | warn    | `error`: string                                      | 说话人区分出错，之后的发言将记为「未知」：{error}                             |
+| `voice.active`        | info    | —                                                    | 说话人记忆已开启：服务器会在本机计算发言人的声纹，用来认出记住过的人          |
+| `voice.unavailable`   | warn    | —                                                    | 声纹服务暂时不可用，暂停采集声纹和提示，转录不受影响                          |
+| `voice.recovered`     | info    | —                                                    | 声纹服务已恢复                                                                |
 | `speakers.renumbered` | info    | —                                                    | 服务重启过，说话人编号可能与之前不同；认错的可以在说话人那里用「合并到…」收拾 |
 | `llm.unavailable`     | warn    | `reason`: string, `status`: number, `detail`: string | 助理暂不可用：{reason}                                                        |
 | `tts.unavailable`     | warn    | `reason`: string, `status`: number, `detail`: string | 语音不可用，助理这次只出文字：{reason}                                        |

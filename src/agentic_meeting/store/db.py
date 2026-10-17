@@ -126,6 +126,17 @@ def _fts_phrase(term: str) -> str:
     return '"' + term.replace('"', '""') + '"'
 
 
+# 不随会议保存声纹时的片段表（interfaces.md §2.7）：和 voice_clips 同样的列，只在这个连接的内存里。
+# 临时表不能引用主库的表，删发言时不会级联；录音连接结束时由 forget_live_voice 清掉，服务停了就没了。
+_LIVE_CLIPS_SQL = (
+    "CREATE TEMP TABLE IF NOT EXISTS live_voice_clips ("
+    "id INTEGER PRIMARY KEY, session_id TEXT NOT NULL, utterance_id INTEGER NOT NULL, "
+    "t_start REAL NOT NULL, t_end REAL NOT NULL, secs REAL NOT NULL, "
+    "diar_idx INTEGER NOT NULL DEFAULT 0, vector BLOB NOT NULL, model_sha256 TEXT NOT NULL, "
+    "created_at REAL NOT NULL)"
+)
+
+
 class Store:
     def __init__(self, db: aiosqlite.Connection, *, assistant_name: str) -> None:
         self._db = db
@@ -133,6 +144,8 @@ class Store:
         self._lock = asyncio.Lock()
         self._work: dict[str, int] = {}
         self._claims: set[str] = set()
+        # 声纹片段写在哪张表：随会议保存时是 voice_clips，不保存时是内存里的临时表
+        self._clips = "voice_clips"
 
     # ------------------------------------------------------------------ #
     # 打开与关闭
@@ -140,8 +153,15 @@ class Store:
 
     @classmethod
     async def open(
-        cls, path: str | Path, embedding_dims: int, *, assistant_name: str = "助理"
+        cls,
+        path: str | Path,
+        embedding_dims: int,
+        *,
+        assistant_name: str = "助理",
+        keep_voice_clips: bool = True,
     ) -> Store:
+        """``keep_voice_clips=False``（``speaker_memory.store_session_voice = false``）时，
+        声纹片段写进只在内存里的临时表，不落盘，录音连接结束时清掉（interfaces.md §2.7）。"""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         db = await aiosqlite.connect(path)
@@ -155,11 +175,17 @@ class Store:
             await db.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
             await cls._migrate(db)
             await cls._ensure_vector_table(db, embedding_dims)
+            if not keep_voice_clips:
+                await db.execute("PRAGMA temp_store = MEMORY")
+                await db.execute(_LIVE_CLIPS_SQL)
             await db.commit()
         except BaseException:
             await db.close()
             raise
-        return cls(db, assistant_name=assistant_name)
+        store = cls(db, assistant_name=assistant_name)
+        if not keep_voice_clips:
+            store._clips = "temp.live_voice_clips"
+        return store
 
     @staticmethod
     async def _migrate(db: aiosqlite.Connection) -> None:
@@ -1069,8 +1095,8 @@ class Store:
             if owner is None:
                 return False
             await self._db.execute(
-                "INSERT INTO voice_clips (session_id, utterance_id, t_start, t_end, secs, diar_idx, "
-                "vector, model_sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                f"INSERT INTO {self._clips} (session_id, utterance_id, t_start, t_end, secs, "
+                "diar_idx, vector, model_sha256, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     clip.session_id,
                     clip.utterance_id,
@@ -1089,7 +1115,7 @@ class Store:
     async def voice_secs(self, session_id: str) -> dict[int, float]:
         """每位说话人已有声纹片段的语音总时长（秒），按发言当前的说话人算。"""
         rows = await self._all(
-            "SELECT u.speaker_idx, SUM(c.secs) FROM voice_clips c "
+            f"SELECT u.speaker_idx, SUM(c.secs) FROM {self._clips} c "
             "JOIN utterances u ON u.id = c.utterance_id "
             "WHERE c.session_id = ? GROUP BY u.speaker_idx",
             (session_id,),
@@ -1097,20 +1123,36 @@ class Store:
         return {int(r[0]): float(r[1]) for r in rows}
 
     async def delete_voice_clips(self, session_id: str) -> int:
-        """清除一场会议的全部声纹片段，文字记录不动。返回删掉的片段数。"""
+        """清除一场会议的全部声纹片段（落盘的和内存里的），文字记录不动。返回删掉的片段数。"""
+        deleted = 0
         async with self._transaction():
-            cursor = await self._db.execute(
-                "DELETE FROM voice_clips WHERE session_id = ?", (session_id,)
-            )
+            for table in self._clip_tables:
+                cursor = await self._db.execute(
+                    f"DELETE FROM {table} WHERE session_id = ?", (session_id,)
+                )
+                deleted += cursor.rowcount
             await self._db.commit()
-            return cursor.rowcount
+        return deleted
+
+    async def forget_live_voice(self, session_id: str) -> None:
+        """录音连接结束：不随会议保存声纹时，清掉内存里这场会议的片段；保存时什么都不做。"""
+        if self._clips == "voice_clips":
+            return
+        async with self._transaction():
+            await self._db.execute(f"DELETE FROM {self._clips} WHERE session_id = ?", (session_id,))
+            await self._db.commit()
+
+    @property
+    def _clip_tables(self) -> tuple[str, ...]:
+        """清除时要清的表：落盘的，加上不落盘时内存里的那张。"""
+        return ("voice_clips",) if self._clips == "voice_clips" else ("voice_clips", self._clips)
 
     async def speaker_voice_clips(
         self, session_id: str, idx: int
     ) -> list[tuple[bytes, float, str]]:
         """一位说话人名下（按发言当前的说话人）的声纹片段：``(vector, secs, model_sha256)``。"""
         rows = await self._all(
-            "SELECT c.vector, c.secs, c.model_sha256 FROM voice_clips c "
+            f"SELECT c.vector, c.secs, c.model_sha256 FROM {self._clips} c "
             "JOIN utterances u ON u.id = c.utterance_id "
             "WHERE c.session_id = ? AND u.speaker_idx = ?",
             (session_id, idx),
@@ -1287,7 +1329,7 @@ class Store:
         全部档案的样本。"""
         clips: dict[int, list[tuple[bytes, float, str]]] = {}
         rows = await self._all(
-            "SELECT u.speaker_idx, c.vector, c.secs, c.model_sha256 FROM voice_clips c "
+            f"SELECT u.speaker_idx, c.vector, c.secs, c.model_sha256 FROM {self._clips} c "
             "JOIN utterances u ON u.id = c.utterance_id "
             "WHERE c.session_id = ? AND u.speaker_idx >= 1 AND u.speaker_idx NOT IN ("
             "SELECT speaker_idx FROM voice_profile_links WHERE session_id = ?)",
@@ -1354,18 +1396,21 @@ class Store:
             row = await self._one("SELECT 1 FROM voice_profiles WHERE id = ?", (profile_id,))
             if row is None:
                 return None
-            cursor = await self._db.execute(
-                "DELETE FROM voice_clips WHERE id IN ("
-                "SELECT c.id FROM voice_clips c "
-                "JOIN utterances u ON u.id = c.utterance_id "
-                "JOIN voice_profile_links l "
-                "ON l.session_id = c.session_id AND l.speaker_idx = u.speaker_idx "
-                "WHERE l.profile_id = ?)",
-                (profile_id,),
-            )
+            deleted = 0
+            for table in self._clip_tables:
+                cursor = await self._db.execute(
+                    f"DELETE FROM {table} WHERE id IN ("
+                    f"SELECT c.id FROM {table} c "
+                    "JOIN utterances u ON u.id = c.utterance_id "
+                    "JOIN voice_profile_links l "
+                    "ON l.session_id = c.session_id AND l.speaker_idx = u.speaker_idx "
+                    "WHERE l.profile_id = ?)",
+                    (profile_id,),
+                )
+                deleted += cursor.rowcount
             await self._db.execute("DELETE FROM voice_profiles WHERE id = ?", (profile_id,))
             await self._db.commit()
-            return cursor.rowcount
+            return deleted
 
     # ------------------------------------------------------------------ #
     # 发言

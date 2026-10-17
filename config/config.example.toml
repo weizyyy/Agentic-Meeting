@@ -242,6 +242,7 @@ min_match_secs = 10         # 一位说话人说够这么多秒，才和声纹�
 match_threshold = 0.6       # 提示需要的最低余弦相似度；和模型有关，换模型要重新标定
 match_margin = 0.08         # 最像的档案要比第二像的高出这么多才提示
 auto_update = true          # 确认提示后，把这场会议的声纹加进档案（适应不同的麦克风和房间）
+store_session_voice = true  # 声纹片段随会议保存；false = 只在内存里留到录音连接结束，会后不能再录入或比对
 
 [speaker_memory.launch]
 enabled = true

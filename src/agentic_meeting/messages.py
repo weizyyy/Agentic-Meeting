@@ -41,6 +41,11 @@ NOTICES: dict[str, Callable[[Params], str]] = {
         f"说话人区分不可用，所有发言将记为「未知」，不分说话人：{p['error']}"
     ),
     "diar.failed": lambda p: f"说话人区分出错，之后的发言将记为「未知」：{p['error']}",
+    "voice.active": lambda p: (
+        "说话人记忆已开启：服务器会在本机计算发言人的声纹，用来认出记住过的人"
+    ),
+    "voice.unavailable": lambda p: "声纹服务暂时不可用，暂停采集声纹和提示，转录不受影响",
+    "voice.recovered": lambda p: "声纹服务已恢复",
     "speakers.renumbered": lambda p: (
         "服务重启过，说话人编号可能与之前不同；认错的可以在说话人那里用「合并到…」收拾"
     ),

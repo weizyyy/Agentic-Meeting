@@ -199,9 +199,11 @@ class VoiceClipper:
         segments: Callable[[float], Awaitable[list[SpeakerSegment] | None]] | None = None,
         idle_close_secs: float = 3.0,
         on_stored: Callable[[], None] | None = None,
+        on_service: Callable[[bool], Awaitable[None]] | None = None,
     ) -> None:
         self._client = client
         self._on_stored = on_stored  # 每落库一个片段调用一次
+        self._on_service = on_service  # 声纹服务断了（False）或恢复了（True）时调用一次
         self._store = store
         self._session_id = session_id
         self._segments = segments
@@ -324,8 +326,20 @@ class VoiceClipper:
             if not self._failing:
                 self._failing = True
                 logger.warning(f"声纹服务不可用，暂停采集声纹片段（转录不受影响）：{e}")
+                await self._report(False)
             return None
         if self._failing:
             self._failing = False
             logger.info("声纹服务恢复，继续采集声纹片段")
+            await self._report(True)
         return vector, info.model_sha256
+
+    async def _report(self, available: bool) -> None:
+        if self._on_service is None:
+            return
+        try:
+            await self._on_service(available)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("通知页面声纹服务的状态失败")

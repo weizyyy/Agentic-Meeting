@@ -30,7 +30,7 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
 | `diarization`    | 后端、动态库路径、权重路径、显卡序号、分段阈值                                                                                                                                                                                                                                                                                                                                                                            |
 | `tts`            | 地址、模型名字段、音色、语言、并发请求数、启动参数                                                                                                                                                                                                                                                                                                                                                                        |
 | `embedding`      | 地址、模型名字段、向量维度、查询前缀（`query_prefix`，召回时加在查询前面的任务指令，默认空）、相关度门槛（`min_similarity`，余弦相似度，默认 0.4，0 = 不设）、启动参数                                                                                                                                                                                                                                                    |
-| `speaker_memory` | 跨会议记住说话人：后端、本机声纹服务的地址、录入和比对需要的语音时长、比对门限、启动参数（§4.4、§5.14）                                                                                                                                                                                                                                                                                                                   |
+| `speaker_memory` | 跨会议记住说话人：后端、本机声纹服务的地址、录入和比对需要的语音时长、比对门限、片段是否保存、启动参数（§4.4、§5.14）                                                                                                                                                                                                                                                                                                     |
 | `audio`          | 入口收音增强：自动增益开关、起始增益、增益上限、目标电平、静音线、电平日志间隔（`audio/gain.py`，architecture.md §4）                                                                                                                                                                                                                                                                                                     |
 | `turn`           | 静音阈值、语音检测的音量门限（`vad_min_volume`，默认 0.6 ≈ −50 LUFS，0 = 关闭）、轮次结束模型开关、唤醒窗口（`wake_timeout_secs`，默认 30 秒，必须大于 0；`single_activation` 下助理一答完就回到待唤醒状态，它是「从叫名字到答完」的上限，也是助理说话时能用声音打断的时间）、是否每轮都要叫名字                                                                                                                          |
 | `realtime`       | 上下文预算、压缩保留时长、纪要间隔、纪要由谁写（`digest_provider`：`realtime_llm` 或 `agent_llm`，默认前者）、预热间隔、允许直连的 MCP 工具                                                                                                                                                                                                                                                                               |
@@ -238,6 +238,11 @@ token 仅供内部使用，不出现在 HTTP、数据通道消息或导出中。
 片段挂在发言上，不挂在说话人上：它属于谁，永远看发言当前的 `speaker_idx`。所以改发言人、合并说话人（§5.4）
 都会带着片段走，删除发言（保留期到了、删除会议）时片段一起删掉。会议待删除、发言已经不在或不是语音识别来的，
 就不写。
+
+`speaker_memory.store_session_voice = false` 时片段改写进 `temp.live_voice_clips`：列相同，放在应用那条 SQLite 连接
+的内存临时存储里，从不写进数据库文件。一路录音连接结束时，删掉这场会议在里面的行。这时录入和提示只在会议录音期间
+可用，之后 `voice_secs` 变成 0。关掉这个设置之前已经存进 `voice_clips` 的片段留在那里、不再使用；清除会议声纹和删除档案
+仍然会删掉它们。
 
 ### 2.8 声纹档案
 
@@ -568,7 +573,9 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 4. 每个窗口送声纹服务算向量，连同发言编号落库（§2.7）。
 
 最多 32 条发言排队，再多就丢最旧的。任何失败（声纹服务连不上、一次请求超过 5 秒、返回无效、落库出错）都只丢掉
-这一个窗口，每次中断只记一次日志；字幕和识别照常（硬规则 7）。
+这一个窗口，每次中断只记一次日志；字幕和识别照常（硬规则 7）。声纹服务不再应答时，录音的页面收到一条 `voice.unavailable`
+提示，请求重新成功时收到一条 `voice.recovered`（§6.1.1）。连上时，录音的页面在 `recording.active` 之后收到
+`voice.active`，让在场的人知道正在计算声纹。
 
 **声纹服务**（`voice/service.py`）。本项目自己的独立进程，只监听本机回环地址。`speaker_memory.base_url`
 也必须是写明端口的回环地址；应用访问它时不走系统代理。
@@ -1683,6 +1690,9 @@ SDK 的 `onBotStartedSpeaking` / `onBotStoppedSpeaking` 回调自行显示。
 | `asr.recovered`       | info    | —                                                    | 识别服务已恢复                                                                |
 | `diar.unavailable`    | warn    | `error`：string                                      | 说话人区分不可用，所有发言将记为「未知」，不分说话人：{error}                 |
 | `diar.failed`         | warn    | `error`：string                                      | 说话人区分出错，之后的发言将记为「未知」：{error}                             |
+| `voice.active`        | info    | —                                                    | 说话人记忆已开启：服务器会在本机计算发言人的声纹，用来认出记住过的人          |
+| `voice.unavailable`   | warn    | —                                                    | 声纹服务暂时不可用，暂停采集声纹和提示，转录不受影响                          |
+| `voice.recovered`     | info    | —                                                    | 声纹服务已恢复                                                                |
 | `speakers.renumbered` | info    | —                                                    | 服务重启过，说话人编号可能与之前不同；认错的可以在说话人那里用「合并到…」收拾 |
 | `llm.unavailable`     | warn    | `reason`：string，`status`：number，`detail`：string | 助理暂不可用：{reason}                                                        |
 | `tts.unavailable`     | warn    | `reason`：string，`status`：number，`detail`：string | 语音不可用，助理这次只出文字：{reason}                                        |

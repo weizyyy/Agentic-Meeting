@@ -165,7 +165,9 @@ Speakers appear as chips above the captions.
   by default), the host may see **可能是 林晓** (Maybe 林晓) next to the chip. ✓ renames the speaker
   and links the profile; ✗ stops that suggestion for this meeting. Nothing changes without a click.
   Similar voices can be confused, a diarization slot that mixes two people matches poorly, and
-  short interjections are not enough to match. Following devices never see suggestions.
+  short interjections are not enough to match. Following devices never see suggestions. When
+  speaker memory is on, the recording page says so when it connects, and a yellow line appears if
+  the speaker service stops; captions continue either way.
 - **Reassign individual captions** — click the speaker-and-time line of a caption to select it, or drag across rows to select a range (dragging to the top or bottom edge scrolls the list). The speaker chips turn into targets: click one
   to assign the selected captions to that speaker, or choose **＋ 新说话人** (New speaker) and type
   a name or pick one from `session.members`. Press `Esc` to cancel. The text area of a row is not

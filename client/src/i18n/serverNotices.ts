@@ -14,6 +14,9 @@ export const NOTICE_PARAMS = {
   "asr.recovered": {},
   "diar.unavailable": { error: "string" },
   "diar.failed": { error: "string" },
+  "voice.active": {},
+  "voice.unavailable": {},
+  "voice.recovered": {},
   "speakers.renumbered": {},
   "llm.unavailable": { reason: "string", status: "number", detail: "string" },
   "tts.unavailable": { reason: "string", status: "number", detail: "string" },
@@ -47,6 +50,9 @@ export const serverNotices = defineMessages(
       "diar.unavailable": (error: string) =>
         `说话人区分不可用，所有发言将记为「未知」，不分说话人：${error}`,
       "diar.failed": (error: string) => `说话人区分出错，之后的发言将记为「未知」：${error}`,
+      "voice.active": "说话人记忆已开启：服务器会在本机计算发言人的声纹，用来认出记住过的人",
+      "voice.unavailable": "声纹服务暂时不可用，暂停采集声纹和提示，转录不受影响",
+      "voice.recovered": "声纹服务已恢复",
       "speakers.renumbered":
         "服务重启过，说话人编号可能与之前不同；认错的可以在说话人那里用「合并到…」收拾",
       "llm.unavailable": (reason: string) => `助理暂不可用：${reason}`,
@@ -78,6 +84,11 @@ export const serverNotices = defineMessages(
         `Speaker identification is unavailable; speech will not be attributed to speakers: ${error}`,
       "diar.failed": (error) =>
         `Speaker identification failed; further speech will not be attributed to speakers: ${error}`,
+      "voice.active":
+        "Speaker memory is on: the server computes speakers' voiceprints locally to recognize remembered people.",
+      "voice.unavailable":
+        "The speaker service is unavailable; voiceprints and suggestions are paused, transcription continues.",
+      "voice.recovered": "The speaker service is back.",
       "speakers.renumbered":
         "The server restarted, so speaker numbers may differ from before. Use Merge into… on a speaker to fix any mix-ups.",
       "llm.unavailable": (reason) => `The assistant is unavailable: ${reason}`,

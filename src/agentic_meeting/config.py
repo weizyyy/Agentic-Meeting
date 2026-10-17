@@ -581,6 +581,8 @@ class SpeakerMemoryConfig(_Model):
     match_margin: float = Field(default=0.08, ge=0.0, lt=1.0)
     # 主持人确认提示之后，把这场会议的声纹加进档案当样本（适应不同的麦克风和房间）
     auto_update: bool = True
+    # 声纹片段随会议保存（以后可以从这场会议录入）；false = 只在本机内存里留到这一路录音连接结束
+    store_session_voice: bool = True
     launch: SpeakerLaunch = Field(default_factory=SpeakerLaunch)
 
     @field_validator("base_url")
