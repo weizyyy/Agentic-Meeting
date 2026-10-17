@@ -357,11 +357,12 @@ docker_image = ""           # kind = "docker" 时必填，例如带 numpy/pandas
 network = false
 timeout_secs = 120.0
 
-# 四类期限独立配置，0 默认关闭；一天严格等于 86400 秒。
+# 各类期限独立配置，0 默认关闭；一天严格等于 86400 秒。
 # keep 标记豁免自动清理；人工删除失败仍会后台/重启重试。
 [retention]
 transcript_days = 0
 screenshots_days = 0
 reports_days = 0
 task_artifacts_days = 0
+voice_profiles_days = 0     # 声纹档案从最后一次录入或确认提示算起；不属于某场会议，keep 不管它
 cleanup_interval_secs = 3600

@@ -731,6 +731,7 @@ class RetentionConfig(_Model):
     screenshots_days: int = Field(default=0, strict=True, ge=0, le=36500)
     reports_days: int = Field(default=0, strict=True, ge=0, le=36500)
     task_artifacts_days: int = Field(default=0, strict=True, ge=0, le=36500)
+    voice_profiles_days: int = Field(default=0, strict=True, ge=0, le=36500)
     cleanup_interval_secs: int = Field(default=3600, strict=True, ge=60, le=86400)
 
 

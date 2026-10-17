@@ -33,15 +33,16 @@ variable; the value goes in `.env` (see [`.env.example`](../.env.example)).
 
 Each category is independent and defaults to `0` (no automatic cleanup). Zero never means immediate deletion.
 
-| Key                     | Default | Range and meaning                                                             |
-| ----------------------- | ------- | ----------------------------------------------------------------------------- |
-| `transcript_days`       | `0`     | 0–36500; utterances, vectors and full-text index                              |
-| `screenshots_days`      | `0`     | 0–36500; screenshot files and rows, including captions                        |
-| `reports_days`          | `0`     | 0–36500; terminal reports and running summaries                               |
-| `task_artifacts_days`   | `0`     | 0–36500; terminal task directories and artifact lists, not task input/results |
-| `cleanup_interval_secs` | `3600`  | 60–86400; seconds between cleanup passes                                      |
+| Key                     | Default | Range and meaning                                                                   |
+| ----------------------- | ------- | ----------------------------------------------------------------------------------- |
+| `transcript_days`       | `0`     | 0–36500; utterances, vectors and full-text index                                    |
+| `screenshots_days`      | `0`     | 0–36500; screenshot files and rows, including captions                              |
+| `reports_days`          | `0`     | 0–36500; terminal reports and running summaries                                     |
+| `task_artifacts_days`   | `0`     | 0–36500; terminal task directories and artifact lists, not task input/results       |
+| `voice_profiles_days`   | `0`     | 0–36500; voice profiles, counted from their last enrollment or confirmed suggestion |
+| `cleanup_interval_secs` | `3600`  | 60–86400; seconds between cleanup passes                                            |
 
-Periods must be integers, not booleans, negative/fractional or out-of-range values. A day is 86400 seconds, compared using server UTC timestamps; meetings, reports, digests and tasks have different anchors. Live meetings and protected background work are skipped. Keep exempts all four categories from automatic cleanup; explicit deletion still applies. Interrupted meetings can expire without being ended. See [Data governance](data-governance.md#3-retention-and-keep) for clocks, surviving copies and retries.
+Periods must be integers, not booleans, negative/fractional or out-of-range values. A day is 86400 seconds, compared using server UTC timestamps; meetings, reports, digests and tasks have different anchors. Live meetings and protected background work are skipped. Keep exempts the four meeting categories from automatic cleanup; explicit deletion still applies. Voice profiles belong to no meeting, so keep does not apply to them. Interrupted meetings can expire without being ended. See [Data governance](data-governance.md#3-retention-and-keep) for clocks, surviving copies and retries.
 
 ## `[server]`
 

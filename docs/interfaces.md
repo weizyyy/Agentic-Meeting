@@ -84,6 +84,7 @@ retain existing data indefinitely. Values are strict integers (booleans are not 
 | `screenshots_days`      | `0`     | 0–36500; 0 disables screenshot cleanup                 |
 | `reports_days`          | `0`     | 0–36500; 0 disables report and running-summary cleanup |
 | `task_artifacts_days`   | `0`     | 0–36500; 0 disables task-file cleanup                  |
+| `voice_profiles_days`   | `0`     | 0–36500; 0 keeps voice profiles until deleted          |
 | `cleanup_interval_secs` | `3600`  | 60–86400; interval between cleanup passes              |
 
 An enabled day is exactly 86400 seconds, compared against server UTC Unix timestamps (§8.4).
@@ -1894,6 +1895,12 @@ role in that meeting; enrolling, unlinking and confirming are logged as `voice.e
 signed-in accounts but not to guests who came through a share (403 `access.denied`). A meeting
 pending deletion cannot be enrolled from.
 
+**Command line.** With the server stopped, an operator runs `agentic-meeting voice-profiles list`
+(id, name, samples, seconds of speech, date of the last update) and
+`agentic-meeting voice-profiles delete <id>`, which deletes like `DELETE /api/voice-profiles/{id}`
+and prints the number of clips deleted. An unknown id exits with status 1. Like `access`, both
+refuse to run while a server holds the data directory.
+
 ## 6. Data-channel messages
 
 ### 6.1 Server → browser
@@ -2240,6 +2247,11 @@ Interrupted sessions can expire without being explicitly ended; future anchors a
 | Screenshots    | Frame rows including captions, and the application-owned `frames/` subtree                              | Session `inactive_at`                                                                |
 | Reports        | Terminal report rows and running-summary (`digests`) rows                                               | Each report's `finished_at`; each digest's `created_at`                              |
 | Task artifacts | Application-owned directories of terminal tasks and each task's `artifacts_json` list (cleared to `[]`) | Each task's `finished_at`; legacy terminal rows lacking it fall back to `created_at` |
+| Voice profiles | The whole profile as `DELETE /api/voice-profiles/{id}` deletes it (§5.14)                               | The profile's `updated_at`: the last enrollment or confirmed suggestion              |
+
+Voice profiles belong to no meeting: keep does not protect them, and a live meeting does not delay
+their expiry. The expiry is checked again inside the deleting transaction, so a profile confirmed in
+the meantime stays. Live meetings re-evaluate their suggestions afterwards.
 
 Task goals, results, sources, events and outbound metadata (which may contain original meeting
 text or image references) remain until full meeting deletion.
