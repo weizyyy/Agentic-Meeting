@@ -104,7 +104,8 @@ export interface Api {
     questions?: boolean,
   ): Promise<MeetingMember[]>;
   listSessions(limit?: number, before?: number): Promise<SessionSummary[]>;
-  /** 当前会话：活动连接所在的会话，否则最近一个未结束的；没有返回 null */
+  /** 当前会话：最近连上的进行中的会议，否则最近一个未结束的；没有返回 null。
+   * 同时进行好几场会议时这只是个默认值：已经知道是哪一场时用 getSession */
   currentSession(): Promise<SessionDetail | null>;
   getSession(id: string): Promise<SessionDetail>;
   renameSession(id: string, title: string): Promise<SessionSummary>;
@@ -127,11 +128,12 @@ export interface Api {
   /** 建立 WebRTC 连接时用的 ICE 服务器（docs/interfaces.md §5.2），原样交给 SDK */
   iceServers(): Promise<RTCIceServer[]>;
   listFrames(sessionId: string): Promise<FrameItem[]>;
-  /** 上传一张截图；capturedAt 是已经换算成服务端时钟的采集时刻（Unix 秒） */
+  /** 上传一张截图；capturedAt 是已经换算成服务端时钟的采集时刻（Unix 秒），
+   * sessionId 是这个页面连着的会议（同时进行好几场时服务端靠它分辨） */
   uploadFrame(
     image: Blob,
     capturedAt: number,
-    sessionId?: string | null,
+    sessionId: string | null,
   ): Promise<{ id: number; t: number }>;
   listTasks(sessionId: string): Promise<TaskItem[]>;
   /** 旁观一场会议的事件流地址（interfaces.md §5.1），给 EventSource 用 */

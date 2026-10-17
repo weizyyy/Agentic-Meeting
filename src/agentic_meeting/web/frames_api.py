@@ -1,6 +1,6 @@
 """截图的 HTTP 接口（docs/interfaces.md §5.3）。由 ``web/app.py`` 的 ``create_app`` 调用 ``register``。
 
-上传只在有进行中的会议时接受；入库后向页面推一条 ``frame`` 消息，并把截图交给画面摘要（``resources.captions``；
+上传只在有进行中的会议时接受，``session_id`` 指明是哪一场（同时进行好几场时必须给）；入库后向页面推一条 ``frame`` 消息，并把截图交给画面摘要（``resources.captions``；
 没有就只进时间线）。
 """
 
@@ -49,15 +49,23 @@ def register(app: FastAPI, cfg: AppConfig) -> None:
         res = resources(request)
         if not cfg.screen.enabled:
             raise ApiError(403, "frames.disabled")
-        live = res.sessions.live
-        if live is None:
-            raise ApiError(404, "frames.no_live_session")
         if res.access is not None:
+            # 会议权限模式：必须说是哪一场，且只有主持人能往里放截图
             if not session_id:
                 raise invalid("需要 session_id")
             await authorize(request, session_id, "host")
-            if session_id != live.session.id:
+        if session_id:
+            live = res.sessions.live_for(session_id)
+            if live is None:
                 raise ApiError(409, "session.not_live")
+        else:
+            # 没说是哪一场：只有一场在进行时就是它（旧的页面不带 session_id）
+            connections = res.sessions.connections
+            if len(connections) > 1:
+                raise invalid("同时有好几场会议在进行，session_id 必须给")
+            live = connections[0] if connections else None
+            if live is None:
+                raise ApiError(404, "frames.no_live_session")
         async with res.store.session_work(live.session.id):
             try:
                 at = float(captured_at)

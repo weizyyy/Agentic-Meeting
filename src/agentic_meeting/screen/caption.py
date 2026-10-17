@@ -1,9 +1,10 @@
 """画面摘要（docs/architecture.md §5.3）。
 
-截图入库后交到这里（``submit``）。一个后台任务每次取**最新**一张待处理的截图，让后台模型看图写一段摘要，
+截图入库后交到这里（``submit``）。一个后台任务每次取一场会议**最新**一张待处理的截图（同时进行好几场会议时
+按排队先后轮流），让后台模型看图写一段摘要，
 然后：写回数据库 → 向页面推 ``frame_caption`` → 向实时模型的上下文追加一行 ``[画面 时:分:秒] 摘要``。
 
-* **只处理最新一张**：摘要跟不上翻页速度时，积压的旧截图直接记为 ``skipped``——几页之前的幻灯片不值得现在再看。
+* **每场会议只处理最新一张**：摘要跟不上翻页速度时，积压的旧截图直接记为 ``skipped``——几页之前的幻灯片不值得现在再看。
 * **让路**：后台模型被暂停（助理在应答）时不发请求；在途的请求被取消后，这张截图回到待处理（除非又来了更新的）。
 * **画面没变的截图**（浏览器的兜底上传，``IngestedFrame.changed`` 为假）不单独生成摘要：沿用上一张的，
   也不往上下文里再追加一行。上一张的摘要没有成（失败、被跳过）时，这一张当作新画面处理，等于隔一会儿重试一次。
@@ -95,7 +96,9 @@ class CaptionWorker:
         self._notify = notify
         self._append_context = append_context
         self._max_tokens = max_tokens
-        self._pending: IngestedFrame | None = None
+        # 会议编号 → 这场会议待处理的新画面（每场只留最新的一张）。按排队先后轮流做：同时进行的几场会议
+        # 都在共享屏幕时，谁也不会把别人的画面挤掉
+        self._pending: dict[str, IngestedFrame] = {}
         self._current: int | None = None  # 正在生成摘要的截图编号
         self._followers: dict[
             int, list[ScreenFrame]
@@ -110,8 +113,8 @@ class CaptionWorker:
 
     @property
     def pending_count(self) -> int:
-        """待处理新画面的槽位数，不含正在处理的画面和沿用摘要的截图。"""
-        return int(self._pending is not None)
+        """待处理新画面的槽位数（每场会议最多一个），不含正在处理的画面和沿用摘要的截图。"""
+        return len(self._pending)
 
     def start(self) -> None:
         if self._model is not None and self._task is None:
@@ -127,12 +130,11 @@ class CaptionWorker:
                 pass
         for frame_id in list(self._leases):
             await self._release(frame_id)
-        self._pending = None
+        self._pending.clear()
         self._followers.clear()
 
     def forget(self, session_id: str) -> None:
-        if self._pending is not None and self._pending.frame.session_id == session_id:
-            self._pending = None
+        self._pending.pop(session_id, None)
         self._followers = {
             source: [frame for frame in frames if frame.session_id != session_id]
             for source, frames in self._followers.items()
@@ -191,8 +193,9 @@ class CaptionWorker:
         if not ingested.changed and ingested.same_as is not None:
             if await self._follow(frame, ingested.same_as):
                 return
-        # 新画面（或上一张的摘要没成）：它成为待处理的那一张，原来排着的不看了
-        previous, self._pending = self._pending, ingested
+        # 新画面（或上一张的摘要没成）：它成为这场会议待处理的那一张，原来排着的不看了（排队的位置不变）
+        previous = self._pending.get(frame.session_id)
+        self._pending[frame.session_id] = ingested
         if previous is not None:
             await self._settle(previous.frame, "skipped")
         self._wake.set()
@@ -201,8 +204,9 @@ class CaptionWorker:
         """画面和 ``source_id`` 那张一样：沿用它的摘要。沿用不了（那张没成）返回 ``False``。"""
         assert frame.id is not None
         waiting = (
-            self._pending is not None and self._pending.frame.id == source_id
-        ) or self._current == source_id
+            any(item.frame.id == source_id for item in self._pending.values())
+            or self._current == source_id
+        )
         if waiting:
             self._followers.setdefault(source_id, []).append(frame)
             return True
@@ -229,13 +233,13 @@ class CaptionWorker:
         while True:
             await self._wake.wait()
             self._wake.clear()
-            while self._pending is not None:
+            while self._pending:
                 # 先等到后台模型可用，再挑：暂停期间来了更新的画面，就只做更新的那张
                 assert self._model is not None
                 await self._model.wait_resumed()
-                item, self._pending = self._pending, None
-                if item is None:
+                if not self._pending:
                     break
+                item = self._pending.pop(next(iter(self._pending)))
                 try:
                     await self._caption(item)
                 except asyncio.CancelledError:
@@ -256,11 +260,12 @@ class CaptionWorker:
                     max_tokens=self._max_tokens,
                 )
             except Preempted:
-                if self._pending is None:
-                    self._pending = item  # 助理应答完再做这张
+                if frame.session_id not in self._pending:
+                    # 助理应答完再做这张，还排在最前面
+                    self._pending = {frame.session_id: item, **self._pending}
                     self._wake.set()
                 else:
-                    await self._settle(frame, "skipped")  # 已经有更新的画面了
+                    await self._settle(frame, "skipped")  # 这场会议已经有更新的画面了
                 return
             except asyncio.CancelledError:
                 await drain_io(self._settle(frame, "pending"))
@@ -294,7 +299,7 @@ class CaptionWorker:
             await self._release(frame.id)
         finally:
             self._current = None
-            if self._pending is not item:
+            if self._pending.get(frame.session_id) is not item:
                 await drain_io(self._settle(frame, "skipped"))
 
     async def _settle(self, frame: ScreenFrame, status: str) -> None:

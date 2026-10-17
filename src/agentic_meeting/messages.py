@@ -82,6 +82,9 @@ ERRORS: dict[str, Callable[[Params], str]] = {
     "session.none": lambda p: "现在没有会议",
     "session.busy": lambda p: "会议正在处理或等待删除，请稍后重试",
     "session.not_live": lambda p: "这场会议现在没有在进行，消息没有发送",
+    "session.capacity": lambda p: (
+        f"已经有 {p['max']} 场会议在同时进行，请等其中一场结束或断开后再开始"
+    ),
     "session.delete_incomplete": lambda p: "删除未完成，会议待删除，请稍后重试",
     "session.title_too_long": lambda p: f"标题太长（最多 {p['max']} 字）",
     "speaker.not_found": lambda p: "这场会议里没有这个说话人",

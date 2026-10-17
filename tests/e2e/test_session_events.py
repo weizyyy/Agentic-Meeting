@@ -712,7 +712,7 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(
                     + "\r\n"
                 )
             sessions = application.state.resources.sessions
-            live = sessions.live
+            live = sessions.live_for(sid)
             # 合成持久历史经正常快照读取；没有向生产事件源直接灌数据。
             for index in range(64):
                 await store.add_utterance(Utterance(sid, 0, index, index + 0.1, "s" * 131072))
@@ -787,7 +787,7 @@ async def test_real_tcp_backpressure_bounds_request_and_server_exit(
                     # 从阻塞的那次发送开始算：之前发快照用了多久取决于机器快慢，不该计入发送期限
                     assert 14 <= network["finished"] - network["blocked_since"] < 17, network
                 assert max(network["sends"]) > 1
-                assert sessions.live is live
+                assert sessions.live_for(sid) is live
                 assert not reader.at_eof()
 
             # 实时验证不等生产结束；原10秒尾部预算仍从400次写全部完成后起算。

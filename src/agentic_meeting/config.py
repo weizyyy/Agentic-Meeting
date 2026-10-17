@@ -99,6 +99,9 @@ def _wake_alias(value: str) -> str:
     )
 
 
+MAX_LIVE_MEETINGS = 16
+
+
 class SessionConfig(_Model):
     data_dir: str = "data"
     recording_notice: bool = True
@@ -112,6 +115,9 @@ class SessionConfig(_Model):
     hotwords: list[str] = Field(default_factory=list)
     # 预先登记的成员名单，仅用于界面里给说话人编号改名时做候选。
     members: list[str] = Field(default_factory=list)
+    # 同时进行的会议最多几场。1 = 新会议顶替正在进行的那一场；大于 1 时满了就拒绝新会议。
+    # 每场会议各占实时模型的一个槽位、识别服务的一个槽位和一份说话人区分模型（architecture.md §3.2）。
+    max_live_meetings: int = Field(default=1, ge=1, le=MAX_LIVE_MEETINGS)
 
     @field_validator("assistant_name")
     @classmethod
@@ -254,6 +260,7 @@ class LlamaServerEndpoint(LLMEndpoint):
     # 由本项目启动服务时对应 --reasoning on|off。
     thinking: bool = False
     # 槽位分工：实时应答与缓存预热用一个，后台任务（画面摘要、滚动纪要）用另一个。
+    # 同时进行好几场会议（session.max_live_meetings = N）时，第 k 场（0 起）的实时应答用 realtime_slot + k。
     realtime_slot: int = Field(default=0, ge=0)
     background_slot: int = Field(default=1, ge=0)
     launch: LlamaServerLaunch = Field(default_factory=lambda: LlamaServerLaunch(parallel=2))
@@ -324,13 +331,14 @@ class RealtimeLLMConfig(_Model):
             return True
         return self.active.cache_warm  # type: ignore[attr-defined]
 
-    def request_extra_body(self, *, background: bool = False) -> dict:
+    def request_extra_body(self, *, background: bool = False, lane: int = 0) -> dict:
         """每次请求要并入 ``extra_body`` 的字段。
 
         - 用户在配置里写的 ``extra_body`` 原样带上。
         - ``sampling.top_k`` 不是 OpenAI SDK 的标准参数，也放这里。
         - llama_server 方式额外带槽位号和 ``cache_prompt``：实时应答与后台任务各用一个槽位，
-          互不冲掉对方的前缀缓存。通用接口没有这些概念，不带。
+          互不冲掉对方的前缀缓存；同时进行的第 ``lane`` 场会议（0 起）用 ``realtime_slot + lane``。
+          通用接口没有这些概念，不带。
         """
         endpoint = self.active
         body: dict = dict(endpoint.extra_body)
@@ -339,7 +347,9 @@ class RealtimeLLMConfig(_Model):
         if self.mode == "llama_server":
             assert self.llama_server is not None
             slot = (
-                self.llama_server.background_slot if background else self.llama_server.realtime_slot
+                self.llama_server.background_slot
+                if background
+                else self.llama_server.realtime_slot + lane
             )
             body["id_slot"] = slot
             body["cache_prompt"] = True
@@ -418,6 +428,8 @@ class TTSConfig(_Model):
     voice: str  # 音色名，取决于所选权重
     language: str = "Chinese"
     sample_rate: int = 24000
+    # 同时发给合成服务的请求最多几个。同时进行好几场会议时，各场的回答按句轮流合成。
+    max_concurrent: int = Field(default=1, ge=1)
     launch: TTSLaunch = Field(default_factory=TTSLaunch)
 
 
@@ -676,14 +688,23 @@ def check_ready(cfg: AppConfig) -> list[str]:
     need_value(f"{section}.model", rt.active.model)
     need_env(f"{section}.api_key_env", rt.active.api_key_env)
     if rt.mode == "llama_server" and rt.llama_server is not None:
-        if rt.llama_server.realtime_slot == rt.llama_server.background_slot:
-            problems.append(f"{section}.realtime_slot 与 background_slot 不能相同")
+        meetings = cfg.session.max_live_meetings
+        first = rt.llama_server.realtime_slot
+        last = first + meetings - 1
+        if first <= rt.llama_server.background_slot <= last:
+            if meetings == 1:
+                problems.append(f"{section}.realtime_slot 与 background_slot 不能相同")
+            else:
+                problems.append(
+                    f"session.max_live_meetings = {meetings}，实时应答要用槽位 {first}–{last}，"
+                    f"{section}.background_slot 不能落在这个范围里"
+                )
         launch = rt.llama_server.launch
         if launch.enabled:
             need_file(f"{section}.launch.model_path", launch.model_path)
             if rt.llama_server.supports_vision:
                 need_file(f"{section}.launch.mmproj_path", launch.mmproj_path)
-            slots_needed = max(rt.llama_server.realtime_slot, rt.llama_server.background_slot) + 1
+            slots_needed = max(last, rt.llama_server.background_slot) + 1
             if launch.parallel < slots_needed:
                 problems.append(
                     f"{section}.launch.parallel = {launch.parallel}，"
