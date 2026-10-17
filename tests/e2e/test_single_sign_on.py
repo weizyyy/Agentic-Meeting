@@ -166,7 +166,7 @@ async def test_another_provider_style_and_tokens_that_must_be_refused(start_app,
     assert CLIENT_SECRET not in log
 
 
-async def test_identity_headers_count_only_from_the_trusted_proxy(start_app):
+async def test_identity_headers_count_only_from_the_trusted_proxy(start_app, tmp_path):
     app = await start_app(
         {
             "server.proxy_auth.trusted_proxies": ["127.0.0.1"],
@@ -198,7 +198,9 @@ async def test_identity_headers_count_only_from_the_trusted_proxy(start_app):
         assert (await http.get("/api/sessions", headers=outsider)).status_code == 401
 
     # 代理不在受信任地址里：同样的身份头一律不认
-    other = await start_app({"server.proxy_auth.trusted_proxies": ["192.0.2.10"]})
+    other = await start_app(
+        {"server.proxy_auth.trusted_proxies": ["192.0.2.10"]}, data_dir=tmp_path / "other"
+    )
     async with other.http() as http:
         headers = {"X-Forwarded-User": "carol"}
         assert (await http.get("/api/auth", headers=headers)).json()["authenticated"] is False

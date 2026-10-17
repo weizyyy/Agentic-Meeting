@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 
 from loguru import logger
 from pipecat.frames.frames import (
@@ -76,6 +76,7 @@ class StreamingASRService(STTService):
         self._consumer: asyncio.Task | None = None
         self._shut_down = False
         self._warned_format = False
+        self.on_event: Callable[[dict], None] | None = None
         # 当前识别段的状态
         self._segment_stable = ""
         self._carry = ""  # 只有空白的定稿文字，并入下一条转录帧的开头
@@ -230,8 +231,9 @@ class StreamingASRService(STTService):
         # 1. 临时转录帧：本段已定稿文字 + 未定稿尾巴，供字幕与轮次判定使用。
         #    5. 收尾之后、下一次开始说话之前不再推（临时转录帧会把「转录已定稿」的状态重置）：
         #       收尾的增量本身除外，它的临时帧排在转录帧前面。
+        # 最终空帧也交给记录器，融合器才能撤回此前显示过的临时字幕。
         interim = self._segment_stable + delta.unstable_text
-        if interim.strip() and (delta.segment_end or self._speaking):
+        if delta.segment_end or (interim.strip() and self._speaking):
             await self._push_text(InterimTranscriptionFrame, interim, delta)
 
         # 2–4. 定稿文字推转录帧；只有空白的并入下一条非空增量的开头，绝不推空白文本。
@@ -254,7 +256,10 @@ class StreamingASRService(STTService):
         await self.push_frame(frame)
 
     async def _notice(self, level: str, msg: Message) -> None:
+        data = msg.notice(level)
+        if self.on_event is not None:
+            self.on_event(data)
         try:
-            await self.push_frame(RTVIServerMessageFrame(data=msg.notice(level)))
+            await self.push_frame(RTVIServerMessageFrame(data=data))
         except Exception:
             logger.exception("推送提示消息失败")

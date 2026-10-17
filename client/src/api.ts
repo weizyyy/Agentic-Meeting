@@ -12,6 +12,12 @@ import type { TaskDetail, TaskItem } from "./tasks.ts";
 export type SessionState = "live" | "interrupted" | "ended";
 
 export interface SessionSummary {
+  access?: {
+    role: "host" | "watcher";
+    allow_questions: boolean;
+    tool_enabled?: boolean;
+    share_expires_at?: number | null;
+  } | null;
   id: string;
   title: string;
   keep: boolean;
@@ -71,7 +77,32 @@ export interface UtteranceQuery {
   limit?: number;
 }
 
+export interface MeetingMember {
+  principal_id: string;
+  display_name: string;
+  role: "host" | "watcher";
+  allow_questions: boolean;
+}
+
+/** 会议访问日志的一条（docs/interfaces.md §5.13），新的在前 */
+export interface AccessLogEntry {
+  id: number;
+  at: number;
+  principal_id: string;
+  display_name: string;
+  action: string;
+  detail: Record<string, unknown>;
+}
+
 export interface Api {
+  listMembers(id: string): Promise<MeetingMember[]>;
+  accessLog(id: string, beforeId?: number): Promise<AccessLogEntry[]>;
+  setMember(
+    id: string,
+    principal: string,
+    role: "host" | "watcher" | null,
+    questions?: boolean,
+  ): Promise<MeetingMember[]>;
   listSessions(limit?: number, before?: number): Promise<SessionSummary[]>;
   /** 当前会话：活动连接所在的会话，否则最近一个未结束的；没有返回 null */
   currentSession(): Promise<SessionDetail | null>;
@@ -97,7 +128,11 @@ export interface Api {
   iceServers(): Promise<RTCIceServer[]>;
   listFrames(sessionId: string): Promise<FrameItem[]>;
   /** 上传一张截图；capturedAt 是已经换算成服务端时钟的采集时刻（Unix 秒） */
-  uploadFrame(image: Blob, capturedAt: number): Promise<{ id: number; t: number }>;
+  uploadFrame(
+    image: Blob,
+    capturedAt: number,
+    sessionId?: string | null,
+  ): Promise<{ id: number; t: number }>;
   listTasks(sessionId: string): Promise<TaskItem[]>;
   /** 旁观一场会议的事件流地址（interfaces.md §5.1），给 EventSource 用 */
   eventsUrl(sessionId: string): string;
@@ -154,6 +189,23 @@ export function createApi(
   const enc = encodeURIComponent;
 
   return {
+    async listMembers(id) {
+      return (await request<{ items: MeetingMember[] }>(`/api/sessions/${enc(id)}/members`)).items;
+    },
+    async accessLog(id, beforeId) {
+      const body = await request<{ items: AccessLogEntry[] }>(
+        `/api/sessions/${enc(id)}/access-log${query({ limit: 100, before_id: beforeId })}`,
+      );
+      return body.items;
+    },
+    async setMember(id, principal, role, questions = false) {
+      return (
+        await request<{ items: MeetingMember[] }>(
+          `/api/sessions/${enc(id)}/members/${enc(principal)}`,
+          role === null ? { method: "DELETE" } : json("PUT", { role, allow_questions: questions }),
+        )
+      ).items;
+    },
     async listSessions(limit, before) {
       const body = await request<{ items: SessionSummary[] }>(
         `/api/sessions${query({ limit, before })}`,
@@ -237,9 +289,10 @@ export function createApi(
         caption: caption ?? null,
       }));
     },
-    uploadFrame(image, capturedAt) {
+    uploadFrame(image, capturedAt, sessionId) {
       const form = new FormData();
       form.set("captured_at", String(capturedAt));
+      if (sessionId) form.set("session_id", sessionId);
       form.set("image", image, image.type === "image/jpeg" ? "frame.jpg" : "frame.webp");
       return request<{ id: number; t: number }>("/api/frames", { method: "POST", body: form });
     },

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import faulthandler
 import os
 import signal
 import socket
@@ -29,6 +30,7 @@ from .inference import EMBEDDING_DIMENSIONS, Inference
 from .meeting_client import SPEECH_WAV, MeetingClient
 
 STARTUP_TIMEOUT_SECS = 60.0
+TEST_HANG_SECS = 600  # 最慢的场景也在两分钟内跑完
 
 if not SPEECH_WAV.is_file():
     pytest.skip(
@@ -182,8 +184,29 @@ async def start_app(inference: Inference, tmp_path: Path) -> AsyncIterator[Start
     finally:
         for app in apps:
             app.stop()
-            # pytest 只在测试失败时显示捕获的输出：失败时能看到应用的日志
-            print(f"---- 应用日志 {app.log} ----\n{app.log_text()[-20000:]}")
+            # pytest 只在测试失败时显示捕获的输出：失败时能看到应用的日志。
+            # Windows 控制台可能是 cp1252，编不了的字符替换掉，免得这里报错盖住原来的失败
+            text = f"---- 应用日志 {app.log} ----\n{app.log_text()[-20000:]}"
+            encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+            print(text.encode(encoding, "replace").decode(encoding))
+
+
+@pytest.fixture(autouse=True)
+def hang_watchdog(request: pytest.FixtureRequest) -> Iterator[None]:
+    """一个测试卡住时打出各线程的调用栈并退出，而不是一直等到 CI 的作业超时。
+
+    写到 pytest 自己的 faulthandler 留下的那份 stderr：测试期间的 stderr 被捕获，进程一退出就丢了。
+    """
+    from _pytest.faulthandler import fault_handler_stderr_fd_key
+
+    fd = request.config.stash.get(fault_handler_stderr_fd_key, None)
+    faulthandler.dump_traceback_later(
+        TEST_HANG_SECS, exit=True, file=sys.__stderr__ if fd is None else fd
+    )
+    try:
+        yield
+    finally:
+        faulthandler.cancel_dump_traceback_later()
 
 
 @pytest.fixture

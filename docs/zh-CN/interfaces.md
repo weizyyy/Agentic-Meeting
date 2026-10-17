@@ -24,7 +24,7 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
 | 配置段         | 内容                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `session`      | 助理名字（即唤醒词，必须是英文单词）、别名（`wake_aliases`：识别把名字写成的其他拼写，或听成的至少两个汉字；只用来唤醒，不作为识别热词）、识别热词、成员名单、数据目录                                                                                                                                                                                                                                                    |
-| `server`       | 监听地址与端口、对外地址、HTTPS 证书、ICE 服务器、访问口令、单点登录与登录有效期                                                                                                                                                                                                                                                                                                                                          |
+| `server`       | 监听地址与端口、对外地址、HTTPS 证书、ICE 服务器、访问口令、单点登录、登录有效期、`meeting_access` 与 `local_users`（§5.11）                                                                                                                                                                                                                                                                                              |
 | `realtime_llm` | 接入方式 `mode`，以及两种方式各自的一整套设置：`[realtime_llm.llama_server]`（地址、模型名字段、是否识图、思考开关、采样参数、槽位分工、启动参数）和 `[realtime_llm.openai_api]`（地址、密钥变量名、模型名、是否识图、是否认识 developer 角色、是否预热、附加请求字段、采样参数）                                                                                                                                         |
 | `asr`          | 识别后端、提示词格式档案、步长与窗口、每步不定稿的 token 数、句首回补时长（`preroll_ms`，默认 1500 毫秒）、启动参数                                                                                                                                                                                                                                                                                                       |
 | `diarization`  | 后端、动态库路径、权重路径、显卡序号、分段阈值                                                                                                                                                                                                                                                                                                                                                                            |
@@ -547,29 +547,46 @@ CUDA0。它**不是** `nvidia-smi` 的序号——两者的排序规则不同，
 旁观者提的问题只用文字回答，不管语音合成怎么配置，都不会在会议室里念出来：会议室的扬声器属于持有连接的那台设备，
 旁观者却可能在任何地方。旁观者和会议页面共用文字输入队列，所以合起来最多有五条在排队（§6.3）。
 
-**实时旁观一场会议。** 显示一场会议、但不持有它的连接的页面，打开 `GET /api/sessions/{id}/events`，
-这是一个 `text/event-stream` 响应。每个事件是一行 `data:`，内容是一个带 `type` 的 JSON 对象，后面跟一个空行；
-没有别的可发时，每 15 秒发一行注释 `: ping`。流里有：
+文字输入的校验和排队提示（`text.empty`、`text.too_long`、`text.malformed`、`text.queued`、
+`text.queue_full`）仅返回请求者：录音页面的 RTC 数据通道或提交请求的 HTTP 响应。
+它们不进入会议事件历史或其他页面的事件流；会议级服务故障和恢复提示仍然共享。
 
-- `{"type": "state", "state": "live" | "interrupted" | "ended"}`：开流时先发一条，之后会议状态每变一次发一条，
-  即活动连接就绪、连接断开、会议结束时。同一场会议被另一台设备接管时，直接再发 `live`，中间不发 `interrupted`。
-- §6.1 中这些消息，和会议页面收到的完全一样：`caption`、`utterance`、`utterance_update`、`speaker`、
-  `speakers_merged`、`frame`、`frame_caption`、`task`、`task_event`。提示、`assistant_state`、`session`、
-  `session_closed` 和 `watchers` 只发给会议页面。助理的回答（不论语音还是文字）以落库后的 `utterance`
-  （`speaker_idx = -1`）推过去；生成过程中流式输出的文字不推。
+**实时旁观一场会议。** 只读页面打开 `GET /api/sessions/{id}/events`，不发 offer、不请求麦克风、不成为录音所有者。
+这是单进程内存事件历史，不是持久消息队列。§5.7 的共享口令门禁照常生效，会议访问模式下事件流还要遵守 §5.11。
 
-流开着时，这台设备算作这场会议的旁观者。设备用 `device` 描述，由服务端根据请求的 `User-Agent` 头得出：
-平台和浏览器，例如 `iPhone · Safari`、`Windows · Edge`；只认出一部分时只写那一部分，都认不出时是空字符串。
-设备的其他信息一概不留，名单只存在内存里。会议页面通过 `watchers`（§6.1）收到这份名单。
+事件流使用命名 SSE。`snapshot` 和 `meeting` 带 `id: <epoch>:<seq>`，JSON 为
+`{session_id, epoch, seq, data}`。每会议 epoch 包含随机进程标识与会议编号；每次发布递增序号。
+`Last-Event-ID` 优先于可选的 `after` 查询游标。历史与单订阅队列各限256条；有效游标仅重放之后的事件。
+无游标返回完整快照；过期、格式错误、超前、跨会议或旧进程游标先返回无id的
+`reset: {reason: "cursor_unavailable"}`，再返回快照。队列溢出时，在仍能发送的情况下返回
+`reset: {reason: "slow_consumer"}` 并关闭请求。
 
-所选会议为 `live` 或 `interrupted` 时，页面保持只读事件流，以便主持端恢复中断会议后无需刷新就能继续显示。
-文字提问仍只在 `live` 时启用。会议结束、被删除或等待删除、切换所选会议、本设备开始录音或会议视图卸载时，
-页面关闭事件流。刷新详情返回 404 时，页面移除已删除的会议。打开或保留这条流不会请求麦克风或发送 WebRTC offer。
+登记订阅、选择重放、捕获序号与临时状态之间没有await。随后数据库快照持有现有session work租约，
+并发事件保留在队列。snapshot的data包含详情 `session`、全部 `utterances`、`speakers`、`frames`
+（含描述状态）、`tasks`（含带稳定id的进度事件）与 `transient: {captions, answer, assistant_state, speaking}`。
+快照整体替换持久面板，后续队列事件按稳定id更新。重放和快照补齐旧发言更正、截图与任务，不只是最后id之后的字幕。
+页面拒绝其他会议和重复序号；reset清掉游标，等待新快照。
 
-每条流最多攒 500 条没发出去的消息；跟不上的设备会被断开，重连后自己补齐。浏览器的 `EventSource` 会自动重连。
-每次流打开，页面都重新读取会议信息、最后一条字幕之后的发言（§5.4）和任务（§5.5），断开期间发出的内容不会丢。
-会议被删除或应用退出时，服务端关闭这条流。会议不存在返回 404 `session.not_found`；等待删除时返回 409
-`session.busy`。这个接口在 `/api` 下，所以启用访问口令时设备需要先登录（§5.7）；`EventSource` 会带上会话 cookie。
+`meeting.data` 包含现有字幕、发言/更正、说话人/合并、截图/描述、任务/进度，以及
+`session_updated`、`session_state`、`session_deleted`、`frame_caption_status`、会议级 `notice`、
+`assistant_state`、`assistant_speaking`、`assistant_answer: {response_id, phase, text}`。
+phase为 `started`、`text`、`ended`、`interrupted`；text为累计内容，不是追加增量。回答进行中
+`text` 最多每 0.25 秒发一次，`ended` 和 `interrupted` 总是带完整内容。
+stable与unstable都为空的caption撤回临时段，后续快照也不保留；不会持久化空发言。
+记录器、ASR状态、回答帧和后台任务绑定来源会议，切换当前录音后迟到结果仍归原会。
+仅面向提问者的拒绝提示留在HTTP响应或录音通道；旁听文字提问仍只出文字，不在会议室朗读。
+
+`live` 和 `interrupted` 时保留订阅，只有 `live` 启用文字提问。会议结束、删除/待删除、切会、开始录音连接
+或视图卸载时关闭旧订阅；详情404时移除已删会议。浏览器带最后游标重连，重连提示标明事件流暂时中断。
+
+健康的流一直保持打开，5 秒没有事件就发一行 `: heartbeat` 注释。每次网络发送最多等 15 秒：
+对端停止读取时关闭请求，finally 关闭生成器并释放订阅。uvicorn的 `timeout_graceful_shutdown=5` 限制应用清理前的请求/任务停机等待。
+这是应用/请求期限，不保证立即物理TCP关闭：缓冲字节可保留到对端读取或关闭；被socket阻塞的reset不能算已送达，
+下次连接按游标/快照恢复。
+
+每条实际订阅在录音页watchers名单中占一项。User-Agent标签只描述连接，不代表认证用户或独立设备；
+两个标签页计两条连接，网络出错后重连会换连接id和起始时间。关闭、终态、溢出或发送超时移除连接；进程重启不保留名单/重放。
+未知会议返回404 `session.not_found`，待删除返回409 `session.busy`；启用共享口令时EventSource携带会话cookie（§5.7）。
 
 PATCH 必须是 JSON 对象，至少含 `title`、`keep` 中一个，不能含未知字段。`keep` 只接受 JSON
 `true`/`false`，不接受 null、数字或字符串。只改 keep 保留原标题，只改 title 保留 keep；同时改两者
@@ -1205,6 +1222,8 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 | `request.too_large`         | 413           | —                | 请求体太大                                                         |
 | `request.failed`            | 任意          | `status`：number | 请求失败（{status}）                                               |
 | `route.not_found`           | 404           | —                | 没有这个接口或页面                                                 |
+| `share.invalid`             | 404           | —                | 分享无效或已到期／撤销                                             |
+| `share.limit`               | 409           | —                | 本会议最多8个有效链接                                              |
 | `auth.required`             | 401           | —                | 请先登录                                                           |
 | `auth.csrf`                 | 403           | —                | 请求缺少有效的安全令牌，请刷新页面后重试                           |
 | `auth.wrong_password`       | 401           | —                | 口令不对                                                           |
@@ -1216,6 +1235,15 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 | `sso.expired`               | —（§5.7）     | —                | 登录请求已过期，请重新登录                                         |
 | `sso.denied`                | —（§5.7）     | —                | 这个账号没有被允许登录                                             |
 | `sso.failed`                | —（§5.7）     | —                | 单点登录没有完成，请重试                                           |
+| `access.denied`             | 403           | —                | 无权执行此操作                                                     |
+| `access.invalid_member`     | 400           | —                | 成员不存在或不能主持会议                                           |
+| `access.last_host`          | 409           | —                | 会议必须保留一位主持人                                             |
+| `access.busy`               | 409           | —                | 录音服务正忙                                                       |
+| `text.context_too_large`    | 413           | —                | 问题和提示超出上下文预算                                           |
+| `text.interrupted`          | 409           | —                | 只读问答被实时应答打断，请稍后重新提问                             |
+| `text.busy`                 | 429           | —                | 只读问答队列已满或已有问题处理中                                   |
+| `text.timeout`              | 504           | —                | 只读问答等待超时                                                   |
+| `text.failed`               | 502           | —                | 只读问答没有完成                                                   |
 | `storage.not_ready`         | 503           | —                | 存储尚未就绪                                                       |
 | `cleanup.not_ready`         | 503           | —                | 清理尚未就绪                                                       |
 | `session.not_found`         | 404           | —                | 找不到这场会议                                                     |
@@ -1281,6 +1309,143 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 `type` 是异常的类名，`env` 是配置里密钥变量的名字，`detail` 是报告失败时的异常原文（最多 200 字，超出加省略号），
 这些都不翻译。
 
+### 5.11 会议访问
+
+会议访问给每个人一个本地账号，并把每场会议限定给获得授权的人。它不需要身份提供方，离线也能用。默认关闭
+（`server.meeting_access = false`），此时 §5.7 不变：一个可选的共享口令，通过的人能看到所有会议。
+
+**账号。** 每个 `[[server.local_users]]` 条目有稳定的 `id`、`display_name`、`password_env` 和
+`can_host`（默认 `false`），至少要有一个账号能主持。口令环境变量缺失或条目无效时启动失败，不会悄悄关掉检查。
+没有注册和邮件找回：由运维添加账号并把口令交给本人。服务器用主体 `local:<id>` 识别一个人，从不用显示名。
+`id` 不能转给别人；换口令时保留 `id`，会议授权不变，旧登录全部失效。
+
+**登录。** 会议访问模式下 `POST /api/auth/login` 接受 `{user_id, password, site_password?}`。
+配置了 `server.password_env` 时必须带 `site_password`；只有共享口令什么也拿不到。`GET /api/auth`
+增加 `meeting_access`，登录后还有本人的 `principal: {id, display_name, can_host}`。§5.7 的限速、
+请求体上限、scrypt 和 CSRF 仍然有效。登录记在 `login_sessions` 里，存的是 cookie 秘密的摘要、主体和到期时间，
+从不存原始 cookie 或口令。`POST /api/auth/logout` 结束当前登录，`POST /api/auth/logout-all`
+结束本人的所有登录。
+
+**角色。** 授权存在 `meeting_members(session_id, principal_id, role, allow_questions)` 中。创建会议时，
+创建者的 `host` 授权在同一个事务里写入；只有 `can_host` 的账号能创建会议。`watcher` 能读会议，
+`allow_questions` 为真时才能提问（默认假）。主持人还能录音和继续、改名、保留、结束和删除会议、改说话人、
+生成报告、取消任务，以及管理成员和分享。每场会议至少保留一位主持人，只有 `can_host` 的账号能被设为主持人。
+角色从不取自请求数据。会议响应带上本人的 `access: {role, allow_questions, tool_enabled, share_expires_at}`，
+页面据此显示对应的控件；服务器仍会自己检查。
+
+| 方法与路径                                         | 权限   | 结果                                                             |
+| -------------------------------------------------- | ------ | ---------------------------------------------------------------- |
+| `GET /api/sessions/{id}/members`                   | 主持人 | `{items: [{principal_id, display_name, role, allow_questions}]}` |
+| `PUT /api/sessions/{id}/members/{principal_id}`    | 主持人 | 给配置里的账号设置 `{role, allow_questions}`                     |
+| `DELETE /api/sessions/{id}/members/{principal_id}` | 主持人 | 撤销授权；不能移除最后一位主持人                                 |
+| `GET /api/sessions/{id}/access-log`                | 主持人 | 访问日志（§5.13）                                                |
+
+页面显示本人的主体 ID；主持人输入准确的 ID 来授权。没有用户目录。
+
+**开启前的会议。** 没有主人的会议在会议访问模式下看不到，也不会分给第一个访问的人。运维先停掉服务，
+运行 `agentic-meeting access list-unclaimed`，再对一个能主持的账号运行
+`agentic-meeting access claim <session-id> --owner <user-id>`。重复同样的认领无害；认领别人已有的会议会失败，
+会议或账号 ID 打错时给出明确提示而不是报错堆栈。服务占用数据目录时两条命令都拒绝运行：`serve` 会锁住数据目录，
+所以同一目录上的第二个服务也无法启动。再次关闭会议访问模式会把所有会议重新开放给共享口令，授权保留，
+以后重新开启时继续生效。
+
+**检查范围。** 没有登录时 API 返回 401。没有授权的会议返回与不存在的会议相同的 404；能读但权限不够时返回
+403 `access.denied`。列表先过滤再分页，当前会议相关的接口只会落到本人能读的会议上。检查覆盖路径、查询参数和
+请求体里的会议 ID，以及截图、任务、导出文件和报告所属的会议。上传截图要写明 `session_id`，并且需要对正在录音的
+那场会议有主持权限。`/api/time` 和 `/api/ice` 需要登录；§5.8 的健康检查路由仍然匿名，不含会议内容。
+
+**连接与撤权。** 每个事件流和 WebRTC 连接都绑定一个登录、主体和会议。发起、继续连接和 ICE PATCH
+都会核对这个绑定；客户端送来的 `pc_id` 或角色不能代替授权。开始新的录音不能打断本人无权主持的会议，
+"忙"的回应也不透露正在录哪场会议。移除成员、注销（单个登录或全部）和登录到期会在一秒内生效，空闲的事件流也一样：
+受影响的事件流结束并丢掉排队的事件，录音连接关闭，流式下载在下一块之前停止。已经发出去的字节无法撤回。
+
+§5.1 的事件流在会议访问模式下保留游标、快照和重放规则。游标只是位置，不代表权限：订阅前、发送快照或重放前、
+以及每一块发送前都会检查权限。来自别的会议的游标只会换来所请求会议的重置和快照。失去权限后，页面清掉会议内容、
+关闭事件流并丢掉游标；之后重新登录会建立新的订阅。
+
+**谁能用工具。** 只有持有当前录音连接的那个登录，能通过数据通道或 `POST /api/sessions/{id}/text`
+使用带工具的流水线。其他所有登录，包括其他主持人和同一账号的另一个登录，都按下文走只读问答；其他主持人仍保留
+HTTP 管理权限。工具调用记住发起它的登录、主体、会议和连接。注销、到期、撤权或连接结束会取消该登录排队的输入和
+未完成的工具调用，迟到的结果既不保存也不发布。已经完成的副作用无法撤回。旧模式不变。
+
+**只读问答。** 这类问题发给已配置实时模型（`cfg.realtime_llm.active`）的后台入口，不带工具，也不接 MCP；
+回答里的工具调用一律不执行。这个服务可能在本机、局域网或远端，所以页面保留数据外发提示。发送前和保存回答前都会
+重新检查权限。会议不在进行时返回 409 `session.not_live`。
+
+输入只包括这场会议最新的纪要（前 4096 字）、最近 100 条发言（每条 2048 字）和最近 10 条截图说明
+（每条 1024 字）；任务行、产出、图片和其他会议从不放进去。记 `B = realtime.context_budget_tokens`，
+`R = min(512, sampling.max_tokens 或 512)`，`R` 同时作为 `max_tokens` 发送。完整消息必须同时满足
+`estimate_messages(messages) + R <= B`，以及紧凑 JSON 的 UTF-8 字节数不超过 `min(32768, 4 * (B - R))`。
+纪要最多占材料预算的四分之一；发言和截图说明从新到旧挑选，过长的加省略标记截短，按时间先后排列，
+再从最旧的开始丢弃，直到两个上限都满足。问题本身（最多 2000 字）从不截短：只放系统提示和问题就超限时，
+返回 413 `text.context_too_large`，不记录问题，也不调用模型。
+
+最多五个问题排队，每个主体同时最多一个在处理，每个问题连同等待共 60 秒（429 `text.busy`、504
+`text.timeout`）。主持人发言优先：被抢占的问题以 409 `text.interrupted` 结束，不自动重试。等待或取消问题
+都不会解除主持人流水线设下的暂停。问题在通过预算检查后才记录；成功的回答作为一条助理发言保存一次，
+并以普通发言事件发布。失败返回 502 `text.failed`，从不影响转录。
+
+### 5.12 会议分享
+
+会议访问模式下，主持人可以不建账号就给出临时的旁听权限：每场会议一个会议口令（12–128 字符），或最多八个链接。
+分享只授予这场会议的 `watcher` 角色；主持人不允许时不能提问。分享默认 24 小时，最长七天（`expires_in`
+取 1–604800 秒）。口令用加盐 scrypt 存储，链接存 32 个随机字节的 SHA-256；口令或链接本身只显示一次，
+从不存储或写进日志。旧模式没有这些接口。
+
+| 方法与路径                                         | 权限   | 请求体                                      | 结果                         |
+| -------------------------------------------------- | ------ | ------------------------------------------- | ---------------------------- |
+| `GET /api/sessions/{id}/shares`                    | 主持人 | —                                           | 有效分享，不含秘密           |
+| `PUT /api/sessions/{id}/shares/password`           | 主持人 | `{password, expires_in?, allow_questions?}` | 创建或替换会议口令           |
+| `POST /api/sessions/{id}/shares/links`             | 主持人 | `{expires_in?, allow_questions?}`           | 新链接，只显示一次           |
+| `POST /api/sessions/{id}/shares/{share_id}/rotate` | 主持人 | `{expires_in?, allow_questions?}`           | 替换链接，只显示一次         |
+| `DELETE /api/sessions/{id}/shares/{share_id}`      | 主持人 | —                                           | 撤销；重复撤销无害           |
+| `POST /api/shares/exchange`                        | 任何人 | 见下文                                      | 给当前登录这场会议的旁听权限 |
+
+`POST /api/shares/exchange` 对链接接受 `{session_id, kind, share_id, token}`，对会议口令接受
+`{session_id, kind, password}`；配置了 `server.password_env` 时另带 `site_password`。请求体必须是 JSON，
+`Origin` 头的主机要与请求的 `Host` 头一致，所以放在终结 TLS 的反向代理后面也能用；已登录的调用方还要带 CSRF
+令牌。分享错误、过期、已撤销或属于别的会议时返回 404 `share.invalid`；第九个链接返回 409 `share.limit`。
+格式不对返回 400，请求体过大 413，尝试过多 429 并带 `Retry-After`。没有登录的调用方会得到一个自己的访客登录，
+最长 24 小时，也不超过 `server.auth_session_days`；每个地址每小时最多创建 20 个访客登录。访客不能录音、
+不能用工具，也不能被授予角色。
+
+分享得来的权限只属于兑换它的那个登录，不会迁到个人登录上；撤销分享只去掉由它得来的权限，不影响成员自己的授权，
+也不影响其他登录。`meeting_shares` 存分享 ID、会议、类型、哈希与盐、创建和到期时间以及提问开关；
+`share_access` 把登录和分享关联起来并带有封顶的到期时间；`guest_logins` 标记访客主体。删除登录、分享或会议时，
+相应权限一起删除；待删除的会议立即拒绝分享访问。过期的行在启动时、每次修改时和每 60 秒清理一次。
+降级到旧版本前要先停掉服务并备份整个数据目录。
+
+请求开始时、每次发送响应块前、以及保存迟到的回答前都会检查权限；未结束的响应每 0.5 秒复查一次。
+被撤权的事件流或下载最多用 0.25 秒发送最后的空块。链接把令牌放在 URL 的 fragment 里，页面在调用 API
+之前把它从地址栏清掉；页面使用 `no-referrer` 和 `private, no-store`。浏览器历史、剪贴板或转发消息中的副本无法远程清除。
+
+### 5.13 访问日志
+
+服务器为每场会议记录谁打开、导出过会议，谁改过它的访问权限。主持人用
+`GET /api/sessions/{id}/access-log?limit=&before_id=` 读取（`limit` 为 1–500，默认 100）。响应是
+`{items: [{id, at, principal_id, display_name, action, detail}]}`，新的在前；`before_id` 接着上一页往下读。
+`at` 是 UNIX 时间戳，`display_name` 是记录时的名字（访客为 `Guest`）。读日志本身不记录。
+
+| `action`           | 何时记录                         | `detail`                                            |
+| ------------------ | -------------------------------- | --------------------------------------------------- |
+| `meeting.view`     | 某个登录读取会议内容             | `role`、`sources`（权限来源）                       |
+| `meeting.export`   | 主持人或旁听者下载导出文件或报告 | `format`                                            |
+| `meeting.end`      | 主持人结束会议                   | —                                                   |
+| `recording.start`  | 录音连接开始这场会议             | —                                                   |
+| `recording.resume` | 录音连接继续这场会议             | —                                                   |
+| `member.set`       | 主持人授予或修改角色             | `principal_id`、`role`、`allow_questions`           |
+| `member.remove`    | 主持人撤销授权                   | `principal_id`                                      |
+| `share.create`     | 主持人创建分享                   | `kind`、`share_id`、`expires_at`、`allow_questions` |
+| `share.rotate`     | 主持人替换分享                   | 同 `share.create`，另有 `replaced_id`               |
+| `share.revoke`     | 主持人撤销分享                   | `share_id`                                          |
+| `share.redeem`     | 有人通过分享进入                 | `kind`、`share_id`、`guest`                         |
+| `task.artifact`    | 有人下载任务产出                 | `task_id`、`name`                                   |
+
+同一个登录对同一场会议 30 分钟内最多记一条 `meeting.view`，持续旁听不会刷满日志。表结构为
+`access_log(id, session_id, at, principal_id, display_name, action, detail)`，`detail` 为 JSON。
+每场会议保留最新的 2000 条，删除会议时一并删除。写日志失败不会让被记录的请求失败，只记一条错误日志。
+旧模式不写日志。
+
 ## 6. 数据通道消息
 
 ### 6.1 服务端 → 浏览器
@@ -1303,7 +1468,7 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 | `notice`           | `level`：`info` / `warn` / `error`，`code`，`params`，`text`                            | 需要让用户知道的提示（如某服务不可用）。`code` 和 `params` 标明是哪一条提示，页面据此用自己的界面语言显示（§6.1.1）；`text` 是同一条提示的中文，给日志和旧页面用。实时模型、语音合成的请求出错时，服务端把管线里的错误换成提示发出来（`pipeline/errors.py`）；Pipecat 自带的 RTVI `error` 消息页面只显示致命的 |
 | `session`          | `id, title, keep, started_at, resumed, base_secs, state`                                | 连接建立后发一次：所属会话与当前保留标记；`resumed` 表示继续；`base_secs` 是本次连接的时间轴起点                                                                                                                                                                                                               |
 | `session_closed`   | `reason`：`taken_over` / `ended` / `server_stopping`                                    | 连接即将被服务端关闭的原因（尽力而为地发出），页面据此提示而不是静默变成未连接                                                                                                                                                                                                                                 |
-| `watchers`         | `items`：`[{id, device, since}]`                                                        | 通过 `GET /api/sessions/{id}/events` 旁观这场会议的设备（§5.1）：`id` 是应用运行期间唯一的编号，`device` 的含义见那一节，`since` 是开流的时刻（Unix 秒）。在 `session` 之后发一次，名单每变一次再发                                                                                                            |
+| `watchers`         | `items`：`[{id, device, since}]`                                                        | 通过 `GET /api/sessions/{id}/events` 旁听这场会议的连接（§5.1）：`id` 是应用运行期间唯一的编号，`device` 的含义见那一节，`since` 是开流的时刻（Unix 秒）。在 `session` 之后发一次，名单每变一次再发                                                                                                            |
 
 发送连接就绪消息时，从当前持久状态读取 `session.keep`。`session.recording_notice=true` 时，
 每次连接就绪后在 session 消息之后发送一次现有 `notice`：`level="info"`，

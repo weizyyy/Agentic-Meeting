@@ -22,6 +22,9 @@ export interface LoginMethods {
 export interface AuthStatus {
   /** 服务端是否需要登录 */
   enabled: boolean;
+  meeting_access?: boolean;
+  site_password_required?: boolean;
+  principal?: { id: string; display_name: string; can_host: boolean; guest?: boolean };
   /** 当前是否可以访问（不需要登录时总是 true） */
   authenticated: boolean;
   csrf_token: string | null;
@@ -98,13 +101,18 @@ function parseMethods(value: unknown, enabled: boolean): LoginMethods {
 
 export function parseStatus(body: unknown): AuthStatus {
   const value = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
-  const enabled = value.enabled === true;
+  if (typeof value.enabled !== "boolean" || typeof value.authenticated !== "boolean")
+    throw new Error(messages().login.statusFailed(0));
+  const enabled = value.enabled;
   const token = typeof value.csrf_token === "string" && value.csrf_token ? value.csrf_token : null;
   return {
     enabled,
     authenticated: !enabled || value.authenticated === true,
     csrf_token: token,
     methods: parseMethods(value.methods, enabled),
+    meeting_access: value.meeting_access === true,
+    site_password_required: value.site_password_required === true,
+    principal: value.principal as AuthStatus["principal"],
   };
 }
 
@@ -172,7 +180,7 @@ export async function fetchAuthStatus(
 export type LoginResult = { ok: true; status: AuthStatus } | { ok: false; message: string };
 
 export async function login(
-  password: string,
+  password: string | { password: string; user_id: string; site_password: string },
   fetchFn: FetchLike = defaultFetch,
   session: AuthSession = authSession,
 ): Promise<LoginResult> {
@@ -181,7 +189,7 @@ export async function login(
     response = await fetchFn("/api/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify(typeof password === "string" ? { password } : password),
     });
   } catch {
     return { ok: false, message: loginErrorText(0, null, null) };

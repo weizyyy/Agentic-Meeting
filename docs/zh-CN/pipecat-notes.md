@@ -508,6 +508,12 @@ await self.push_frame(RTVIServerMessageFrame(data={"type": "caption", ...}))
 
 ## 10. 自定义处理器
 
+`pipeline/watchers.py` 的 `WatcherObserver` 观察固定1.12.0的回答/说话帧，已核对安装源码。
+`BaseObserver(observe_every_push=False)` 经 `on_push_frame(FramePushed)` 只收到每帧首次推出。
+`LLMFullResponseStartFrame`、`LLMTextFrame`、`LLMFullResponseEndFrame`、`InterruptionFrame`、
+`BotStartedSpeakingFrame`、`BotStoppedSpeakingFrame` 提供累计回答和说话状态。
+记录器 `_send`、ASR状态和bot `send` 各自按来源会议发布自定义消息，observer不再镜像RTVI，避免重复。
+
 ```python
 from pipecat.frames.frames import Frame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
@@ -634,3 +640,14 @@ await client.disconnect();
   `mediaState.mic.state === "uninitialized"`，授权被拒绝后的 `"error"` 不会触发重新初始化。
   `connectTo()` 在下一次主动开始或继续时，在现有错误处理里调用公开的 `client.initDevices()`。
   健康麦克风照常复用，首次拒绝不会在同一次点击里再次初始化。
+
+## 会议授权回调（1.12.0）
+
+- `FunctionCallParams` 与 `FunctionCallResultProperties` 都是 dataclass，可用
+  `dataclasses.replace` 保留全部字段并包装 `result_callback` 和更晚执行的
+  `on_context_updated`。`app_resources` 按引用传递：每个 worker 的资源要固定来源 live 与
+  login，迟到回调不能再从全局当前连接获取授权身份。
+- `OpenAIBaseLLMService.run_inference` 用 `get_llm_adapter()` 的
+  `get_llm_invocation_params` 构建请求，包含系统指令与 developer 角色转换。只读问答预算测量
+  相同的实际消息。新的 `LLMContext(messages)` 不携带工具。此非流式方法只返回
+  `response.choices[0].message.content`，不会派发返回的工具调用；应用把空内容视为问答失败。

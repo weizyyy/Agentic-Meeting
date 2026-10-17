@@ -78,6 +78,8 @@ ice_servers = [
 身份提供方连不上时口令照常可用。已经登录的设备在登录到期（`auth_session_days`）之前不再需要身份提供方。
 协议细节见[接口](interfaces.md#57-访问口令与单点登录)。
 
+单点登录暂时不能和[会议身份](#会议身份)（`meeting_access`）同时开启，两者都配置时配置检查会报错。
+
 **OpenID Connect。** 在身份提供方（Keycloak、Authentik、Microsoft Entra ID、Google 等）登记本应用，类型选 Web
 应用、授权码流程，回调地址填 `<public_url>/api/auth/oidc/<id>/callback`。然后每个身份提供方写一项：
 
@@ -120,6 +122,25 @@ allowed_groups = []
 
 只有直接从 `trusted_proxies` 连过来的请求才认这些头，其他地址带的一律忽略。代理必须对转发的每个请求都做认证，
 并去掉客户端自己带来的这些头。`trusted_proxies` 留空即关闭。
+
+### 会议身份
+
+设置 `server.meeting_access = true`，配置 `server.local_users`（也可写成 `[[server.local_users]]` 表）。
+每个账号有 `id`（1–64 位 ASCII 字母、数字、`_` 或 `-`）、`display_name`（1–100 字）、`password_env`、
+`can_host`（默认 `false`）；至少有一个可主持账号。启动前设置每个密码环境变量，至少八字符。
+账号由可信运维预配并安全交付凭据，无公开注册。ID 必须稳定，不得转让；改显示名不改变授权。
+保留 ID 并轮换密码可恢复原账号和会议权限，同时使旧登录失效。若还配置了站点 `password_env`，登录时必须额外提供共享口令。
+
+旧会议在认领前隐藏。停止服务后运行 `agentic-meeting access list-unclaimed`，再运行
+`agentic-meeting access claim SESSION_ID --owner alice`（需要时在 `access` 前加 `--config path.toml`）。
+重复同一认领幂等；冲突认领失败；应用正在使用数据目录时命令拒绝执行。
+主持人在**会议访问权限**中输入准确主体 ID（如 `local:alice`）授权。旁听者不能管理会议。
+除当前录音登录外的其他登录只能提交无工具问答；使用有界会议文字，发送给既有配置的实时模型服务，该服务可位于远端。
+接口与撤权行为见 [§5.11](interfaces.md#511-会议访问)。
+
+主持人还可以不建账号，用**会议分享**里的会议口令或链接给出临时旁听权限（[§5.12](interfaces.md#512-会议分享)），
+不需要额外配置。分享默认 24 小时、最长七天；访客登录最长 24 小时，也不超过 `auth_session_days`。
+主持人可以在**访问日志**里查看谁打开、导出过会议，谁改过它的权限（[§5.13](interfaces.md#513-访问日志)）。
 
 ## `[realtime_llm]`
 

@@ -60,10 +60,11 @@ interface Props {
   tasks: readonly TaskItem[];
   onLoad: (id: string) => Promise<TaskDetail | null>;
   onCancel: (id: string) => void;
+  readOnly?: boolean;
 }
 
 /** 后台任务面板：列表（状态、最近一步或结论），点开看详细结果、来源、产物、进度，以及这次任务外发了什么。 */
-export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
+export function TaskPanel({ tasks, onLoad, onCancel, readOnly }: Props) {
   const { t } = useI18n();
   const [openId, setOpenId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
@@ -172,7 +173,7 @@ export function TaskPanel({ tasks, onLoad, onCancel }: Props) {
             )}
             <DialogFooter>
               {!isFinished(open.status) && (
-                <Button variant="destructive" onClick={() => onCancel(open.id)}>
+                <Button variant="destructive" disabled={readOnly} onClick={() => onCancel(open.id)}>
                   {t.tasks.cancel}
                 </Button>
               )}

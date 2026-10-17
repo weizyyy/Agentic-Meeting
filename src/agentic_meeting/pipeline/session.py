@@ -70,6 +70,8 @@ class LiveConnection:
     finished: asyncio.Event = field(default_factory=asyncio.Event)
     owner: asyncio.Task | None = None
     finishing: bool = False
+    identity: Any = None
+    tool_tasks: set[asyncio.Task] = field(default_factory=set)
     quiet: bool = False  # 由会话管理器停掉的：收尾时不再告诉旁观的设备「已中断」，停它的地方自己说
 
 
@@ -119,7 +121,13 @@ class SessionManager:
         self, session_id: str, *, title: str | None = None, keep: bool | None = None
     ) -> Session | None:
         async with self._lock:
-            return await self._store.update_session(session_id, title=title, keep=keep)
+            updated = await self._store.update_session(session_id, title=title, keep=keep)
+            if updated is not None:
+                self.publish(
+                    session_id,
+                    {"type": "session_updated", "title": updated.title, "keep": updated.keep},
+                )
+            return updated
 
     async def current_session(self) -> Session | None:
         """「当前会话」：活动连接所在的会话；没有就取最近一个未结束的；都没有返回 ``None``。"""
@@ -127,7 +135,15 @@ class SessionManager:
             return await self._store.get_session(self._live.session.id)
         return await self._store.latest_unended_session()
 
+    def publish(self, session_id: str, data: dict) -> None:
+        self.watchers.publish(session_id, data)
+
     async def push(self, data: dict) -> bool:
+        if self._live is not None:
+            self.publish(self._live.session.id, data)
+        return await self._push_media(data)
+
+    async def _push_media(self, data: dict) -> bool:
         """向活动连接的浏览器推一条数据通道消息；没有活动连接返回 ``False``。"""
         live = self._live
         if live is None or live.worker is None:
@@ -148,9 +164,10 @@ class SessionManager:
 
     async def push_to(self, session_id: str, data: dict) -> bool:
         """只在 ``session_id`` 这场会议正在进行时推消息（后台任务完成时，会议可能已经换了）。"""
+        self.publish(session_id, data)
         if not self.is_live(session_id):
             return False
-        return await self.push(data)
+        return await self._push_media(data)
 
     async def queue_frame_to(self, session_id: str, frame: Any) -> bool:
         """只在 ``session_id`` 这场会议正在进行时，向它的管线送一帧（比如往实时模型的上下文追加一行）。"""
@@ -218,7 +235,7 @@ class SessionManager:
     # 连接的生命周期
     # ------------------------------------------------------------------ #
 
-    async def begin(self) -> LiveConnection:
+    async def begin(self, *, owner: str | None = None) -> LiveConnection:
         """新连接、新会议：顶替旧连接，建新会话和连接记录，登记为当前连接。
 
         别的没结束的会议（已中断的）原样留着，之后还能继续。
@@ -230,7 +247,7 @@ class SessionManager:
                 self.watchers.state(old.session.id, "interrupted")
             await self._drop_stream()
             now = self._now()
-            session = await self._store.create_session(now=now)
+            session = await self._store.create_session(now=now, owner=owner)
             connection_id = await self._store.open_connection(
                 session.id, connected_at=now, t_from=0.0
             )
@@ -320,9 +337,9 @@ class SessionManager:
         if live is not None and live.session.id == session_id:
             if live.recorder is not None:
                 live.recorder.set_speaker_name(src, name)  # 已经在路上的字幕也用合并后的名字
-            await self.push(
-                {"type": "speakers_merged", "from": src, "into": dst, "display_name": name}
-            )
+        await self.push_to(
+            session_id, {"type": "speakers_merged", "from": src, "into": dst, "display_name": name}
+        )
         return result
 
     async def forget(self, session_id: str) -> None:
@@ -357,6 +374,9 @@ class SessionManager:
 
     async def finish(self, live: LiveConnection) -> None:
         """连接结束（无论怎么结束）：关闭连接记录，释放位置。不写 ``ended_at``。"""
+        live.stop_requested = True
+        for pending in list(live.tool_tasks):
+            pending.cancel()
         live.finishing = True
         await drain_io(self._finish(live))
 
@@ -420,6 +440,8 @@ class SessionManager:
         """告诉页面原因、取消管线、等它收尾（超时就不等了）。"""
         timeout = self._timeout if wait_secs is None else wait_secs
         live.stop_requested = True
+        for pending in list(live.tool_tasks):
+            pending.cancel()
         live.quiet = True
         if live.worker is not None:
             try:

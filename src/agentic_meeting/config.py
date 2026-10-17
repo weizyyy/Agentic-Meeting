@@ -174,6 +174,13 @@ class IceServerConfig(_Model):
         return any(url.lower().startswith("turn") for url in self.urls)
 
 
+class LocalUserConfig(_Model):
+    id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    display_name: str = Field(min_length=1, max_length=100)
+    password_env: str = Field(min_length=1)
+    can_host: bool = False
+
+
 def _check_http_url(value: str, label: str) -> str:
     """http(s) 地址，有主机名，不带查询串和片段；http 只允许本机回环地址。"""
     parsed = urlparse(value)
@@ -267,9 +274,25 @@ class ServerConfig(_Model):
     password_env: str = ""
     # 登录一次的有效天数，到期需要重新输入口令。
     auth_session_days: float = Field(default=7.0, gt=0, le=365)
+    meeting_access: bool = False
+    local_users: list[LocalUserConfig] = Field(default_factory=list)
     # 单点登录：OpenID Connect 身份提供方，以及反向代理传来的身份头。都可以和访问口令并用。
     oidc: list[OidcProviderConfig] = Field(default_factory=list)
     proxy_auth: ProxyAuthConfig = Field(default_factory=ProxyAuthConfig)
+
+    @model_validator(mode="after")
+    def _local_identities(self) -> ServerConfig:
+        ids = [user.id for user in self.local_users]
+        if len(ids) != len(set(ids)):
+            raise ValueError("server.local_users 的 id 不能重复")
+        if self.meeting_access and not any(user.can_host for user in self.local_users):
+            raise ValueError("会议权限模式至少需要一个 can_host 的本地账号")
+        # 单点登录的人还没有映射到会议权限模式的账号和角色上：宁可起不来，也不让人以为它已经生效
+        if self.meeting_access and (self.oidc or self.proxy_auth.enabled):
+            raise ValueError(
+                "server.oidc / server.proxy_auth 暂时不能和 server.meeting_access 同时开启"
+            )
+        return self
 
     @field_validator("public_url")
     @classmethod

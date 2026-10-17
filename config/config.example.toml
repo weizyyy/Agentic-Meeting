@@ -33,6 +33,12 @@ members = []
 # 服务端
 # ----------------------------------------------------------------------------
 [server]
+# 会议级主体与权限。关闭时保留共享口令/可信单人模式；开启时必须预配个人账号。
+meeting_access = false
+# 本地账号用内联表写在 server 内；id 必须稳定，不得转让给别人。密码只写到对应环境变量。
+# local_users = [{ id = "alice", display_name = "Alice", password_env = "MEETING_ALICE_PASSWORD", can_host = true }]
+local_users = []
+
 host = "0.0.0.0"
 port = 7860
 # 浏览器访问本服务用的地址，例如 "https://meet.example.org"。单点登录的回调地址由它生成

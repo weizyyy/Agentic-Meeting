@@ -14,6 +14,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   unchanged.
 - A device following a live meeting on another device shows "Connected" in the header while its
   event stream is open, instead of "Not connected"; it still says this device is not transcribing.
+- A rejected typed question's notice (too long, queue full) goes only to the device that asked;
+  devices following the meeting still see notices about the speech and language services.
 - Following devices keep their read-only event stream during an interruption and automatically
   receive new captions when the host resumes. Typed questions stay disabled until the host returns;
   a deleted meeting is cleared when the event stream's detail refresh reports it missing ([#21]).
@@ -23,6 +25,11 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- A device following a meeting catches up after a dropped connection or a server restart: it
+  receives only what it missed when the server still has it, and otherwise the whole meeting again,
+  including speaker corrections, screenshots and task progress made while it was away. A device
+  that stops reading is disconnected after 15 seconds without slowing the transcription, and each
+  open tab counts once in the host's list of watching devices ([#21]).
 - A device following a meeting gets captions, speaker corrections, screenshots, tasks and the
   assistant's answers pushed to it as they happen, instead of reloading the captions every three
   seconds ([#21]). The new `GET /api/sessions/{id}/events` route is a server-sent event stream;
@@ -57,9 +64,23 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (authorization code flow with PKCE, any number of providers in `server.oidc`), or be recognized
   from the user-name header of a trusted reverse proxy (`server.proxy_auth`). Who may log in can
   be limited to listed users or groups. The access password keeps working next to it, also while
-  the provider is offline, and the login page shows a button per provider ([#24]).
-- The meeting page shows **N 台设备在旁观** (N devices watching) while other devices follow the
-  meeting; clicking it lists each device by platform and browser, such as _iPhone · Safari_, and
+  the provider is offline, and the login page shows a button per provider ([#24]). It cannot be
+  combined with `server.meeting_access` yet.
+- Optional meeting access with local accounts ([#22]). With `server.meeting_access = true`, each
+  person logs in with an account from `[[server.local_users]]` and sees only the meetings they host
+  or were granted; hosts add watchers or other hosts by principal id. It needs no identity provider
+  and works offline. Only the recording login can use the assistant's tools; other logins get
+  text answers without tools. Meetings recorded before can be assigned to an owner with
+  `agentic-meeting access claim` while the server is stopped.
+- Hosts can share a meeting through a meeting password or one-time links that expire after
+  24 hours by default and at most seven days. People without an account join as guests that can
+  only watch that meeting; revoking a share ends their access within a second ([#22]).
+- Hosts can see an access log of who opened or exported a meeting, downloaded task files, or
+  changed its members and shares ([#22]).
+- `agentic-meeting serve` locks its data directory: a second server on the same directory refuses
+  to start, and the offline `access` commands refuse to run while a server uses it.
+- The meeting page shows **N 条旁听连接** (N following connections) while other devices follow the
+  meeting; clicking it lists each connection by platform and browser, such as _iPhone · Safari_, and
   since when it has been watching ([#21]).
 
 ### Fixed
@@ -73,6 +94,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Ctrl+C`; the stop used to be cut off right after sending them the stop signal. ([#80])
 
 [#21]: https://github.com/weizyyy/Agentic-Meeting/issues/21
+[#22]: https://github.com/weizyyy/Agentic-Meeting/issues/22
 [#24]: https://github.com/weizyyy/Agentic-Meeting/issues/24
 [#80]: https://github.com/weizyyy/Agentic-Meeting/pull/80
 

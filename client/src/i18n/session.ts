@@ -24,11 +24,12 @@ export const session = defineMessages(
     deletionIncomplete: "删除尚未完成，内容可能已部分移除。请在会议列表重试删除。",
     reconnecting: (attempt: number) => `连接断开了，正在自动重连（第 ${attempt} 次）…`,
     watching: "正在另一台设备上进行，这里实时显示；可以打字向助理提问，但不录音。",
+    watcherDisconnected: "实时更新连接中断，当前显示最后收到的内容。",
     takeOverHere: "在这台设备上继续",
     /** 会议页面上：别的设备正在旁观 */
     watchers: {
-      count: (n: string) => `${n} 台设备在旁观`,
-      title: "正在旁观的设备",
+      count: (n: string) => `${n} 条旁听连接`,
+      title: "旁听连接",
       unknownDevice: "未知设备",
       since: (time: string) => `${time} 起`,
     },
@@ -98,10 +99,11 @@ export const session = defineMessages(
     reconnecting: (attempt: number) => `Connection lost; reconnecting (attempt ${attempt})…`,
     watching:
       "This meeting is running on another device and shows here live; you can type questions to the assistant, but nothing is recorded here.",
+    watcherDisconnected: "Live updates disconnected; the last received content is shown.",
     takeOverHere: "Continue on this device",
     watchers: {
-      count: (n: string) => `${n} ${n === "1" ? "device" : "devices"} watching`,
-      title: "Devices watching",
+      count: (n: string) => `${n} following ${n === "1" ? "connection" : "connections"}`,
+      title: "Following connections",
       unknownDevice: "Unknown device",
       since: (time: string) => `since ${time}`,
     },
