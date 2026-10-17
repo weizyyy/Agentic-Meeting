@@ -75,6 +75,9 @@ class Microphone(MediaStreamTrack):
         return frame
 
 
+CLOSE_TIMEOUT_SECS = 10
+
+
 class MeetingClient:
     """一路会议连接。``messages`` 是收到的全部服务端消息（RTVI ``server-message`` 的 ``data``）。"""
 
@@ -136,7 +139,13 @@ class MeetingClient:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, MediaStreamError):
                     await task
-        await self.pc.close()
+        # aioice 关 UDP 套接字时一直等 connection_lost，Windows 上偶尔等不到，整个测试就卡到 CI 超时。
+        # 这只是测试用的浏览器在收尾，不影响服务端：等一会儿还关不掉就放下它继续。
+        try:
+            async with asyncio.timeout(CLOSE_TIMEOUT_SECS):
+                await self.pc.close()
+        except TimeoutError:
+            print(f"测试客户端的 WebRTC 连接 {CLOSE_TIMEOUT_SECS} 秒内没有关掉，跳过")
 
     # ---- 动作 ----
 
