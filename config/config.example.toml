@@ -67,6 +67,7 @@ auth_session_days = 7   # 登录一次的有效天数
 # oidc = [
 #   { id = "lab", display_name = "实验室账号", issuer = "https://id.example.org/realms/lab", client_id = "agentic-meeting", client_secret_env = "AGENTIC_MEETING_OIDC_SECRET", allowed_groups = ["lab-members"] },
 # ]
+# 开了 meeting_access 时，单点登录的人各有自己的身份；每项里的 host_users / host_groups 决定谁能开会和主持。
 oidc = []
 
 # 反向代理传来的身份头：只认 trusted_proxies 里的地址直接发来的请求。trusted_proxies 留空 = 不启用。

@@ -19,7 +19,7 @@ import ipaddress
 import secrets
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode, urlparse
@@ -534,10 +534,11 @@ def register(
     app: FastAPI,
     sso: SingleSignOn,
     *,
-    start_session: Callable[[Request, Response], None],
+    start_session: Callable[[Request, Response, ExternalIdentity], Awaitable[None]],
     client_address: Callable[[Request], str],
 ) -> None:
-    """挂上 ``/api/auth/oidc/…``。``start_session`` 把登录 Cookie 写进响应（由 ``auth.py`` 提供）。"""
+    """挂上 ``/api/auth/oidc/…``。``start_session`` 为认出来的人签发登录、把 Cookie 写进响应
+    （由 ``auth.py`` 或会议权限模式的 ``access.py`` 提供）。"""
 
     def provider_or_404(provider_id: str) -> OidcProvider:
         provider = sso.providers.get(provider_id)
@@ -614,6 +615,6 @@ def register(
             return response
         response = RedirectResponse(next_path, status_code=303)
         binding_cookie(response, request, None)
-        start_session(request, response)
+        await start_session(request, response, identity)
         logger.info(f"单点登录成功：{identity.username}（{provider_id}）；来自 {address}")
         return response

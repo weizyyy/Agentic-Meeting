@@ -646,6 +646,32 @@ class Store:
             )
             await self._db.commit()
 
+    async def save_external_principal(
+        self, principal: str, display_name: str, can_host: bool
+    ) -> None:
+        """单点登录时记下（或更新）主体的显示名和能否主持。"""
+        async with self._transaction():
+            await self._db.execute(
+                "INSERT INTO principals VALUES (?, ?) ON CONFLICT(id) DO UPDATE "
+                "SET display_name = excluded.display_name",
+                (principal, display_name),
+            )
+            await self._db.execute(
+                "INSERT INTO external_principals VALUES (?, ?) ON CONFLICT(principal_id) "
+                "DO UPDATE SET can_host = excluded.can_host",
+                (principal, int(can_host)),
+            )
+            await self._db.commit()
+
+    async def external_principals(self) -> list[dict]:
+        return [
+            {"id": row[0], "display_name": row[1], "can_host": bool(row[2])}
+            for row in await self._all(
+                "SELECT p.id, p.display_name, e.can_host FROM external_principals e "
+                "JOIN principals p ON p.id = e.principal_id"
+            )
+        ]
+
     async def save_login(self, digest: str, principal: str, expires_at: float) -> None:
         async with self._transaction():
             guests = await self._all("SELECT principal_id FROM guest_logins")

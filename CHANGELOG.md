@@ -64,8 +64,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (authorization code flow with PKCE, any number of providers in `server.oidc`), or be recognized
   from the user-name header of a trusted reverse proxy (`server.proxy_auth`). Who may log in can
   be limited to listed users or groups. The access password keeps working next to it, also while
-  the provider is offline, and the login page shows a button per provider ([#24]). It cannot be
-  combined with `server.meeting_access` yet.
+  the provider is offline, and the login page shows a button per provider ([#24]). With
+  `server.meeting_access`, each person who signs in through OpenID Connect gets their own principal
+  next to the local accounts, and the provider's `host_users` and `host_groups` decide who may start
+  and host meetings; the reverse-proxy header cannot be combined with it.
 - Optional meeting access with local accounts ([#22]). With `server.meeting_access = true`, each
   person logs in with an account from `[[server.local_users]]` and sees only the meetings they host
   or were granted; hosts add watchers or other hosts by principal id. It needs no identity provider
