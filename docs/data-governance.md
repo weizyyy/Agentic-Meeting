@@ -42,7 +42,9 @@ agreed ([interfaces.md §5.14](interfaces.md)). A profile holds a name and up to
 one per meeting; they are copies, so deleting the meeting they came from does not delete them.
 Deleting the profile (**声纹…** on a speaker, or `DELETE /api/voice-profiles/{id}`) removes its
 voiceprints and, in every meeting, the clips of the speakers linked to it, and keeps the captions.
-Profiles have no retention period yet; they stay until deleted. In later meetings the server
+Profiles stay until deleted unless `retention.voice_profiles_days` is set; then a profile is
+deleted that long after its last enrollment or confirmed suggestion. With the server stopped, an
+operator can also list and delete profiles with `agentic-meeting voice-profiles list | delete <id>`. In later meetings the server
 compares speakers with the profiles and only suggests a name to the host; nothing is renamed
 without confirmation, and the comparison runs on the meeting server. Confirming a suggestion adds
 that meeting's voiceprint to the profile unless `speaker_memory.auto_update` is off. The plan is in
@@ -84,7 +86,7 @@ retention and manual deletion do not revoke data already sent elsewhere.
 
 ## 3. Retention and keep
 
-All four `[retention]` periods default to `0`: existing data is retained indefinitely. Enable only
+All `[retention]` periods default to `0`: existing data is retained indefinitely. Enable only
 categories you intend to remove; zero is disabled, never immediate expiry. Values are strict
 integers from 0 to 36500. `cleanup_interval_secs` defaults to 3600 and accepts 60–86400.
 
@@ -97,6 +99,7 @@ older** than `now - days * 86400`; equality and future timestamps are retained.
 | `screenshots_days`    | Same meeting inactivity anchor                                                        | Frame rows, including descriptions, and the owned `frames/` subtree    |
 | `reports_days`        | Each terminal report's completion; each digest's creation                             | Terminal report rows and digest rows                                   |
 | `task_artifacts_days` | Each terminal task's completion; legacy terminal tasks without it use creation        | Owned task directories and `artifacts_json` lists, reset to `[]`       |
+| `voice_profiles_days` | Each voice profile's last enrollment or confirmed suggestion                          | The whole profile, and the voice clips of speakers linked to it        |
 
 Interrupted meetings may expire without being ended. Live meetings and protected background work
 are skipped: this includes queued/running tasks and still-active writes/finalization. New reports

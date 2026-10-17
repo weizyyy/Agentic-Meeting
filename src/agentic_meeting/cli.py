@@ -381,6 +381,47 @@ def cmd_access(args: argparse.Namespace) -> int:
         return 1
 
 
+async def _voice_profiles(cfg: AppConfig, args: argparse.Namespace) -> int:
+    import time
+
+    from agentic_meeting.store.db import Store
+    from agentic_meeting.store.instance import instance_lock
+
+    with instance_lock(cfg.resolve(cfg.session.data_dir)):
+        store = await Store.open(
+            cfg.resolve(cfg.session.data_dir) / "meetings.db", cfg.embedding.dimensions
+        )
+        try:
+            if args.voice_command == "list":
+                print("编号\t名字\t样本\t语音秒数\t最后更新")
+                for profile in await store.list_voice_profiles():
+                    updated = time.strftime("%Y-%m-%d", time.localtime(profile.updated_at))
+                    print(
+                        f"{profile.id}\t{profile.name}\t{profile.samples}\t"
+                        f"{profile.secs:.0f}\t{updated}"
+                    )
+                return 0
+            clips = await store.delete_voice_profile(args.profile_id)
+            if clips is None:
+                print("声纹档案不存在，请先用 voice-profiles list 查看编号。")
+                return 1
+            print(f"已删除声纹档案 {args.profile_id}，以及 {clips} 个声纹片段；字幕保留。")
+            return 0
+        finally:
+            await store.close()
+
+
+def cmd_voice_profiles(args: argparse.Namespace) -> int:
+    cfg = _load_cfg(args.config)
+    if cfg is None:
+        return 2
+    try:
+        return asyncio.run(_voice_profiles(cfg, args))
+    except RuntimeError as exc:
+        print(exc)
+        return 1
+
+
 def main() -> None:
     # 输出被重定向到文件或管道时，Windows 默认用本地代码页；两个流统一成 UTF-8，避免中文乱码。
     for stream in (sys.stdout, sys.stderr):
@@ -402,6 +443,13 @@ def main() -> None:
     claim.add_argument("session_id")
     claim.add_argument("--owner", required=True, help="配置中的本地账号 id")
     claim.set_defaults(func=cmd_access)
+
+    voice = sub.add_parser("voice-profiles", help="停机后查看、删除声纹档案")
+    voice_sub = voice.add_subparsers(dest="voice_command", required=True)
+    voice_sub.add_parser("list", help="列出声纹档案").set_defaults(func=cmd_voice_profiles)
+    delete = voice_sub.add_parser("delete", help="删除一份档案和关联说话人的声纹片段")
+    delete.add_argument("profile_id", type=int)
+    delete.set_defaults(func=cmd_voice_profiles)
 
     services = sub.add_parser("services", help="管理本地推理服务")
     services_sub = services.add_subparsers(dest="services_command", required=True)

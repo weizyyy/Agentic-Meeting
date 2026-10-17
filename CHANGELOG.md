@@ -123,6 +123,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   its recording connection ends ([#25]); profiles still keep their samples. With speaker memory on,
   the recording page now says that voiceprints are being computed, and shows a notice when the
   speaker service stops and when it is back.
+- Voice profiles can expire ([#25]): `retention.voice_profiles_days` deletes a profile that long
+  after its last enrollment or confirmed suggestion, together with the voice clips of the speakers
+  linked to it. With the server stopped, `agentic-meeting voice-profiles list` and
+  `voice-profiles delete <id>` show and delete profiles.
 
 ### Fixed
 

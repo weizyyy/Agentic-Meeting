@@ -74,6 +74,20 @@ class App:
     data_dir: Path
     log: Path
     process: subprocess.Popen
+    config: Path
+
+    def cli(self, *args: str) -> subprocess.CompletedProcess[str]:
+        """用这个应用的配置跑一条命令行子命令，例如 ``app.cli("voice-profiles", "list")``。"""
+        return subprocess.run(
+            [sys.executable, "-m", "agentic_meeting.cli", "--config", str(self.config), *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env={**os.environ, "PYTHONUTF8": "1"},
+            cwd=self.config.parent,
+            timeout=60,
+            check=False,
+        )
 
     def http(self, **kwargs: Any) -> httpx.AsyncClient:
         # 不读环境里的代理设置：应用在本机。空闲连接比服务端的 keep-alive（uvicorn 默认 5 秒）先过期：
@@ -174,7 +188,7 @@ async def start_app(inference: Inference, tmp_path: Path) -> AsyncIterator[Start
                 # Windows：独立进程组，stop() 发的 Ctrl+Break 只到应用，不会波及 pytest
                 creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
             )
-        app = App(f"http://127.0.0.1:{port}", data, log, process)
+        app = App(f"http://127.0.0.1:{port}", data, log, process, config_path)
         apps.append(app)
         await _wait_started(app)
         return app

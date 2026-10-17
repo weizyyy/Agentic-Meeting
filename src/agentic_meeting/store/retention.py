@@ -162,7 +162,24 @@ class RetentionWorker:
                     continue
                 except Exception as exc:
                     logger.warning("清理失败，之后重试：{} {}", session_id, type(exc).__name__)
+            if self.policy.voice_profiles_days and not self._closing:
+                await self._expire_voice_profiles(now)
             return count
+
+    async def _expire_voice_profiles(self, now: float) -> None:
+        """声纹档案从最后一次更新或确认算起，过期整份删除，连同各场会议里关联说话人的声纹片段。"""
+        cutoff = now - self.policy.voice_profiles_days * 86400
+        removed = 0
+        try:
+            for profile_id in await self.store.stale_voice_profiles(cutoff):
+                clips = await self.store.delete_voice_profile(profile_id, updated_before=cutoff)
+                if clips is not None:
+                    removed += 1
+                    logger.info("声纹档案过期删除：{} clips={}", profile_id, clips)
+        except Exception as exc:
+            logger.warning("声纹档案清理失败，之后重试：{}", type(exc).__name__)
+        if removed:
+            self.sessions.voice_changed()
 
     async def _execute(self, plan: CleanupPlan) -> None:
         attempt = asyncio.current_task()

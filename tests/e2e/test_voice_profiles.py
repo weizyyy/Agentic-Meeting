@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from .meeting_client import WatchingDevice
@@ -219,3 +221,54 @@ async def test_a_remembered_voice_is_suggested_in_a_later_meeting(
         assert listed["items"] == []
         profiles = (await http.get("/api/voice-profiles")).json()["items"]
         assert [(p["name"], p["samples"]) for p in profiles] == [("林晓", 2)]
+
+
+async def test_the_operator_lists_and_deletes_profiles_and_old_ones_expire(
+    start_app, meeting_factory, inference
+):
+    config = speaker_config(inference, **{"speaker_memory.min_enroll_secs": 1})
+    app = await start_app(config)
+    sessions: dict[str, str] = {}
+    async with app.http() as http:
+        meetings = meeting_factory(http)
+        for name in ("林晓", "周明"):
+            client = meetings()
+            sid = await record(http, client, inference)
+            idx = await assign_all(http, sid, name)
+            enrolled = await http.post(
+                f"/api/speakers/{idx}/voice-profile",
+                json={"session_id": sid, "name": name, "consent": True},
+            )
+            assert enrolled.status_code == 200, enrolled.text
+            sessions[name] = sid
+            await client.close()
+        profiles = {
+            p["name"]: p["id"] for p in (await http.get("/api/voice-profiles")).json()["items"]
+        }
+    await app.shutdown()
+
+    # 停机后，管理员在命令行上查看和删除档案
+    listed = app.cli("voice-profiles", "list")
+    assert listed.returncode == 0, listed.stdout + listed.stderr
+    assert "林晓" in listed.stdout and "周明" in listed.stdout
+    deleted = app.cli("voice-profiles", "delete", str(profiles["林晓"]))
+    assert deleted.returncode == 0, deleted.stdout + deleted.stderr
+    again = app.cli("voice-profiles", "delete", str(profiles["林晓"]))
+    assert again.returncode == 1 and "voice-profiles list" in again.stdout
+    listed = app.cli("voice-profiles", "list")
+    assert "林晓" not in listed.stdout and "周明" in listed.stdout
+
+    # 周明的档案三天没有更新；以「声纹档案保留一天」重新启动，档案和他的声纹片段都被清掉
+    with sqlite3.connect(app.data_dir / "meetings.db") as db:
+        db.execute("UPDATE voice_profiles SET updated_at = updated_at - ?", (3 * 86400,))
+    second = await start_app({**config, "retention.voice_profiles_days": 1}, data_dir=app.data_dir)
+    async with second.http() as http:
+
+        async def expired():
+            return (await http.get("/api/voice-profiles")).json()["items"] == [] or None
+
+        await until(expired, "过期的声纹档案被清理")
+        for sid in sessions.values():
+            assert all(s == 0 for s in (await voice_secs(http, sid)).values())
+            captions = (await http.get("/api/utterances", params={"session_id": sid})).json()
+            assert captions["items"]

@@ -1387,13 +1387,26 @@ class Store:
             await self._db.commit()
             return cursor.rowcount > 0
 
-    async def delete_voice_profile(self, profile_id: int) -> int | None:
+    async def stale_voice_profiles(self, cutoff: float) -> list[int]:
+        """最后一次更新（录入、确认提示）早于 ``cutoff`` 的档案。"""
+        rows = await self._all(
+            "SELECT id FROM voice_profiles WHERE updated_at < ? ORDER BY id", (cutoff,)
+        )
+        return [int(r[0]) for r in rows]
+
+    async def delete_voice_profile(
+        self, profile_id: int, *, updated_before: float | None = None
+    ) -> int | None:
         """删除档案、它的样本和关联，以及各场会议里关联到它的说话人名下的声纹片段。
 
-        返回删掉的片段数；档案不存在返回 None。
+        返回删掉的片段数；档案不存在返回 None。给了 ``updated_before`` 时，档案在那之后更新过也返回 None
+        （保留期清理选出档案之后它又被确认了）。
         """
         async with self._transaction():
-            row = await self._one("SELECT 1 FROM voice_profiles WHERE id = ?", (profile_id,))
+            row = await self._one(
+                "SELECT 1 FROM voice_profiles WHERE id = ? AND (? IS NULL OR updated_at < ?)",
+                (profile_id, updated_before, updated_before),
+            )
             if row is None:
                 return None
             deleted = 0
