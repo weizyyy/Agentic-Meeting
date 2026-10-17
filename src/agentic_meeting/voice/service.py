@@ -113,7 +113,9 @@ def build_app(extractor: Any, model_sha256: str) -> FastAPI:
         try:
             vector = await asyncio.to_thread(extractor.embed, pcm)
         except ValueError as e:
-            return JSONResponse({"error": str(e)}, status_code=422)
+            # 原因只记日志；响应里只给固定的说明
+            logger.info(f"这段音频没算出声纹：{e}")
+            return JSONResponse({"error": "这段音频算不出声纹"}, status_code=422)
         return {"embedding": vector}
 
     return app
