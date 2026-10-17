@@ -26,4 +26,12 @@
 | [Pipecat 集成说明](pipecat-notes.md)       | 本项目对 Pipecat 1.12 的用法                          |
 | [Agents SDK 集成说明](agents-sdk-notes.md) | 后台 agent 对 OpenAI Agents SDK 的用法                |
 
+## 设计提案
+
+| 文档                                         | 内容                              |
+| -------------------------------------------- | --------------------------------- |
+| [跨会议记住说话人](design/speaker-memory.md) | 声纹档案、比对、隐私规则（[#25]） |
+
 中英文文档的文件名和章节编号保持一致。
+
+[#25]: https://github.com/weizyyy/Agentic-Meeting/issues/25
