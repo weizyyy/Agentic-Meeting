@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from .meeting_client import WatchingDevice
 from .test_speaker_memory import LINES, voice_secs
 from .waiting import until
 
@@ -139,9 +140,82 @@ async def test_enrollment_needs_enough_speech(start_app, meeting_factory, infere
         await client.close()
 
 
-@pytest.mark.parametrize("path", ["/api/voice-profiles"])
+@pytest.mark.parametrize("path", ["/api/voice-profiles", "/api/speaker-suggestions"])
 async def test_voice_profiles_do_not_exist_when_the_feature_is_off(start_app, path):
     app = await start_app()
     async with app.http() as http:
         response = await http.get(path)
         assert response.status_code == 404
+
+
+async def assign_all(http, sid: str, name: str) -> int:
+    """测试里没有说话人区分：把这场会议的发言都归给一位新说话人，返回他的编号。"""
+    ids = [
+        u["id"]
+        for u in (await http.get("/api/utterances", params={"session_id": sid})).json()["items"]
+    ]
+    moved = await http.post(
+        "/api/utterances/speaker", json={"session_id": sid, "ids": ids, "new_speaker": name}
+    )
+    return moved.json()["speaker"]["idx"]
+
+
+async def test_a_remembered_voice_is_suggested_in_a_later_meeting(
+    start_app, meeting_factory, inference
+):
+    app = await start_app(
+        speaker_config(
+            inference,
+            **{"speaker_memory.min_enroll_secs": 1, "speaker_memory.min_match_secs": 1},
+        )
+    )
+    async with app.http() as http:
+        meetings = meeting_factory(http)
+        first = meetings()
+        sid = await record(http, first, inference)
+        idx = await assign_all(http, sid, "林老师")
+        enrolled = await http.post(
+            f"/api/speakers/{idx}/voice-profile",
+            json={"session_id": sid, "name": "林晓", "consent": True},
+        )
+        profile = enrolled.json()["voice_profile"]
+        await first.close()
+
+        # 下一场会议：同一个人又说了话，主持人的页面收到提示，旁观的设备收不到
+        second = meetings()
+        sid2 = await record(http, second, inference)
+        assert sid2 != sid
+        watcher = WatchingDevice(http, sid2, "Mozilla/5.0 (iPhone)")
+        assert await watcher.open() == 200
+        idx2 = await assign_all(http, sid2, "说话人 甲")
+        hint = await second.next_message("speaker_suggestion", speaker_idx=idx2)
+        assert hint["profile_id"] == profile["id"] and hint["name"] == "林晓"
+        assert 0 < hint["score"] <= 1 and "vector" not in str(hint)
+        listed = (await http.get("/api/speaker-suggestions", params={"session_id": sid2})).json()
+        assert [(s["speaker_idx"], s["profile_id"]) for s in listed["items"]] == [
+            (idx2, profile["id"])
+        ]
+
+        # 忽略：这场会议里不再提
+        target = {"session_id": sid2, "speaker_idx": idx2, "profile_id": profile["id"]}
+        assert (await http.post("/api/speaker-suggestions/dismiss", json=target)).status_code == 200
+        await second.next_message("speaker_suggestion_cleared", speaker_idx=idx2)
+        listed = (await http.get("/api/speaker-suggestions", params={"session_id": sid2})).json()
+        assert listed["items"] == []
+
+        # 主持人还是认定是他：确认之后说话人改名、关联档案，这场会议的声纹加进档案
+        accepted = await http.post("/api/speaker-suggestions/accept", json=target)
+        assert accepted.status_code == 200, accepted.text
+        assert accepted.json()["voice_profile"]["samples"] == 2
+        await second.next_message("speaker", idx=idx2, display_name="林晓")
+        linked = (await speakers(http, sid2))[idx2]
+        assert linked["voice_profile"] == {"id": profile["id"], "name": "林晓"}
+        assert not [m for m in watcher.messages if m.get("type", "").startswith("speaker_sugg")]
+        await watcher.close()
+        await second.close()
+
+        # 会议结束后照样能查：已经关联了，就没有提示了
+        listed = (await http.get("/api/speaker-suggestions", params={"session_id": sid2})).json()
+        assert listed["items"] == []
+        profiles = (await http.get("/api/voice-profiles")).json()["items"]
+        assert [(p["name"], p["samples"]) for p in profiles] == [("林晓", 2)]

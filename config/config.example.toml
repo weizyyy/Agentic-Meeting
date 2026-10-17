@@ -238,6 +238,10 @@ extra_args = ["--pooling", "last", "--device", "none"]
 backend = "none"            # "none" = 关闭 | "sherpa_onnx"
 base_url = "http://127.0.0.1:8084"   # 声纹服务；只允许本机地址
 min_enroll_secs = 20        # 记住一位说话人的声音（录入声纹档案）至少要他在这场会议里说这么多秒
+min_match_secs = 10         # 一位说话人说够这么多秒，才和声纹档案比对、提示「可能是某某」
+match_threshold = 0.6       # 提示需要的最低余弦相似度；和模型有关，换模型要重新标定
+match_margin = 0.08         # 最像的档案要比第二像的高出这么多才提示
+auto_update = true          # 确认提示后，把这场会议的声纹加进档案（适应不同的麦克风和房间）
 
 [speaker_memory.launch]
 enabled = true

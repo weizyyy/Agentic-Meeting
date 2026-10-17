@@ -112,6 +112,13 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `/api/speakers/{idx}/voice-profile` routes exist only while the feature is on; in meeting access
   mode enrolling and unlinking need the host role and are recorded in the access log, and guests
   cannot see profiles.
+- Remembered voices are recognized in later meetings ([#25]). Once a speaker has said
+  `speaker_memory.min_match_secs` (10 s by default), the server compares them with the voice
+  profiles and the host sees **可能是 林晓** (Maybe 林晓) next to the speaker. ✓ renames the speaker
+  and links the profile, ✗ stops that suggestion for the meeting, and nothing changes without a
+  click. `match_threshold` and `match_margin` decide how sure a suggestion must be; with
+  `auto_update` a confirmed meeting is added to the profile as a sample. Suggestions go only to the
+  recording page and to hosts through `GET /api/speaker-suggestions`, never to following devices.
 
 ### Fixed
 

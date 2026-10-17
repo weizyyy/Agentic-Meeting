@@ -275,3 +275,11 @@ CREATE TABLE IF NOT EXISTS voice_profile_links (
     PRIMARY KEY (session_id, speaker_idx)
 );
 CREATE INDEX IF NOT EXISTS idx_voice_links_profile ON voice_profile_links (profile_id);
+
+-- 主持人忽略过的提示「这位说话人可能是某份档案里的人」：同一场会议里不再提。删会议、删档案都级联删除。
+CREATE TABLE IF NOT EXISTS voice_dismissals (
+    session_id    TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    speaker_idx   INTEGER NOT NULL,
+    profile_id    INTEGER NOT NULL REFERENCES voice_profiles(id) ON DELETE CASCADE,
+    PRIMARY KEY (session_id, speaker_idx, profile_id)
+);

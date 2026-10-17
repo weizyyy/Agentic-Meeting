@@ -231,6 +231,11 @@ export function App({ onLogout, auth, initialSessionId }: Props = {}) {
                         });
                       }}
                       onClearSelection={() => setSelected(new Set())}
+                      suggestions={
+                        state.suggestions?.sessionId === viewingId ? state.suggestions.items : []
+                      }
+                      onAcceptSuggestion={(s) => void meeting.acceptSuggestion(s)}
+                      onDismissSuggestion={(s) => void meeting.dismissSuggestion(s)}
                       onVoice={
                         viewingId !== null && !readOnly
                           ? (idx) => setVoiceFor({ sessionId: viewingId, idx })

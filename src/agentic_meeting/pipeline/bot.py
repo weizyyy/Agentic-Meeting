@@ -242,6 +242,7 @@ def build_parts(
             merge_soft_chars=cfg.transcript.merge_soft_chars,
             merge_max_chars=cfg.transcript.merge_max_chars,
             speaker_client=speaker,
+            speaker_memory=cfg.speaker_memory,
         ),
         wake=wake,
         user_aggregator=aggregators.user(),

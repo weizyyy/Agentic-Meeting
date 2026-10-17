@@ -573,6 +573,14 @@ class SpeakerMemoryConfig(_Model):
     base_url: str = "http://127.0.0.1:8084"
     # 录入声纹档案至少要有这么多秒的单人语音（声纹片段的总时长）。
     min_enroll_secs: float = Field(default=20.0, ge=1.0, le=600.0)
+    # 会议中比对：一位说话人至少有这么多秒单人语音才去和档案比
+    min_match_secs: float = Field(default=10.0, ge=1.0, le=600.0)
+    # 余弦相似度至少这么高才提示「可能是某某」；随模型不同，换模型后要重新标定（docs/benchmarks.md）
+    match_threshold: float = Field(default=0.6, gt=0.0, lt=1.0)
+    # 最像的档案要比第二像的高出这么多才提示，两个人都差不多像时不提示
+    match_margin: float = Field(default=0.08, ge=0.0, lt=1.0)
+    # 主持人确认提示之后，把这场会议的声纹加进档案当样本（适应不同的麦克风和房间）
+    auto_update: bool = True
     launch: SpeakerLaunch = Field(default_factory=SpeakerLaunch)
 
     @field_validator("base_url")

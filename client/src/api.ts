@@ -8,6 +8,7 @@ import { errorText, messages } from "./i18n/index.ts";
 import type { ReportInfo } from "./report.ts";
 import type { FrameItem } from "./screenCapture.ts";
 import type { TaskDetail, TaskItem } from "./tasks.ts";
+import type { SpeakerSuggestion } from "./protocol.ts";
 
 export type SessionState = "live" | "interrupted" | "ended";
 
@@ -150,6 +151,16 @@ export interface Api {
   ): Promise<{ speaker: SpeakerInfo; voice_profile: VoiceProfile }>;
   /** 取消说话人和档案的关联，档案保留 */
   unlinkVoice(sessionId: string, idx: number): Promise<void>;
+  /** 「可能是某某」的提示（只有主持人能看） */
+  listSuggestions(sessionId: string): Promise<SpeakerSuggestion[]>;
+  /** 确认提示：说话人关联到档案、改成档案的名字 */
+  acceptSuggestion(
+    sessionId: string,
+    idx: number,
+    profileId: number,
+  ): Promise<{ speaker: SpeakerInfo; voice_profile: VoiceProfile }>;
+  /** 忽略提示：这场会议里不再提 */
+  dismissSuggestion(sessionId: string, idx: number, profileId: number): Promise<void>;
   /** 服务端时钟（Unix 秒），对时用 */
   serverTime(): Promise<number>;
   /** 建立 WebRTC 连接时用的 ICE 服务器（docs/interfaces.md §5.2），原样交给 SDK */
@@ -319,6 +330,23 @@ export function createApi(
         {
           method: "DELETE",
         },
+      );
+    },
+    async listSuggestions(sessionId) {
+      const body = await request<{ items: SpeakerSuggestion[] }>(
+        `/api/speaker-suggestions${query({ session_id: sessionId })}`,
+      );
+      return body.items;
+    },
+    acceptSuggestion: (sessionId, idx, profileId) =>
+      request<{ speaker: SpeakerInfo; voice_profile: VoiceProfile }>(
+        "/api/speaker-suggestions/accept",
+        json("POST", { session_id: sessionId, speaker_idx: idx, profile_id: profileId }),
+      ),
+    async dismissSuggestion(sessionId, idx, profileId) {
+      await request<unknown>(
+        "/api/speaker-suggestions/dismiss",
+        json("POST", { session_id: sessionId, speaker_idx: idx, profile_id: profileId }),
       );
     },
     async serverTime() {

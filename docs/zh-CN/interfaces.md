@@ -30,7 +30,7 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
 | `diarization`    | 后端、动态库路径、权重路径、显卡序号、分段阈值                                                                                                                                                                                                                                                                                                                                                                            |
 | `tts`            | 地址、模型名字段、音色、语言、并发请求数、启动参数                                                                                                                                                                                                                                                                                                                                                                        |
 | `embedding`      | 地址、模型名字段、向量维度、查询前缀（`query_prefix`，召回时加在查询前面的任务指令，默认空）、相关度门槛（`min_similarity`，余弦相似度，默认 0.4，0 = 不设）、启动参数                                                                                                                                                                                                                                                    |
-| `speaker_memory` | 跨会议记住说话人：后端、本机声纹服务的地址、录入需要的语音时长、启动参数（§4.4、§5.14）                                                                                                                                                                                                                                                                                                                                   |
+| `speaker_memory` | 跨会议记住说话人：后端、本机声纹服务的地址、录入和比对需要的语音时长、比对门限、启动参数（§4.4、§5.14）                                                                                                                                                                                                                                                                                                                   |
 | `audio`          | 入口收音增强：自动增益开关、起始增益、增益上限、目标电平、静音线、电平日志间隔（`audio/gain.py`，architecture.md §4）                                                                                                                                                                                                                                                                                                     |
 | `turn`           | 静音阈值、语音检测的音量门限（`vad_min_volume`，默认 0.6 ≈ −50 LUFS，0 = 关闭）、轮次结束模型开关、唤醒窗口（`wake_timeout_secs`，默认 30 秒，必须大于 0；`single_activation` 下助理一答完就回到待唤醒状态，它是「从叫名字到答完」的上限，也是助理说话时能用声音打断的时间）、是否每轮都要叫名字                                                                                                                          |
 | `realtime`       | 上下文预算、压缩保留时长、纪要间隔、纪要由谁写（`digest_provider`：`realtime_llm` 或 `agent_llm`，默认前者）、预热间隔、允许直连的 MCP 工具                                                                                                                                                                                                                                                                               |
@@ -254,6 +254,11 @@ token 仅供内部使用，不出现在 HTTP、数据通道消息或导出中。
 
 `voice_profile_links`：某场会议里哪位说话人是哪份档案，主键 `(session_id, speaker_idx)`，随会议和档案级联删除。
 一份档案在一场会议里最多关联一位说话人。把说话人合并到另一位时，被合并的那位的关联删掉。
+
+`voice_dismissals`：主持人忽略过的提示，`(session_id, speaker_idx, profile_id)`；随会议和档案级联删除，合并说话人时
+被合并的那位的记录删掉。
+
+一路录音连接结束时，有样本来自这场会议的档案（录入过的，或确认提示时加了样本的），那个样本换成这场会议到目前为止整体的声纹。
 
 ## 3. 流式识别
 
@@ -1533,6 +1538,7 @@ HTTP 管理权限。工具调用记住发起它的登录、主体、会议和连
 | `voice.erase`      | 主持人清除这场会议的声纹片段     | `clips`（删掉的片段数）                             |
 | `voice.enroll`     | 主持人录入一位说话人的声纹       | `speaker_idx`、`profile_id`                         |
 | `voice.unlink`     | 主持人取消说话人和档案的关联     | `speaker_idx`                                       |
+| `voice.accept`     | 主持人确认了声纹提示             | `speaker_idx`、`profile_id`                         |
 | `recording.start`  | 录音连接开始这场会议             | —                                                   |
 | `recording.resume` | 录音连接继续这场会议             | —                                                   |
 | `member.set`       | 主持人授予或修改角色             | `principal_id`、`role`、`allow_questions`           |
@@ -1571,8 +1577,28 @@ HTTP 管理权限。工具调用记住发起它的登录、主体、会议和连
 另一位说话人时返回 `voice.profile_in_use`，档案是另一个模型录的返回 `voice.model_changed`。录入后说话人关联到这份档案；
 名字和档案不同时改成档案的名字，进行中的会议和 `PUT /api/speakers/{idx}` 一样广播 `speaker`。
 
-**权限。** 没有开会议权限时，登录的人都能做。会议权限模式（§5.11）下，录入和取消关联要这场会议的主持人，并记
-`voice.enroll`、`voice.unlink`（§5.13）；列出、改名、删除档案对登录的账号开放，通过分享进来的访客不行
+**提示**是说「这位说话人可能是声纹档案里的某某」。主持人确认之前什么都不改。
+
+| 方法与路径                                 | 说明                                                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `GET /api/speaker-suggestions?session_id=` | `{"items": [{"speaker_idx", "profile_id", "name", "score"}]}`，由已保存的片段算出           |
+| `POST /api/speaker-suggestions/accept`     | 请求体 `{"session_id"?, "speaker_idx", "profile_id"}`；响应同录入                           |
+| `POST /api/speaker-suggestions/dismiss`    | 请求体 `{"session_id"?, "speaker_idx", "profile_id"}`；响应 `{"speaker_idx", "profile_id"}` |
+
+参与比对的说话人：编号至少为 1、还没关联档案、片段里的语音至少 `speaker_memory.min_match_secs` 秒。每份同一模型、
+本场还没关联的档案打一个分：这位说话人的声纹和档案各样本的余弦相似度取最高；主持人在本场忽略过的组合跳过。
+最高分不低于 `match_threshold`、并且比第二名高出至少 `match_margin` 时提示最高分的档案。按分数分配，一份档案最多提示给
+一位说话人。`score` 保留两位小数。
+
+会议进行中，有片段落库、说话人或档案有变化时重新比对，最多每 5 秒一次，向录音的页面发 `speaker_suggestion` 和
+`speaker_suggestion_cleared`（§6.1）。别的页面读上面的接口；会议结束后也能读。
+
+**确认**和录入一样关联并改名，但不用再勾选同意：建档案时本人已经同意过。开着 `speaker_memory.auto_update` 时，这场会议的
+声纹作为样本加进档案，录音连接结束时再刷新（§2.8）。可以给任何一份档案，不限于提示的那份；出错情况和录入相同。
+**忽略**在本场记住这个组合。两者都要 `speaker_idx` ≥ 1，说话人和档案都要存在。
+
+**权限。** 没有开会议权限时，登录的人都能做。会议权限模式（§5.11）下，录入、取消关联，以及读取、确认、忽略提示，都要这场会议的
+主持人；录入、取消关联、确认分别记 `voice.enroll`、`voice.unlink`、`voice.accept`（§5.13）；列出、改名、删除档案对登录的账号开放，通过分享进来的访客不行
 （403 `access.denied`）。待删除的会议不能用来录入。
 
 ## 6. 数据通道消息
@@ -1582,22 +1608,24 @@ HTTP 管理权限。工具调用记住发起它的登录、主体、会议和连
 服务端向管线推 `RTVIServerMessageFrame(data=<下面的对象>)`；浏览器在 `onServerMessage` 回调里收到。
 每条消息都有 `type` 字段：
 
-| `type`             | 其余字段                                                                                | 含义                                                                                                                                                                                                                                                                                                           |
-| ------------------ | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `caption`          | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable`                      | 当前正在说的这一段的实时字幕；同一 `segment_id` 的后一条覆盖前一条                                                                                                                                                                                                                                             |
-| `utterance`        | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source`               | 一条发言已定稿落库；界面用它替换对应 `segment_id` 的实时字幕。`id` 是界面上已有的发言时，表示新片段并进了那一条（§4.3 第 7 条）：`text` 是并好的全文，`segment_id` 那行实时字幕收掉                                                                                                                            |
-| `utterance_update` | `id, speaker_idx, speaker_name`                                                         | 说话人更正                                                                                                                                                                                                                                                                                                     |
-| `speaker`          | `idx, display_name`                                                                     | 说话人改名                                                                                                                                                                                                                                                                                                     |
-| `speakers_merged`  | `from, into, display_name`                                                              | 说话人 `from` 并入了 `into`（`display_name` 是 `into` 的显示名）：页面把已加载的发言改到 `into` 名下，并从说话人列表里去掉 `from`                                                                                                                                                                              |
-| `frame`            | `id, t, width, height`                                                                  | 新截图                                                                                                                                                                                                                                                                                                         |
-| `frame_caption`    | `id, caption`                                                                           | 截图摘要已生成                                                                                                                                                                                                                                                                                                 |
-| `assistant_state`  | `state`：`idle` / `listening` / `thinking` / `speaking`                                 | 助理状态                                                                                                                                                                                                                                                                                                       |
-| `task`             | `id, label, goal, status, brief, error, error_code, error_params, modality, created_at` | 任务创建或状态变化（`id` 是完整编号，`label` 是会议内的短编号 `t3`）                                                                                                                                                                                                                                           |
-| `task_event`       | `task_id, at, kind, summary`                                                            | 任务进度                                                                                                                                                                                                                                                                                                       |
-| `notice`           | `level`：`info` / `warn` / `error`，`code`，`params`，`text`                            | 需要让用户知道的提示（如某服务不可用）。`code` 和 `params` 标明是哪一条提示，页面据此用自己的界面语言显示（§6.1.1）；`text` 是同一条提示的中文，给日志和旧页面用。实时模型、语音合成的请求出错时，服务端把管线里的错误换成提示发出来（`pipeline/errors.py`）；Pipecat 自带的 RTVI `error` 消息页面只显示致命的 |
-| `session`          | `id, title, keep, started_at, resumed, base_secs, state`                                | 连接建立后发一次：所属会话与当前保留标记；`resumed` 表示继续；`base_secs` 是本次连接的时间轴起点                                                                                                                                                                                                               |
-| `session_closed`   | `reason`：`taken_over` / `ended` / `server_stopping`                                    | 连接即将被服务端关闭的原因（尽力而为地发出），页面据此提示而不是静默变成未连接                                                                                                                                                                                                                                 |
-| `watchers`         | `items`：`[{id, device, since}]`                                                        | 通过 `GET /api/sessions/{id}/events` 旁听这场会议的连接（§5.1）：`id` 是应用运行期间唯一的编号，`device` 的含义见那一节，`since` 是开流的时刻（Unix 秒）。在 `session` 之后发一次，名单每变一次再发                                                                                                            |
+| `type`                       | 其余字段                                                                                | 含义                                                                                                                                                                                                                                                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `caption`                    | `segment_id, speaker_idx, speaker_name, t_start, stable, unstable`                      | 当前正在说的这一段的实时字幕；同一 `segment_id` 的后一条覆盖前一条                                                                                                                                                                                                                                             |
+| `utterance`                  | `id, segment_id, speaker_idx, speaker_name, t_start, t_end, text, source`               | 一条发言已定稿落库；界面用它替换对应 `segment_id` 的实时字幕。`id` 是界面上已有的发言时，表示新片段并进了那一条（§4.3 第 7 条）：`text` 是并好的全文，`segment_id` 那行实时字幕收掉                                                                                                                            |
+| `utterance_update`           | `id, speaker_idx, speaker_name`                                                         | 说话人更正                                                                                                                                                                                                                                                                                                     |
+| `speaker`                    | `idx, display_name`                                                                     | 说话人改名                                                                                                                                                                                                                                                                                                     |
+| `speakers_merged`            | `from, into, display_name`                                                              | 说话人 `from` 并入了 `into`（`display_name` 是 `into` 的显示名）：页面把已加载的发言改到 `into` 名下，并从说话人列表里去掉 `from`                                                                                                                                                                              |
+| `speaker_suggestion`         | `speaker_idx, profile_id, name, score`                                                  | 这位说话人听起来像某份声纹档案（§5.14）。只发给录音的这路连接，不发到旁观设备的事件流；同一位说话人的后一条覆盖前一条                                                                                                                                                                                          |
+| `speaker_suggestion_cleared` | `speaker_idx`                                                                           | 给这位说话人的提示不再成立                                                                                                                                                                                                                                                                                     |
+| `frame`                      | `id, t, width, height`                                                                  | 新截图                                                                                                                                                                                                                                                                                                         |
+| `frame_caption`              | `id, caption`                                                                           | 截图摘要已生成                                                                                                                                                                                                                                                                                                 |
+| `assistant_state`            | `state`：`idle` / `listening` / `thinking` / `speaking`                                 | 助理状态                                                                                                                                                                                                                                                                                                       |
+| `task`                       | `id, label, goal, status, brief, error, error_code, error_params, modality, created_at` | 任务创建或状态变化（`id` 是完整编号，`label` 是会议内的短编号 `t3`）                                                                                                                                                                                                                                           |
+| `task_event`                 | `task_id, at, kind, summary`                                                            | 任务进度                                                                                                                                                                                                                                                                                                       |
+| `notice`                     | `level`：`info` / `warn` / `error`，`code`，`params`，`text`                            | 需要让用户知道的提示（如某服务不可用）。`code` 和 `params` 标明是哪一条提示，页面据此用自己的界面语言显示（§6.1.1）；`text` 是同一条提示的中文，给日志和旧页面用。实时模型、语音合成的请求出错时，服务端把管线里的错误换成提示发出来（`pipeline/errors.py`）；Pipecat 自带的 RTVI `error` 消息页面只显示致命的 |
+| `session`                    | `id, title, keep, started_at, resumed, base_secs, state`                                | 连接建立后发一次：所属会话与当前保留标记；`resumed` 表示继续；`base_secs` 是本次连接的时间轴起点                                                                                                                                                                                                               |
+| `session_closed`             | `reason`：`taken_over` / `ended` / `server_stopping`                                    | 连接即将被服务端关闭的原因（尽力而为地发出），页面据此提示而不是静默变成未连接                                                                                                                                                                                                                                 |
+| `watchers`                   | `items`：`[{id, device, since}]`                                                        | 通过 `GET /api/sessions/{id}/events` 旁听这场会议的连接（§5.1）：`id` 是应用运行期间唯一的编号，`device` 的含义见那一节，`since` 是开流的时刻（Unix 秒）。在 `session` 之后发一次，名单每变一次再发                                                                                                            |
 
 发送连接就绪消息时，从当前持久状态读取 `session.keep`。`session.recording_notice=true` 时，
 每次连接就绪后在 session 消息之后发送一次现有 `notice`：`level="info"`，

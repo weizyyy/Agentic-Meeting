@@ -400,6 +400,13 @@ class SessionManager:
         await self.push_to(session_id, {"type": "speaker", "idx": idx, "display_name": name})
         return True
 
+    def voice_changed(self, session_id: str | None = None) -> None:
+        """说话人或声纹档案变了：让进行中的会议重新比对声纹（``None`` = 所有进行中的会议，档案是共用的）。"""
+        lives = self._live.values() if session_id is None else [self._live.get(session_id)]
+        for live in lives:
+            if live is not None and live.recorder is not None:
+                live.recorder.voice_changed()
+
     async def merge_speakers(self, session_id: str, src: int, dst: int) -> dict | None:
         """把说话人 ``src`` 并入 ``dst``。两个说话人有一个不存在（或不能合并）返回 ``None``。
 

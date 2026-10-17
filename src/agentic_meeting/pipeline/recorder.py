@@ -49,6 +49,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.processors.frameworks.rtvi.frames import RTVIServerMessageFrame
 
 from agentic_meeting.asr.base import ASR_SAMPLE_RATE
+from agentic_meeting.config import SpeakerMemoryConfig
 from agentic_meeting.diar.base import Diarizer, NullDiarizer
 from agentic_meeting.diar.fusion import (
     MERGE_MAX_CHARS,
@@ -72,6 +73,7 @@ from agentic_meeting.types import (
 )
 from agentic_meeting.voice.client import SpeakerClient
 from agentic_meeting.voice.clips import VoiceClipper, VoiceClipStore
+from agentic_meeting.voice.matching import MatchStore, VoiceMatcher, refresh_samples
 
 UNKNOWN_SPEAKER_NAME = "未知"
 
@@ -113,6 +115,7 @@ class MeetingRecorder(FrameProcessor):
         merge_soft_chars: int = MERGE_SOFT_CHARS,
         merge_max_chars: int = MERGE_MAX_CHARS,
         speaker_client: SpeakerClient | None = None,
+        speaker_memory: SpeakerMemoryConfig | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -167,13 +170,24 @@ class MeetingRecorder(FrameProcessor):
         # 声纹片段（跨会议记住说话人）：开启了、并且有地方落库时才有
         self._voice: VoiceClipper | None = None
         self._voice_task: asyncio.Task | None = None
+        # 和声纹档案比对、给主持人提示（只发给录音的页面，不抄给旁观的设备）
+        self._matcher: VoiceMatcher | None = None
+        self._matcher_task: asyncio.Task | None = None
         if speaker_client is not None and store is not None and session_id:
+            if speaker_memory is not None:
+                self._matcher = VoiceMatcher(
+                    store=cast(MatchStore, store),
+                    session_id=session_id,
+                    cfg=speaker_memory,
+                    send=self._send_to_page,
+                )
             self._voice = VoiceClipper(
                 client=speaker_client,
                 store=cast(VoiceClipStore, store),
                 session_id=session_id,
                 segments=self._voice_segments,
                 idle_close_secs=merge_gap_secs + 1.0,
+                on_stored=self._matcher.poke if self._matcher is not None else None,
             )
 
     # ------------------------------------------------------------------ #
@@ -335,6 +349,9 @@ class MeetingRecorder(FrameProcessor):
     def _begin(self) -> None:
         if self._voice is not None and self._voice_task is None:
             self._voice_task = self.create_task(self._voice.run(), name="voice_clips")
+        if self._matcher is not None and self._matcher_task is None:
+            self._matcher_task = self.create_task(self._matcher.run(), name="voice_matching")
+            self._matcher.poke()  # 继续开会时，之前的片段可能已经够比了
         if self._diarizer is None or isinstance(self._diarizer, NullDiarizer):
             return
         if self._audio_task is None:
@@ -367,6 +384,9 @@ class MeetingRecorder(FrameProcessor):
         await self._cancel_tasks()
 
     async def _stop_voice(self, *, drain: bool) -> None:
+        matcher, self._matcher_task = self._matcher_task, None
+        if matcher is not None:
+            await self.cancel_task(matcher)
         task, self._voice_task = self._voice_task, None
         if task is not None:
             await self.cancel_task(task)
@@ -375,6 +395,20 @@ class MeetingRecorder(FrameProcessor):
                 await asyncio.wait_for(self._voice.drain(), DRAIN_TIMEOUT_SECS)
             except (TimeoutError, Exception):
                 logger.warning("结束前没能处理完剩余的声纹片段，已丢弃")
+            if self._store is not None:
+                # 录入过、或确认提示时加过样本的档案：换成整场的声纹
+                try:
+                    await asyncio.wait_for(
+                        refresh_samples(cast(MatchStore, self._store), self._session_id),
+                        DRAIN_TIMEOUT_SECS,
+                    )
+                except (TimeoutError, Exception):
+                    logger.warning("没能用整场的声纹更新档案样本，保留原来的样本")
+
+    def voice_changed(self) -> None:
+        """说话人或声纹档案变了（改发言人、合并、录入、确认 / 忽略提示……）：重新比对。"""
+        if self._matcher is not None:
+            self._matcher.poke()
 
     async def _cancel_tasks(self) -> None:
         for task in list(self._tasks):
@@ -424,6 +458,10 @@ class MeetingRecorder(FrameProcessor):
     async def _send(self, data: dict) -> None:
         if self.on_event is not None:
             self.on_event(data)
+        await self.push_frame(RTVIServerMessageFrame(data=data))
+
+    async def _send_to_page(self, data: dict) -> None:
+        """只发给录音的页面（主持人），不抄给旁观的设备。"""
         await self.push_frame(RTVIServerMessageFrame(data=data))
 
     async def _notice(self, level: str, msg: Message) -> None:

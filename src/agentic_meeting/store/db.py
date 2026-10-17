@@ -47,6 +47,7 @@ from agentic_meeting.types import (
     Utterance,
 )
 from agentic_meeting.voice.clips import VoiceClip
+from agentic_meeting.voice.matching import MatchInputs, ProfileSamples
 from agentic_meeting.voice.profiles import (
     MAX_SAMPLES,
     VoiceModelChanged,
@@ -1030,6 +1031,10 @@ class Store:
                 "DELETE FROM voice_profile_links WHERE session_id = ? AND speaker_idx = ?",
                 (session_id, src),
             )
+            await self._db.execute(
+                "DELETE FROM voice_dismissals WHERE session_id = ? AND speaker_idx = ?",
+                (session_id, src),
+            )
             await self._db.commit()
             return cursor.rowcount
 
@@ -1227,6 +1232,100 @@ class Store:
         profile = await self.get_voice_profile(profile_id)
         assert profile is not None
         return profile
+
+    async def link_voice(
+        self, session_id: str, idx: int, profile_id: int, *, now: float | None = None
+    ) -> VoiceProfile:
+        """只关联、不加样本（确认了提示、但不自动更新档案时）。
+
+        档案不存在抛 ``LookupError``，已关联到本场另一位说话人抛 :class:`VoiceProfileInUse`。
+        """
+        now = time.time() if now is None else now
+        async with self._transaction():
+            await self._require_writable(session_id)
+            row = await self._one("SELECT 1 FROM voice_profiles WHERE id = ?", (profile_id,))
+            if row is None:
+                raise LookupError(profile_id)
+            other = await self._one(
+                "SELECT 1 FROM voice_profile_links WHERE session_id = ? AND profile_id = ? "
+                "AND speaker_idx != ?",
+                (session_id, profile_id, idx),
+            )
+            if other is not None:
+                raise VoiceProfileInUse(profile_id)
+            await self._db.execute(
+                "UPDATE voice_profiles SET updated_at = ? WHERE id = ?", (now, profile_id)
+            )
+            await self._db.execute(
+                "INSERT INTO voice_profile_links (session_id, speaker_idx, profile_id, linked_at) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT (session_id, speaker_idx) "
+                "DO UPDATE SET profile_id = excluded.profile_id, linked_at = excluded.linked_at",
+                (session_id, idx, profile_id, now),
+            )
+            await self._db.commit()
+        profile = await self.get_voice_profile(profile_id)
+        assert profile is not None
+        return profile
+
+    async def dismiss_voice(self, session_id: str, idx: int, profile_id: int) -> bool:
+        """记下主持人忽略了「说话人 ``idx`` 可能是档案 ``profile_id``」；档案不存在返回 False。"""
+        async with self._transaction():
+            await self._require_writable(session_id)
+            row = await self._one("SELECT 1 FROM voice_profiles WHERE id = ?", (profile_id,))
+            if row is None:
+                return False
+            await self._db.execute(
+                "INSERT OR IGNORE INTO voice_dismissals (session_id, speaker_idx, profile_id) "
+                "VALUES (?, ?, ?)",
+                (session_id, idx, profile_id),
+            )
+            await self._db.commit()
+            return True
+
+    async def voice_match_inputs(self, session_id: str) -> MatchInputs:
+        """比对要用的全部数据：还没关联档案的说话人（编号 ≥ 1）的片段、本场已关联的档案、忽略过的提示、
+        全部档案的样本。"""
+        clips: dict[int, list[tuple[bytes, float, str]]] = {}
+        rows = await self._all(
+            "SELECT u.speaker_idx, c.vector, c.secs, c.model_sha256 FROM voice_clips c "
+            "JOIN utterances u ON u.id = c.utterance_id "
+            "WHERE c.session_id = ? AND u.speaker_idx >= 1 AND u.speaker_idx NOT IN ("
+            "SELECT speaker_idx FROM voice_profile_links WHERE session_id = ?)",
+            (session_id, session_id),
+        )
+        for r in rows:
+            clips.setdefault(int(r[0]), []).append((bytes(r[1]), float(r[2]), str(r[3])))
+        linked = {
+            int(r[0])
+            for r in await self._all(
+                "SELECT profile_id FROM voice_profile_links WHERE session_id = ?", (session_id,)
+            )
+        }
+        dismissed = {
+            (int(r[0]), int(r[1]))
+            for r in await self._all(
+                "SELECT speaker_idx, profile_id FROM voice_dismissals WHERE session_id = ?",
+                (session_id,),
+            )
+        }
+        profiles: dict[int, ProfileSamples] = {}
+        for r in await self._all(
+            "SELECT p.id, p.name, p.model_sha256, s.vector FROM voice_profiles p "
+            "JOIN voice_profile_samples s ON s.profile_id = p.id ORDER BY p.id"
+        ):
+            pid = int(r[0])
+            if pid not in profiles:
+                profiles[pid] = ProfileSamples(pid, str(r[1]), str(r[2]), [])
+            profiles[pid].vectors.append(bytes(r[3]))
+        return MatchInputs(clips, linked, dismissed, list(profiles.values()))
+
+    async def voice_sample_profiles(self, session_id: str) -> set[int]:
+        """有样本来自这场会议的档案。"""
+        rows = await self._all(
+            "SELECT DISTINCT profile_id FROM voice_profile_samples WHERE session_id = ?",
+            (session_id,),
+        )
+        return {int(r[0]) for r in rows}
 
     async def unlink_voice(self, session_id: str, idx: int) -> bool:
         """取消这位说话人和档案的关联；档案和它的样本都不动。"""

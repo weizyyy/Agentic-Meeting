@@ -22,6 +22,7 @@ import type {
   NoticeLevel,
   SessionClosedMessage,
   SessionMessage,
+  SpeakerSuggestion,
   UtteranceMessage,
   UtteranceUpdateMessage,
   Watcher,
@@ -68,6 +69,8 @@ export interface MeetingState {
   sessions: SessionSummary[];
   /** 正在显示的那场会议里出现过的说话人 */
   speakers: SpeakerInfo[];
+  /** 「可能是某某」的提示（只有主持人看得到）；sessionId 是哪场会议的 */
+  suggestions: { sessionId: string; items: SpeakerSuggestion[] } | null;
   /** 配置里的成员名单，给说话人改名当候选 */
   members: string[];
   /** 还有更早的发言可以向上加载 */
@@ -113,6 +116,7 @@ export const initialState: MeetingState = {
   liveSessionId: null,
   sessions: [],
   speakers: [],
+  suggestions: null,
   members: [],
   hasOlder: false,
   replyMode: null,
@@ -166,6 +170,9 @@ export type Action =
   | { type: "olderLoaded"; items: HistoryItem[] }
   | { type: "backfilled"; items: HistoryItem[] }
   | { type: "speakersLoaded"; speakers: SpeakerInfo[] }
+  | { type: "suggestionsLoaded"; sessionId: string; items: SpeakerSuggestion[] }
+  | { type: "suggestion"; item: SpeakerSuggestion }
+  | { type: "suggestionCleared"; idx: number }
   | { type: "sessionUpdated"; summary: SessionSummary }
   | { type: "sessionRemoved"; id: string }
   | { type: "frame"; frame: Omit<FrameItem, "caption"> }
@@ -490,6 +497,28 @@ export function reduce(state: MeetingState, action: Action): MeetingState {
     case "speakersLoaded":
       if (state.viewing?.deletion_pending) return state;
       return { ...state, speakers: action.speakers };
+    case "suggestionsLoaded":
+      return { ...state, suggestions: { sessionId: action.sessionId, items: action.items } };
+    case "suggestion": {
+      // 提示来自正在录音的这场会议
+      const sessionId = state.liveSessionId ?? state.viewing?.id;
+      if (!sessionId) return state;
+      const kept =
+        state.suggestions?.sessionId === sessionId
+          ? state.suggestions.items.filter((s) => s.speaker_idx !== action.item.speaker_idx)
+          : [];
+      const items = [...kept, action.item].sort((a, b) => a.speaker_idx - b.speaker_idx);
+      return { ...state, suggestions: { sessionId, items } };
+    }
+    case "suggestionCleared":
+      if (!state.suggestions) return state;
+      return {
+        ...state,
+        suggestions: {
+          ...state.suggestions,
+          items: state.suggestions.items.filter((s) => s.speaker_idx !== action.idx),
+        },
+      };
     case "sessionUpdated":
       if (!action.summary.deletion_pending && isPending(state, action.summary.id)) return state;
       return {
