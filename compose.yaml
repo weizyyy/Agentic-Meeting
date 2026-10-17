@@ -4,7 +4,7 @@
 #   docker compose -f compose.yaml -f docker/compose.cuda.yaml up -d    # NVIDIA 显卡
 #
 # 每个推理服务一个容器，可以只起其中几个（docker compose up -d asr tts），也可以换成别的镜像或别的机器。
-# 可选的服务按 profile 启用：在 .env 里写 COMPOSE_PROFILES=realtime,tts,embedding。
+# 可选的服务按 profile 启用：在 .env 里写 COMPOSE_PROFILES=realtime,tts,embedding,speaker。
 #
 # 模型权重、配置、.env 和会议数据都在宿主机上，挂进容器；镜像里没有权重，启动时也不下载。
 # 权重路径写在 .env 里，写法与 config/config.toml 相同（相对仓库根目录，例如 models/asr/xxx.gguf）。
@@ -181,6 +181,42 @@ services:
       - --device
       - none
 
+  # 声纹服务（speaker_memory.backend = "sherpa_onnx" 时），用应用镜像，只用 CPU。它只肯监听回环地址，
+  # 所以和应用一样用宿主机网络，监听 127.0.0.1 上 speaker_memory.base_url 默认的端口。
+  speaker:
+    <<: *app-image
+    profiles: [speaker]
+    network_mode: host
+    user: "${AGENTIC_MEETING_UID:-1000}:${AGENTIC_MEETING_GID:-1000}"
+    init: true
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "agentic_meeting.voice.service"]
+    command:
+      - --model
+      - ${SPEAKER_MODEL:-}
+      - --host
+      - 127.0.0.1
+      - --port
+      - "8084"
+      - --threads
+      - ${SPEAKER_THREADS:-1}
+    volumes:
+      - type: bind
+        source: ./models
+        target: /app/models
+        read_only: true
+    healthcheck:
+      <<: *healthcheck
+      test:
+        - CMD
+        - python
+        - -c
+        # 不走代理：服务在本机
+        - >-
+          import urllib.request;
+          urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          .open("http://127.0.0.1:8084/health", timeout=5)
+
   # 应用。WebRTC 的媒体走随机 UDP 端口，只能用宿主机网络，所以只支持 Linux。
   app:
     <<: *app-image
@@ -202,6 +238,9 @@ services:
         condition: service_healthy
         required: false
       embedding:
+        condition: service_healthy
+        required: false
+      speaker:
         condition: service_healthy
         required: false
     volumes:

@@ -127,6 +127,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   after its last enrollment or confirmed suggestion, together with the voice clips of the speakers
   linked to it. With the server stopped, `agentic-meeting voice-profiles list` and
   `voice-profiles delete <id>` show and delete profiles.
+- The application image includes the `speaker` extra, and `compose.yaml` has a `speaker` service
+  (profile `speaker`, model in `SPEAKER_MODEL`) that runs the speaker service on the host network
+  at `127.0.0.1:8084` ([#25]).
 
 ### Fixed
 

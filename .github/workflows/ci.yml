@@ -193,6 +193,7 @@ jobs:
           docker run --rm image:test --help
           docker run --rm --entrypoint python image:test -c '
           import ctypes
+          import sherpa_onnx
           import agentic_meeting.web.app
           from agentic_meeting.services.paths import find_library
           path = find_library("nemo_speech_asr_c")
@@ -201,6 +202,7 @@ jobs:
           '
           docker run --rm --entrypoint python image:test \
             scripts/container.py --config config/config.example.toml asr-template /tmp/asr.jinja
+          docker run --rm --entrypoint python image:test -m agentic_meeting.voice.service --help
 
       - name: Start tts-server
         if: matrix.image == 'tts'
