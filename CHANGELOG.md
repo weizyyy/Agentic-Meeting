@@ -8,6 +8,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- With meeting access on, stopping the server right after a browser disconnected could fail with
+  "Application shutdown failed" and skip the rest of shutdown, leaving the database unclosed. A
+  connection that fails to close is now logged and shutdown continues.
 - A new slide that the browser uploads only as its periodic screenshot gets its own summary again.
   Since `screen.change_threshold` became 0.5, the server reused the previous summary for any
   picture below that threshold; it now reuses a summary only when the picture is practically
@@ -130,6 +133,9 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The application image includes the `speaker` extra, and `compose.yaml` has a `speaker` service
   (profile `speaker`, model in `SPEAKER_MODEL`) that runs the speaker service on the host network
   at `127.0.0.1:8084` ([#25]).
+- `scripts/calibrate_speaker_threshold.py` measures how a speaker-embedding model scores the same
+  person and different people on your own recordings, and suggests a `speaker_memory.match_threshold`
+  ([#25]).
 
 ### Fixed
 

@@ -257,6 +257,7 @@ The whole pipeline can be exercised with a recording instead of a microphone:
 uv run agentic-meeting serve --with-services                        # terminal 1
 uv run python scripts/soak.py --audio meeting.mp3 --minutes 10      # terminal 2
 uv run python scripts/eval_realtime_model.py                        # tool selection and latency of the realtime LLM
+uv run python scripts/calibrate_speaker_threshold.py data/voices    # score distributions for speaker_memory.match_threshold
 uv run python scripts/mic_check.py --wav recording.wav              # offline microphone diagnosis; no weights needed
 ```
 

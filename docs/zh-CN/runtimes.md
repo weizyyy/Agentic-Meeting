@@ -237,6 +237,7 @@ uv run agentic-meeting services status   # 另开一个终端：各服务是否�
 uv run agentic-meeting serve --with-services                        # 一个终端：应用 + 推理服务
 uv run python scripts/soak.py --audio 录音.mp3 --minutes 10          # 另一个终端：把录音按真实速度送进去
 uv run python scripts/eval_realtime_model.py                         # 实时模型：首字延迟、工具选得对不对
+uv run python scripts/calibrate_speaker_threshold.py data/voices     # 声纹：同一人、不同人的分数和推荐门限
 uv run python scripts/mic_check.py --wav 我的录音.wav                 # 麦克风偏轻时的离线诊断（不需要权重）
 ```
 

@@ -1,12 +1,19 @@
-"""命令行：check 核对配置缺项，services status 只看服务通不通。"""
+"""命令行：check 核对配置缺项，services status 只看服务通不通；还有标定声纹门限的脚本。"""
 
 from __future__ import annotations
 
 import os
 import subprocess
 import sys
+import wave
+from pathlib import Path
+
+import numpy as np
 
 from .conftest import app_config, dump_toml
+from .meeting_client import SPEECH_WAV
+
+SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 
 
 def run_cli(tmp_path, config: dict, *args: str, env: dict | None = None):
@@ -102,3 +109,67 @@ def test_check_estimates_gpu_memory_from_weight_files(tmp_path, inference):
     config["tts"]["enabled"] = False
     cpu_only = run_cli(tmp_path, config, "check")
     assert "显存估算：没有由本项目拉起、使用 GPU 的推理服务。" in cpu_only.stdout
+
+
+def test_speaker_threshold_calibration_reports_scores(tmp_path, inference):
+    """管理员拿几个人的录音和声纹服务，看同一人、不同人的分数和推荐门限。"""
+    inference.reset()
+    with wave.open(str(SPEECH_WAV)) as w:
+        pcm = np.frombuffer(w.readframes(w.getnframes()), dtype="<i2")
+    half = len(pcm) // 2
+    # 林晓两段，周明一段：周明没有档案，只用来看陌生人会不会被认错
+    files = {"林晓/周会-1.wav": pcm, "林晓/周会-2.wav": pcm[:half], "周明/周会-1.wav": pcm[::-1]}
+    for name, data in files.items():
+        path = tmp_path / "voices" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with wave.open(str(path), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(data.tobytes())
+    config = app_config(inference, tmp_path / "data", 7860)
+    config["speaker_memory"].update(
+        backend="sherpa_onnx", base_url=inference.speaker.origin, launch={"enabled": False}
+    )
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(dump_toml(config), encoding="utf-8")
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS / "calibrate_speaker_threshold.py"),
+            str(tmp_path / "voices"),
+            "--config",
+            str(config_path),
+            "--lengths",
+            "3,0",
+            "--out",
+            str(tmp_path / "result.json"),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONUTF8": "1"},
+        cwd=tmp_path,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "2 人、3 个文件" in result.stdout
+    rows = [line for line in result.stdout.splitlines() if line.startswith("| 前 3 秒")]
+    assert len(rows) == 1 and "| 整个文件 |" in result.stdout
+    assert (tmp_path / "result.json").exists()
+    # 送去算声纹的都是 1 到 6 秒的语音
+    assert inference.speaker.seconds()
+    assert all(1.0 <= s <= 6.0 + 0.01 for s in inference.speaker.seconds())
+
+    inference.speaker.down = True
+    down = subprocess.run(
+        [sys.executable, str(SCRIPTS / "calibrate_speaker_threshold.py"), str(tmp_path / "voices")]
+        + ["--config", str(config_path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONUTF8": "1"},
+        cwd=tmp_path,
+        timeout=120,
+    )
+    assert down.returncode == 1 and "声纹服务不可用" in down.stderr

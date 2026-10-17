@@ -43,23 +43,23 @@ it runs every job. Keep a change's documentation in the same pull request as its
 
 ## Where things are
 
-| Path                                | Contents                                                                                                     |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `src/agentic_meeting/config.py`     | Configuration schema and validation (`AppConfig`)                                                            |
-| `src/agentic_meeting/types.py`      | Data types shared between modules                                                                            |
-| `src/agentic_meeting/pipeline/`     | Pipecat pipeline assembly, recorder, wake word, context, tools, reports                                      |
-| `src/agentic_meeting/asr/`, `diar/` | Streaming recognition and speaker diarization backends                                                       |
-| `src/agentic_meeting/screen/`       | Screenshot ingestion, captions, image attachment                                                             |
-| `src/agentic_meeting/agent/`        | Background task manager, agent runner, sandbox                                                               |
-| `src/agentic_meeting/store/`        | SQLite schema and access, vector search                                                                      |
-| `src/agentic_meeting/services/`     | Supervision of inference server processes                                                                    |
-| `src/agentic_meeting/web/`          | HTTP API and static site                                                                                     |
-| `client/src/`                       | Web client; pure logic lives in plain `.ts` files                                                            |
-| `config/config.example.toml`        | Configuration template; `config/prompts/` and `config/asr_profiles/` hold prompts and model-specific formats |
-| `docker/`, `compose.yaml`           | Container images (application, speech synthesis, sandbox) and Compose files; see `docs/containers.md`        |
-| `scripts/`                          | Runtime fetch/build, headless replay, realtime-LLM evaluation, microphone check                              |
-| `tests/`                            | End-to-end tests in `tests/e2e/`; fake inference services are in `tests/e2e/inference.py`                    |
-| `docs/`, `docs/zh-CN/`              | Documentation in English and Chinese with identical file names and section numbers                           |
+| Path                                | Contents                                                                                                       |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `src/agentic_meeting/config.py`     | Configuration schema and validation (`AppConfig`)                                                              |
+| `src/agentic_meeting/types.py`      | Data types shared between modules                                                                              |
+| `src/agentic_meeting/pipeline/`     | Pipecat pipeline assembly, recorder, wake word, context, tools, reports                                        |
+| `src/agentic_meeting/asr/`, `diar/` | Streaming recognition and speaker diarization backends                                                         |
+| `src/agentic_meeting/screen/`       | Screenshot ingestion, captions, image attachment                                                               |
+| `src/agentic_meeting/agent/`        | Background task manager, agent runner, sandbox                                                                 |
+| `src/agentic_meeting/store/`        | SQLite schema and access, vector search                                                                        |
+| `src/agentic_meeting/services/`     | Supervision of inference server processes                                                                      |
+| `src/agentic_meeting/web/`          | HTTP API and static site                                                                                       |
+| `client/src/`                       | Web client; pure logic lives in plain `.ts` files                                                              |
+| `config/config.example.toml`        | Configuration template; `config/prompts/` and `config/asr_profiles/` hold prompts and model-specific formats   |
+| `docker/`, `compose.yaml`           | Container images (application, speech synthesis, sandbox) and Compose files; see `docs/containers.md`          |
+| `scripts/`                          | Runtime fetch/build, headless replay, realtime-LLM evaluation, speaker-threshold calibration, microphone check |
+| `tests/`                            | End-to-end tests in `tests/e2e/`; fake inference services are in `tests/e2e/inference.py`                      |
+| `docs/`, `docs/zh-CN/`              | Documentation in English and Chinese with identical file names and section numbers                             |
 
 Read these before changing behavior:
 
