@@ -47,6 +47,12 @@ from agentic_meeting.types import (
     Utterance,
 )
 from agentic_meeting.voice.clips import VoiceClip
+from agentic_meeting.voice.profiles import (
+    MAX_SAMPLES,
+    VoiceModelChanged,
+    VoiceProfile,
+    VoiceProfileInUse,
+)
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 _VEC_DIMS = re.compile(r"float\[(\d+)\]")
@@ -1020,6 +1026,10 @@ class Store:
             await self._db.execute(
                 "DELETE FROM speakers WHERE session_id = ? AND idx = ?", (session_id, src)
             )
+            await self._db.execute(
+                "DELETE FROM voice_profile_links WHERE session_id = ? AND speaker_idx = ?",
+                (session_id, src),
+            )
             await self._db.commit()
             return cursor.rowcount
 
@@ -1087,6 +1097,174 @@ class Store:
             cursor = await self._db.execute(
                 "DELETE FROM voice_clips WHERE session_id = ?", (session_id,)
             )
+            await self._db.commit()
+            return cursor.rowcount
+
+    async def speaker_voice_clips(
+        self, session_id: str, idx: int
+    ) -> list[tuple[bytes, float, str]]:
+        """一位说话人名下（按发言当前的说话人）的声纹片段：``(vector, secs, model_sha256)``。"""
+        rows = await self._all(
+            "SELECT c.vector, c.secs, c.model_sha256 FROM voice_clips c "
+            "JOIN utterances u ON u.id = c.utterance_id "
+            "WHERE c.session_id = ? AND u.speaker_idx = ?",
+            (session_id, idx),
+        )
+        return [(bytes(r[0]), float(r[1]), str(r[2])) for r in rows]
+
+    # ------------------------------------------------------------------ #
+    # 声纹档案（interfaces.md §2.8）
+    # ------------------------------------------------------------------ #
+
+    _PROFILE_SQL = (
+        "SELECT p.id, p.name, p.model_sha256, p.dimensions, p.created_at, p.updated_at, "
+        "COUNT(s.id) AS samples, COALESCE(SUM(s.secs), 0) AS secs "
+        "FROM voice_profiles p LEFT JOIN voice_profile_samples s ON s.profile_id = p.id "
+    )
+
+    @staticmethod
+    def _profile(row: aiosqlite.Row) -> VoiceProfile:
+        return VoiceProfile(
+            id=row["id"],
+            name=row["name"],
+            model_sha256=row["model_sha256"],
+            dimensions=row["dimensions"],
+            samples=row["samples"],
+            secs=float(row["secs"]),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    async def list_voice_profiles(self) -> list[VoiceProfile]:
+        rows = await self._all(self._PROFILE_SQL + "GROUP BY p.id ORDER BY p.name, p.id")
+        return [self._profile(r) for r in rows]
+
+    async def get_voice_profile(self, profile_id: int) -> VoiceProfile | None:
+        row = await self._one(self._PROFILE_SQL + "WHERE p.id = ? GROUP BY p.id", (profile_id,))
+        return self._profile(row) if row is not None else None
+
+    async def voice_links(self, session_id: str) -> dict[int, VoiceProfile]:
+        """这场会议里关联了档案的说话人：编号 → 档案。"""
+        rows = await self._all(
+            "SELECT speaker_idx, profile_id FROM voice_profile_links WHERE session_id = ?",
+            (session_id,),
+        )
+        links: dict[int, VoiceProfile] = {}
+        for row in rows:
+            profile = await self.get_voice_profile(row["profile_id"])
+            if profile is not None:
+                links[int(row["speaker_idx"])] = profile
+        return links
+
+    async def enroll_voice(
+        self,
+        session_id: str,
+        idx: int,
+        *,
+        profile_id: int | None,
+        name: str,
+        vector: Sequence[float],
+        secs: float,
+        model_sha256: str,
+        now: float | None = None,
+    ) -> VoiceProfile:
+        """把这位说话人的声纹录进档案并关联：``profile_id`` 为 None 时新建一份叫 ``name`` 的档案。
+
+        同一场会议的旧样本被替换；只留最近 ``MAX_SAMPLES`` 场。档案不存在抛 ``LookupError``，
+        已关联到本场另一位说话人抛 :class:`VoiceProfileInUse`，模型不同抛 :class:`VoiceModelChanged`。
+        """
+        now = time.time() if now is None else now
+        async with self._transaction():
+            await self._require_writable(session_id)
+            if profile_id is None:
+                cursor = await self._db.execute(
+                    "INSERT INTO voice_profiles (name, model_sha256, dimensions, created_at, "
+                    "updated_at) VALUES (?, ?, ?, ?, ?)",
+                    (name, model_sha256, len(vector), now, now),
+                )
+                profile_id = int(cursor.lastrowid or 0)
+            else:
+                row = await self._one(
+                    "SELECT model_sha256, dimensions FROM voice_profiles WHERE id = ?",
+                    (profile_id,),
+                )
+                if row is None:
+                    raise LookupError(profile_id)
+                if row["model_sha256"] != model_sha256 or row["dimensions"] != len(vector):
+                    raise VoiceModelChanged(profile_id)
+                other = await self._one(
+                    "SELECT 1 FROM voice_profile_links WHERE session_id = ? AND profile_id = ? "
+                    "AND speaker_idx != ?",
+                    (session_id, profile_id, idx),
+                )
+                if other is not None:
+                    raise VoiceProfileInUse(profile_id)
+                await self._db.execute(
+                    "UPDATE voice_profiles SET updated_at = ? WHERE id = ?", (now, profile_id)
+                )
+            await self._db.execute(
+                "DELETE FROM voice_profile_samples WHERE profile_id = ? AND session_id = ?",
+                (profile_id, session_id),
+            )
+            await self._db.execute(
+                "INSERT INTO voice_profile_samples (profile_id, session_id, secs, vector, "
+                "created_at) VALUES (?, ?, ?, ?, ?)",
+                (profile_id, session_id, secs, pack_vector(vector), now),
+            )
+            await self._db.execute(
+                "DELETE FROM voice_profile_samples WHERE profile_id = ? AND id NOT IN ("
+                "SELECT id FROM voice_profile_samples WHERE profile_id = ? "
+                "ORDER BY created_at DESC, id DESC LIMIT ?)",
+                (profile_id, profile_id, MAX_SAMPLES),
+            )
+            await self._db.execute(
+                "INSERT INTO voice_profile_links (session_id, speaker_idx, profile_id, linked_at) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT (session_id, speaker_idx) "
+                "DO UPDATE SET profile_id = excluded.profile_id, linked_at = excluded.linked_at",
+                (session_id, idx, profile_id, now),
+            )
+            await self._db.commit()
+        profile = await self.get_voice_profile(profile_id)
+        assert profile is not None
+        return profile
+
+    async def unlink_voice(self, session_id: str, idx: int) -> bool:
+        """取消这位说话人和档案的关联；档案和它的样本都不动。"""
+        async with self._transaction():
+            cursor = await self._db.execute(
+                "DELETE FROM voice_profile_links WHERE session_id = ? AND speaker_idx = ?",
+                (session_id, idx),
+            )
+            await self._db.commit()
+            return cursor.rowcount > 0
+
+    async def rename_voice_profile(self, profile_id: int, name: str) -> bool:
+        async with self._transaction():
+            cursor = await self._db.execute(
+                "UPDATE voice_profiles SET name = ? WHERE id = ?", (name, profile_id)
+            )
+            await self._db.commit()
+            return cursor.rowcount > 0
+
+    async def delete_voice_profile(self, profile_id: int) -> int | None:
+        """删除档案、它的样本和关联，以及各场会议里关联到它的说话人名下的声纹片段。
+
+        返回删掉的片段数；档案不存在返回 None。
+        """
+        async with self._transaction():
+            row = await self._one("SELECT 1 FROM voice_profiles WHERE id = ?", (profile_id,))
+            if row is None:
+                return None
+            cursor = await self._db.execute(
+                "DELETE FROM voice_clips WHERE id IN ("
+                "SELECT c.id FROM voice_clips c "
+                "JOIN utterances u ON u.id = c.utterance_id "
+                "JOIN voice_profile_links l "
+                "ON l.session_id = c.session_id AND l.speaker_idx = u.speaker_idx "
+                "WHERE l.profile_id = ?)",
+                (profile_id,),
+            )
+            await self._db.execute("DELETE FROM voice_profiles WHERE id = ?", (profile_id,))
             await self._db.commit()
             return cursor.rowcount
 

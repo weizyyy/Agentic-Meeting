@@ -246,6 +246,8 @@ export interface MeetingClient {
   keepPending: ReadonlySet<string>;
   deleteSession: (id: string) => Promise<void>;
   renameSpeaker: (idx: number, displayName: string) => Promise<void>;
+  /** 重新读取正在显示的这场会议的说话人（声纹录入之后名字和关联会变） */
+  reloadSpeakers: () => Promise<void>;
   /** 向助理发一条文字消息（只用文字回答）。发出去返回 true；没通过校验或还没连接返回 false 并给出提示。 */
   sendText: (raw: string) => boolean;
   /** 开始共享屏幕（弹出浏览器的选择窗口）；只在连接期间有效 */
@@ -821,6 +823,17 @@ export function useMeetingClient(initialSessionId: string | null = null): Meetin
     [api, fail],
   );
 
+  const reloadSpeakers = useCallback(async () => {
+    const viewing = latest.current.viewing;
+    if (!viewing) return;
+    try {
+      const speakers = await api.listSpeakers(viewing.id);
+      if (latest.current.viewing?.id === viewing.id) dispatch({ type: "speakersLoaded", speakers });
+    } catch {
+      // 读不到就保持原样：出错提示已经在声纹对话框里了
+    }
+  }, [api]);
+
   const assignSpeaker = useCallback(
     async (
       ids: readonly number[],
@@ -1029,6 +1042,7 @@ export function useMeetingClient(initialSessionId: string | null = null): Meetin
     keepPending,
     deleteSession,
     renameSpeaker,
+    reloadSpeakers,
     sendText,
     startScreenShare: screenShare.start,
     stopScreenShare: screenShare.stop,

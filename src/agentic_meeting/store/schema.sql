@@ -242,3 +242,36 @@ CREATE TABLE IF NOT EXISTS voice_clips (
 );
 CREATE INDEX IF NOT EXISTS idx_voice_clips_session ON voice_clips (session_id, t_start);
 CREATE INDEX IF NOT EXISTS idx_voice_clips_utterance ON voice_clips (utterance_id);
+
+-- 声纹档案（docs/interfaces.md §2.8）：主持人征得本人同意后录入的人。全部署共用，不属于某场会议。
+-- model_sha256 / dimensions 是录入时声纹模型的指纹，换了模型的档案不能再用来比对，要重新录入。
+CREATE TABLE IF NOT EXISTS voice_profiles (
+    id            INTEGER PRIMARY KEY,
+    name          TEXT    NOT NULL,
+    model_sha256  TEXT    NOT NULL,
+    dimensions    INTEGER NOT NULL,
+    created_at    REAL    NOT NULL,
+    updated_at    REAL    NOT NULL
+);
+
+-- 档案的样本：一场会议里这个人的声纹（片段按时长加权平均、归一化）。每份档案最多保留最近 8 场。
+-- 样本是副本：来源会议删掉后 session_id 置空，样本留着，直到删档案。
+CREATE TABLE IF NOT EXISTS voice_profile_samples (
+    id            INTEGER PRIMARY KEY,
+    profile_id    INTEGER NOT NULL REFERENCES voice_profiles(id) ON DELETE CASCADE,
+    session_id    TEXT    REFERENCES sessions(id) ON DELETE SET NULL,
+    secs          REAL    NOT NULL,
+    vector        BLOB    NOT NULL,
+    created_at    REAL    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_voice_samples_profile ON voice_profile_samples (profile_id, created_at);
+
+-- 某场会议的某位说话人就是某份档案里的人。删会议、删档案都级联删除；合并说话人时删掉被并掉的那位的关联。
+CREATE TABLE IF NOT EXISTS voice_profile_links (
+    session_id    TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    speaker_idx   INTEGER NOT NULL,
+    profile_id    INTEGER NOT NULL REFERENCES voice_profiles(id) ON DELETE CASCADE,
+    linked_at     REAL    NOT NULL,
+    PRIMARY KEY (session_id, speaker_idx)
+);
+CREATE INDEX IF NOT EXISTS idx_voice_links_profile ON voice_profile_links (profile_id);

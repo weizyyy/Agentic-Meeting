@@ -65,6 +65,7 @@ from agentic_meeting.web import (
     sessions_api,
     sso,
     tasks_api,
+    voice_api,
 )
 from agentic_meeting.web.errors import ApiError, error_response, invalid
 
@@ -404,6 +405,10 @@ def create_app(
     # ---- 会话、发言、说话人（interfaces.md §5.1、§5.4） ----
 
     sessions_api.register(app, cfg)
+
+    # ---- 声纹档案与录入（interfaces.md §5.14；跨会议记住说话人开启时才有） ----
+
+    voice_api.register(app, cfg)
 
     # ---- 截图（interfaces.md §5.3） ----
 

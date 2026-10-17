@@ -100,6 +100,14 @@ ERRORS: dict[str, Callable[[Params], str]] = {
     ),
     "speaker.merge_self": lambda p: "不能把说话人合并到自己",
     "utterances.too_many": lambda p: f"一次最多改 {p['max']} 条发言",
+    "voice.consent_required": lambda p: "需要确认本人已同意保存声纹",
+    "voice.not_enrollable": lambda p: "只能为说话人区分给出的说话人或手动新建的说话人录入声纹",
+    "voice.too_short": lambda p: (
+        f"这位说话人的单人语音还不够：已有 {p['have']} 秒，需要 {p['need']} 秒"
+    ),
+    "voice.profile_not_found": lambda p: "找不到这份声纹档案",
+    "voice.profile_in_use": lambda p: "这份声纹档案已经关联到本场的另一位说话人",
+    "voice.model_changed": lambda p: "这份声纹档案是用另一个声纹模型录入的，请新建一份",
     "frames.disabled": lambda p: "截图功能已在配置里关闭",
     "frames.no_live_session": lambda p: "现在没有进行中的会议，截图没有保存",
     "frame.not_found": lambda p: "找不到这张截图",

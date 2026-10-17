@@ -263,8 +263,9 @@ Speech synthesis through an OpenAI-compatible `/v1/audio/speech` endpoint that s
 ## `[speaker_memory]`
 
 Remembering speakers across meetings ([#25](https://github.com/weizyyy/Agentic-Meeting/issues/25)).
-This release collects voice clips of each speaker during a meeting and stores their voiceprints;
-recognizing people in later meetings follows. Voiceprints are biometric data: they are computed by
+This release collects voice clips of each speaker during a meeting, stores their voiceprints, and
+lets the host remember a speaker's voice as a voice profile with the person's consent; recognizing
+people in later meetings follows. Voiceprints are biometric data: they are computed by
 a local service and never leave the machine ([data-governance.md](data-governance.md)). The whole
 section may be omitted.
 
@@ -272,13 +273,15 @@ section may be omitted.
 | --------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `backend`                         | `"none"`                  | `"none"` turns the feature off; `"sherpa_onnx"` uses the speaker service, which needs `uv sync --extra speaker` |
 | `base_url`                        | `"http://127.0.0.1:8084"` | Speaker service address. Must be a loopback address with a port, even when the service is started elsewhere     |
+| `min_enroll_secs`                 | `20`                      | Single-speaker speech a speaker needs in the meeting before their voice can be remembered, 1–600 seconds        |
 | `launch.enabled`                  | `true`                    | `false` means the service is started elsewhere                                                                  |
 | `launch.model_path`               | `""`                      | Speaker-embedding model file (ONNX); required when the service is launched here                                 |
 | `launch.num_threads`              | `1`                       | CPU threads of the service, 1–16                                                                                |
 | `launch.env`, `launch.extra_args` |                           | As in [Launch settings](#launch-settings)                                                                       |
 
 The service runs on the CPU. Its command line is in [interfaces.md §9](interfaces.md), and the
-collection rules in [interfaces.md §4.4](interfaces.md).
+collection rules in [interfaces.md §4.4](interfaces.md); profiles and enrollment are in
+[interfaces.md §5.14](interfaces.md).
 
 ## `[audio]`
 

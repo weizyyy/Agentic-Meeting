@@ -14,6 +14,7 @@ import { SessionBanner } from "./components/SessionBanner.tsx";
 import { SessionList } from "./components/SessionList.tsx";
 import { SpeakerBar } from "./components/SpeakerBar.tsx";
 import { TaskPanel } from "./components/TaskPanel.tsx";
+import { VoiceDialog } from "./components/VoiceDialog.tsx";
 import { unsupportedText } from "./browserSupport.ts";
 import { useI18n } from "./i18n/index.ts";
 import { pruneSelection } from "./selection.ts";
@@ -51,6 +52,8 @@ export function App({ onLogout, auth, initialSessionId }: Props = {}) {
   const [presenting, setPresenting] = useState(false);
   // 字幕里选中的发言（按发言编号）：在字幕左边点或拖选，再点上方的说话人归过去。
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  // 打开了哪场会议里哪位说话人的声纹；换了会议就不再对应
+  const [voiceFor, setVoiceFor] = useState<{ sessionId: string; idx: number } | null>(null);
   useEffect(() => {
     setSelected((current) => pruneSelection(state.captions, current));
   }, [state.captions]);
@@ -76,6 +79,7 @@ export function App({ onLogout, auth, initialSessionId }: Props = {}) {
     state.reconnectAttempt > 0;
 
   const readOnly = state.viewing?.access?.role === "watcher";
+  const viewingId = state.viewing?.id ?? null;
   const canAsk = !readOnly || state.viewing?.access?.allow_questions === true;
 
   const canStart =
@@ -227,7 +231,24 @@ export function App({ onLogout, auth, initialSessionId }: Props = {}) {
                         });
                       }}
                       onClearSelection={() => setSelected(new Set())}
+                      onVoice={
+                        viewingId !== null && !readOnly
+                          ? (idx) => setVoiceFor({ sessionId: viewingId, idx })
+                          : undefined
+                      }
                     />
+                    {state.viewing && (
+                      <VoiceDialog
+                        sessionId={state.viewing.id}
+                        speaker={
+                          voiceFor?.sessionId === state.viewing.id
+                            ? (state.speakers.find((s) => s.idx === voiceFor.idx) ?? null)
+                            : null
+                        }
+                        onClose={() => setVoiceFor(null)}
+                        onChanged={() => void meeting.reloadSpeakers()}
+                      />
+                    )}
                   </div>
                   <CaptionList
                     lines={state.captions}

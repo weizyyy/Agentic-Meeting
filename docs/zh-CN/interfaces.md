@@ -30,7 +30,7 @@ pydantic 模型；模板是 [`config/config.example.toml`](../../config/config.e
 | `diarization`    | 后端、动态库路径、权重路径、显卡序号、分段阈值                                                                                                                                                                                                                                                                                                                                                                            |
 | `tts`            | 地址、模型名字段、音色、语言、并发请求数、启动参数                                                                                                                                                                                                                                                                                                                                                                        |
 | `embedding`      | 地址、模型名字段、向量维度、查询前缀（`query_prefix`，召回时加在查询前面的任务指令，默认空）、相关度门槛（`min_similarity`，余弦相似度，默认 0.4，0 = 不设）、启动参数                                                                                                                                                                                                                                                    |
-| `speaker_memory` | 跨会议记住说话人：后端、本机声纹服务的地址、启动参数（§4.4）                                                                                                                                                                                                                                                                                                                                                              |
+| `speaker_memory` | 跨会议记住说话人：后端、本机声纹服务的地址、录入需要的语音时长、启动参数（§4.4、§5.14）                                                                                                                                                                                                                                                                                                                                   |
 | `audio`          | 入口收音增强：自动增益开关、起始增益、增益上限、目标电平、静音线、电平日志间隔（`audio/gain.py`，architecture.md §4）                                                                                                                                                                                                                                                                                                     |
 | `turn`           | 静音阈值、语音检测的音量门限（`vad_min_volume`，默认 0.6 ≈ −50 LUFS，0 = 关闭）、轮次结束模型开关、唤醒窗口（`wake_timeout_secs`，默认 30 秒，必须大于 0；`single_activation` 下助理一答完就回到待唤醒状态，它是「从叫名字到答完」的上限，也是助理说话时能用声音打断的时间）、是否每轮都要叫名字                                                                                                                          |
 | `realtime`       | 上下文预算、压缩保留时长、纪要间隔、纪要由谁写（`digest_provider`：`realtime_llm` 或 `agent_llm`，默认前者）、预热间隔、允许直连的 MCP 工具                                                                                                                                                                                                                                                                               |
@@ -238,6 +238,22 @@ token 仅供内部使用，不出现在 HTTP、数据通道消息或导出中。
 片段挂在发言上，不挂在说话人上：它属于谁，永远看发言当前的 `speaker_idx`。所以改发言人、合并说话人（§5.4）
 都会带着片段走，删除发言（保留期到了、删除会议）时片段一起删掉。会议待删除、发言已经不在或不是语音识别来的，
 就不写。
+
+### 2.8 声纹档案
+
+声纹档案是主持人征得本人同意后录入的人（§5.14）。档案属于整个部署，不属于某场会议。三张表由 `schema.sql`
+在启动时建立，已有的数据库不需要迁移。
+
+`voice_profiles`：`id`、`name`、`model_sha256` 和 `dimensions`（算出样本的模型；另一个模型的样本不会加进来）、
+`created_at`、`updated_at`（最近一次录入或改名）。
+
+`voice_profile_samples`：这个人在某一场会议里的声纹。`profile_id` 随 `voice_profiles` 级联删除；那场会议被删除时
+`session_id` 置为 `NULL`，样本是副本，比会议活得久。`secs` 是样本背后的语音时长，`vector` 是单位长度的 float32 小端：
+这位说话人的声纹片段（§2.7）里语音最多的那个模型的片段，按时长加权平均后归一化。同一场会议再录一次会替换它的样本，
+每份档案保留最近 8 个样本。
+
+`voice_profile_links`：某场会议里哪位说话人是哪份档案，主键 `(session_id, speaker_idx)`，随会议和档案级联删除。
+一份档案在一场会议里最多关联一位说话人。把说话人合并到另一位时，被合并的那位的关联删掉。
 
 ## 3. 流式识别
 
@@ -742,7 +758,7 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 | `GET /api/utterances?session_id=&after_id=&limit=`  | id 大于 `after_id` 的发言，按 `id` 升序。重连后补齐字幕用                                                                                                                                                                                                     |
 | `GET /api/utterances?session_id=&tail=50`           | **最近 50 条**（仍按 `id` 升序返回）。页面一打开就显示「最近对话」用；与 `after_id` 互斥                                                                                                                                                                      |
 | `GET /api/utterances?session_id=&before_id=&limit=` | 向更早的方向翻页，按 `id` 升序返回                                                                                                                                                                                                                            |
-| `GET /api/speakers?session_id=`                     | `[{"idx", "display_name"}]`；开启 `speaker_memory` 时每项还有 `voice_secs`（见下）                                                                                                                                                                            |
+| `GET /api/speakers?session_id=`                     | `[{"idx", "display_name"}]`；开启 `speaker_memory` 时每项还有 `voice_secs` 和 `voice_profile`（见下）                                                                                                                                                         |
 | `PUT /api/speakers/{idx}`                           | 请求体 `{"session_id"?, "display_name": "王老师"}`；改名后向浏览器广播 `speaker` 消息                                                                                                                                                                         |
 | `POST /api/utterances/speaker`                      | 请求体 `{"session_id"?, "ids": [发言编号…], "speaker_idx": 2}` 或 `{…, "new_speaker": "张老师"}`：把选中的发言改成另一个说话人（已有的，或新建一个）；响应 `{"speaker": {idx, display_name}, "ids": [真正改了的]}`；会议正在进行时逐条广播 `utterance_update` |
 | `POST /api/speakers/{idx}/merge`                    | 请求体 `{"session_id"?, "into": 2}`：把 `idx` 的全部发言并入 `into`，删除 `idx`；响应 `{"from", "into", "display_name", "moved"}`；会议正在进行时广播 `speakers_merged`                                                                                       |
@@ -766,7 +782,8 @@ ICE 服务器连接，同一局域网内照样能连上。列表为空（默认�
 `idx` 交办过的后台任务也记到 `into` 名下。页面根据一条 `speakers_merged` 消息自行更新已加载的发言。
 
 声纹片段：`voice_secs` 是这位说话人名下各条发言的声纹片段语音总时长，保留一位小数；改发言人、合并说话人后跟着变。
-`speaker_memory.backend = "none"` 时没有这个字段。清除声纹片段对进行中和已结束的会议都可用，不看配置；
+`speaker_memory.backend = "none"` 时没有这个字段。`voice_profile` 是关联的声纹档案的 `{"id", "name"}`（§5.14），
+没有关联时为 `null`，功能关闭时同样没有。清除声纹片段对进行中和已结束的会议都可用，不看配置；
 会议进行中清除后，之后的发言照常采集。会话不存在返回 404。会议权限模式下只有主持人能清除（§5.11），并记一条 `voice.erase`（§5.13）。
 
 说话人第一次出现时自动建一条记录，默认显示名为「说话人 N」；`-1` 的显示名是助理的名字；`-2` 是键入的文字，默认「文字输入」。
@@ -1281,66 +1298,72 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 它的 `detail` 是给接口调用者看的中文说明，页面不翻译。`request.failed` 用于不经本应用处理器抛出的错误（如 405），
 `status` 是 HTTP 状态码。就绪检查的 503 响应（§5.8）是状态快照，不是错误。
 
-| `code`                      | 状态码        | `params`         | 中文 `error`                                                       |
-| --------------------------- | ------------- | ---------------- | ------------------------------------------------------------------ |
-| `request.invalid`           | 400, 404, 422 | `detail`：string | 请求格式有误：{detail}                                             |
-| `request.too_large`         | 413           | —                | 请求体太大                                                         |
-| `request.failed`            | 任意          | `status`：number | 请求失败（{status}）                                               |
-| `route.not_found`           | 404           | —                | 没有这个接口或页面                                                 |
-| `share.invalid`             | 404           | —                | 分享无效或已到期／撤销                                             |
-| `share.limit`               | 409           | —                | 本会议最多8个有效链接                                              |
-| `auth.required`             | 401           | —                | 请先登录                                                           |
-| `auth.csrf`                 | 403           | —                | 请求缺少有效的安全令牌，请刷新页面后重试                           |
-| `auth.wrong_password`       | 401           | —                | 口令不对                                                           |
-| `auth.too_many`             | 429           | —                | 尝试次数过多，请稍后再试                                           |
-| `auth.not_enabled`          | 404           | —                | 没有启用访问口令                                                   |
-| `auth.provider_not_found`   | 404           | —                | 没有这个登录方式                                                   |
-| `sso.unavailable`           | —（§5.7）     | —                | 暂时连不上身份提供方，请稍后再试或改用其他登录方式                 |
-| `sso.cancelled`             | —（§5.7）     | —                | 登录已取消                                                         |
-| `sso.expired`               | —（§5.7）     | —                | 登录请求已过期，请重新登录                                         |
-| `sso.denied`                | —（§5.7）     | —                | 这个账号没有被允许登录                                             |
-| `sso.failed`                | —（§5.7）     | —                | 单点登录没有完成，请重试                                           |
-| `access.denied`             | 403           | —                | 无权执行此操作                                                     |
-| `access.invalid_member`     | 400           | —                | 成员不存在或不能主持会议                                           |
-| `access.last_host`          | 409           | —                | 会议必须保留一位主持人                                             |
-| `access.busy`               | 409           | —                | 录音服务正忙                                                       |
-| `text.context_too_large`    | 413           | —                | 问题和提示超出上下文预算                                           |
-| `text.interrupted`          | 409           | —                | 只读问答被实时应答打断，请稍后重新提问                             |
-| `text.busy`                 | 429           | —                | 只读问答队列已满或已有问题处理中                                   |
-| `text.timeout`              | 504           | —                | 只读问答等待超时                                                   |
-| `text.failed`               | 502           | —                | 只读问答没有完成                                                   |
-| `storage.not_ready`         | 503           | —                | 存储尚未就绪                                                       |
-| `cleanup.not_ready`         | 503           | —                | 清理尚未就绪                                                       |
-| `session.not_found`         | 404           | —                | 找不到这场会议                                                     |
-| `session.none`              | 404           | —                | 现在没有会议                                                       |
-| `session.busy`              | 409           | —                | 会议正在处理或等待删除，请稍后重试                                 |
-| `session.not_live`          | 409           | —                | 这场会议现在没有在进行，消息没有发送                               |
-| `session.capacity`          | 409           | `max`: number    | 已经有 {max} 场会议在同时进行，请等其中一场结束或断开后再开始      |
-| `session.delete_incomplete` | 500           | —                | 删除未完成，会议待删除，请稍后重试                                 |
-| `session.title_too_long`    | 400           | `max`：number    | 标题太长（最多 {max} 字）                                          |
-| `speaker.not_found`         | 404           | —                | 这场会议里没有这个说话人                                           |
-| `speaker.name_too_long`     | 400           | `max`：number    | 名字太长（最多 {max} 字）                                          |
-| `speaker.not_mergeable`     | 400           | —                | 只能合并说话人区分给出的说话人（助理、文字输入、「未知」不能合并） |
-| `speaker.merge_self`        | 400           | —                | 不能把说话人合并到自己                                             |
-| `utterances.too_many`       | 400           | `max`：number    | 一次最多改 {max} 条发言                                            |
-| `frames.disabled`           | 403           | —                | 截图功能已在配置里关闭                                             |
-| `frames.no_live_session`    | 404           | —                | 现在没有进行中的会议，截图没有保存                                 |
-| `frame.not_found`           | 404           | —                | 找不到这张截图                                                     |
-| `frame.bad_format`          | 400           | —                | 只接受 WebP 或 JPEG 格式的截图                                     |
-| `frame.too_wide`            | 400           | `max`：number    | 截图的长边不能超过 {max} 像素                                      |
-| `frame.invalid`             | 400           | —                | 上传的文件不是有效的图片                                           |
-| `frame.too_large`           | 413           | `max_mb`：number | 截图太大（最多 {max_mb} MB）                                       |
-| `frame.empty`               | 400           | —                | 上传的文件是空的                                                   |
-| `frame.clock_skew`          | 400           | `max`：number    | 截图的采集时间与服务端时间相差超过 {max} 秒，请刷新页面重新对时    |
-| `frame.save_failed`         | 500           | —                | 截图保存失败（磁盘不可写？）                                       |
-| `task.not_found`            | 404           | —                | 找不到这个任务                                                     |
-| `tasks.disabled`            | 503           | —                | 后台任务功能没有开启                                               |
-| `artifact.not_found`        | 404           | —                | 找不到这个产物文件                                                 |
-| `report.session_live`       | 409           | —                | 会议正在进行，结束或断开之后才能生成报告                           |
-| `report.no_model`           | 503           | —                | 没有可用的模型，生成不了报告                                       |
-| `report.busy`               | 409           | —                | 这场会议已经有一份报告正在生成                                     |
-| `report.not_found`          | 404           | —                | 这场会议还没有报告                                                 |
-| `report.not_ready`          | 404           | —                | 这场会议还没有生成好的报告                                         |
+| `code`                      | 状态码        | `params`                       | 中文 `error`                                                       |
+| --------------------------- | ------------- | ------------------------------ | ------------------------------------------------------------------ |
+| `request.invalid`           | 400, 404, 422 | `detail`：string               | 请求格式有误：{detail}                                             |
+| `request.too_large`         | 413           | —                              | 请求体太大                                                         |
+| `request.failed`            | 任意          | `status`：number               | 请求失败（{status}）                                               |
+| `route.not_found`           | 404           | —                              | 没有这个接口或页面                                                 |
+| `share.invalid`             | 404           | —                              | 分享无效或已到期／撤销                                             |
+| `share.limit`               | 409           | —                              | 本会议最多8个有效链接                                              |
+| `auth.required`             | 401           | —                              | 请先登录                                                           |
+| `auth.csrf`                 | 403           | —                              | 请求缺少有效的安全令牌，请刷新页面后重试                           |
+| `auth.wrong_password`       | 401           | —                              | 口令不对                                                           |
+| `auth.too_many`             | 429           | —                              | 尝试次数过多，请稍后再试                                           |
+| `auth.not_enabled`          | 404           | —                              | 没有启用访问口令                                                   |
+| `auth.provider_not_found`   | 404           | —                              | 没有这个登录方式                                                   |
+| `sso.unavailable`           | —（§5.7）     | —                              | 暂时连不上身份提供方，请稍后再试或改用其他登录方式                 |
+| `sso.cancelled`             | —（§5.7）     | —                              | 登录已取消                                                         |
+| `sso.expired`               | —（§5.7）     | —                              | 登录请求已过期，请重新登录                                         |
+| `sso.denied`                | —（§5.7）     | —                              | 这个账号没有被允许登录                                             |
+| `sso.failed`                | —（§5.7）     | —                              | 单点登录没有完成，请重试                                           |
+| `access.denied`             | 403           | —                              | 无权执行此操作                                                     |
+| `access.invalid_member`     | 400           | —                              | 成员不存在或不能主持会议                                           |
+| `access.last_host`          | 409           | —                              | 会议必须保留一位主持人                                             |
+| `access.busy`               | 409           | —                              | 录音服务正忙                                                       |
+| `text.context_too_large`    | 413           | —                              | 问题和提示超出上下文预算                                           |
+| `text.interrupted`          | 409           | —                              | 只读问答被实时应答打断，请稍后重新提问                             |
+| `text.busy`                 | 429           | —                              | 只读问答队列已满或已有问题处理中                                   |
+| `text.timeout`              | 504           | —                              | 只读问答等待超时                                                   |
+| `text.failed`               | 502           | —                              | 只读问答没有完成                                                   |
+| `storage.not_ready`         | 503           | —                              | 存储尚未就绪                                                       |
+| `cleanup.not_ready`         | 503           | —                              | 清理尚未就绪                                                       |
+| `session.not_found`         | 404           | —                              | 找不到这场会议                                                     |
+| `session.none`              | 404           | —                              | 现在没有会议                                                       |
+| `session.busy`              | 409           | —                              | 会议正在处理或等待删除，请稍后重试                                 |
+| `session.not_live`          | 409           | —                              | 这场会议现在没有在进行，消息没有发送                               |
+| `session.capacity`          | 409           | `max`: number                  | 已经有 {max} 场会议在同时进行，请等其中一场结束或断开后再开始      |
+| `session.delete_incomplete` | 500           | —                              | 删除未完成，会议待删除，请稍后重试                                 |
+| `session.title_too_long`    | 400           | `max`：number                  | 标题太长（最多 {max} 字）                                          |
+| `speaker.not_found`         | 404           | —                              | 这场会议里没有这个说话人                                           |
+| `speaker.name_too_long`     | 400           | `max`：number                  | 名字太长（最多 {max} 字）                                          |
+| `speaker.not_mergeable`     | 400           | —                              | 只能合并说话人区分给出的说话人（助理、文字输入、「未知」不能合并） |
+| `speaker.merge_self`        | 400           | —                              | 不能把说话人合并到自己                                             |
+| `utterances.too_many`       | 400           | `max`：number                  | 一次最多改 {max} 条发言                                            |
+| `voice.consent_required`    | 400           | —                              | 需要确认本人已同意保存声纹                                         |
+| `voice.not_enrollable`      | 400           | —                              | 只能为说话人区分给出的说话人或手动新建的说话人录入声纹             |
+| `voice.too_short`           | 400           | `have`：number, `need`：number | 这位说话人的单人语音还不够：已有 {have} 秒，需要 {need} 秒         |
+| `voice.profile_not_found`   | 404           | —                              | 找不到这份声纹档案                                                 |
+| `voice.profile_in_use`      | 409           | —                              | 这份声纹档案已经关联到本场的另一位说话人                           |
+| `voice.model_changed`       | 409           | —                              | 这份声纹档案是用另一个声纹模型录入的，请新建一份                   |
+| `frames.disabled`           | 403           | —                              | 截图功能已在配置里关闭                                             |
+| `frames.no_live_session`    | 404           | —                              | 现在没有进行中的会议，截图没有保存                                 |
+| `frame.not_found`           | 404           | —                              | 找不到这张截图                                                     |
+| `frame.bad_format`          | 400           | —                              | 只接受 WebP 或 JPEG 格式的截图                                     |
+| `frame.too_wide`            | 400           | `max`：number                  | 截图的长边不能超过 {max} 像素                                      |
+| `frame.invalid`             | 400           | —                              | 上传的文件不是有效的图片                                           |
+| `frame.too_large`           | 413           | `max_mb`：number               | 截图太大（最多 {max_mb} MB）                                       |
+| `frame.empty`               | 400           | —                              | 上传的文件是空的                                                   |
+| `frame.clock_skew`          | 400           | `max`：number                  | 截图的采集时间与服务端时间相差超过 {max} 秒，请刷新页面重新对时    |
+| `frame.save_failed`         | 500           | —                              | 截图保存失败（磁盘不可写？）                                       |
+| `task.not_found`            | 404           | —                              | 找不到这个任务                                                     |
+| `tasks.disabled`            | 503           | —                              | 后台任务功能没有开启                                               |
+| `artifact.not_found`        | 404           | —                              | 找不到这个产物文件                                                 |
+| `report.session_live`       | 409           | —                              | 会议正在进行，结束或断开之后才能生成报告                           |
+| `report.no_model`           | 503           | —                              | 没有可用的模型，生成不了报告                                       |
+| `report.busy`               | 409           | —                              | 这场会议已经有一份报告正在生成                                     |
+| `report.not_found`          | 404           | —                              | 这场会议还没有报告                                                 |
+| `report.not_ready`          | 404           | —                              | 这场会议还没有生成好的报告                                         |
 
 ### 5.10 任务和报告的失败原因
 
@@ -1402,7 +1425,7 @@ age 均为 `null`；关闭的画面摘要队列深度已知为 0，启用但资�
 
 **角色。** 授权存在 `meeting_members(session_id, principal_id, role, allow_questions)` 中。创建会议时，
 创建者的 `host` 授权在同一个事务里写入；只有 `can_host` 的账号能创建会议。`watcher` 能读会议，
-`allow_questions` 为真时才能提问（默认假）。主持人还能录音和继续、改名、保留、结束和删除会议、改说话人、清除声纹片段、
+`allow_questions` 为真时才能提问（默认假）。主持人还能录音和继续、改名、保留、结束和删除会议、改说话人、清除声纹片段、录入和取消关联声纹、
 生成报告、取消任务，以及管理成员和分享。每场会议至少保留一位主持人，只有 `can_host` 的账号和能主持的单点登录主体能被设为主持人。
 角色从不取自请求数据。会议响应带上本人的 `access: {role, allow_questions, tool_enabled, share_expires_at}`，
 页面据此显示对应的控件；服务器仍会自己检查。
@@ -1508,6 +1531,8 @@ HTTP 管理权限。工具调用记住发起它的登录、主体、会议和连
 | `meeting.export`   | 主持人或旁听者下载导出文件或报告 | `format`                                            |
 | `meeting.end`      | 主持人结束会议                   | —                                                   |
 | `voice.erase`      | 主持人清除这场会议的声纹片段     | `clips`（删掉的片段数）                             |
+| `voice.enroll`     | 主持人录入一位说话人的声纹       | `speaker_idx`、`profile_id`                         |
+| `voice.unlink`     | 主持人取消说话人和档案的关联     | `speaker_idx`                                       |
 | `recording.start`  | 录音连接开始这场会议             | —                                                   |
 | `recording.resume` | 录音连接继续这场会议             | —                                                   |
 | `member.set`       | 主持人授予或修改角色             | `principal_id`、`role`、`allow_questions`           |
@@ -1522,6 +1547,33 @@ HTTP 管理权限。工具调用记住发起它的登录、主体、会议和连
 `access_log(id, session_id, at, principal_id, display_name, action, detail)`，`detail` 为 JSON。
 每场会议保留最新的 2000 条，删除会议时一并删除。写日志失败不会让被记录的请求失败，只记一条错误日志。
 旧模式不写日志。
+
+### 5.14 声纹档案与录入
+
+这些接口只在 `speaker_memory.backend` 不是 `"none"` 时存在，否则是 404。响应里只有名字、时长和日期，从不包含向量（§2.8）。
+
+| 方法与路径                                             | 说明                                                                                                                                |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/voice-profiles`                              | `{"items": [档案], "min_enroll_secs"}`，按名字排序                                                                                  |
+| `PATCH /api/voice-profiles/{id}`                       | 请求体 `{"name"}`，响应档案                                                                                                         |
+| `DELETE /api/voice-profiles/{id}`                      | 删除档案、它的样本和关联，以及各场会议里关联到它的说话人的声纹片段；响应 `{"id", "clips": <删掉的片段数>}`，发言保留                |
+| `POST /api/speakers/{idx}/voice-profile`               | 请求体 `{"session_id"?, "consent": true, "name"? \| "profile_id"?}`；响应 `{"speaker": {idx, display_name}, "voice_profile": 档案}` |
+| `DELETE /api/speakers/{idx}/voice-profile?session_id=` | 取消这位说话人的关联，档案和样本保留；响应 `{"idx", "voice_profile": null}`                                                         |
+
+档案：`{"id", "name", "samples", "secs", "created_at", "updated_at"}`；`secs` 是全部样本的语音时长，保留一位小数。
+名字去首尾空白，最长 50 字。
+
+**录入**记住这场会议（默认当前会议）里说话人 `idx` 的声音。必须带 `"consent": true`，表示本人已经同意
+（否则 `voice.consent_required`）。不带 `profile_id` 时新建一份档案，名字是 `name`，默认用说话人的显示名；带
+`profile_id` 时给那份档案加一个样本。只能录入说话人区分给出的或手动新建的说话人（`idx` ≥ 1，否则
+`voice.not_enrollable`）；说话人不存在返回 404。样本在请求的那一刻由这位说话人的声纹片段（§2.7）算出，所以进行中的会议
+说够了就能录：不足 `speaker_memory.min_enroll_secs` 返回 `voice.too_short`，参数 `have`、`need` 是秒数。档案已经关联到本场
+另一位说话人时返回 `voice.profile_in_use`，档案是另一个模型录的返回 `voice.model_changed`。录入后说话人关联到这份档案；
+名字和档案不同时改成档案的名字，进行中的会议和 `PUT /api/speakers/{idx}` 一样广播 `speaker`。
+
+**权限。** 没有开会议权限时，登录的人都能做。会议权限模式（§5.11）下，录入和取消关联要这场会议的主持人，并记
+`voice.enroll`、`voice.unlink`（§5.13）；列出、改名、删除档案对登录的账号开放，通过分享进来的访客不行
+（403 `access.denied`）。待删除的会议不能用来录入。
 
 ## 6. 数据通道消息
 
@@ -1867,8 +1919,8 @@ claimed/pending 会议不能启动新工作或接受迟到 INSERT；缓存来源
 下一次 claim 前设置 keep 会阻止继续自动删除，但不会恢复已删除文件。
 
 人工 DELETE 忽略 keep。忙状态检查通过后，先持久设置 `deletion_pending=1`，再删除文件。
-仅删除该会议所属文件，之后提交向量移除及会议删除；外键级联清发言、声纹片段、截图、纪要、报告、
-说话人、连接、任务及任务事件，发言删除触发器清 FTS 索引。真实文件/数据库失败或 claim 后取消都保留 pending；
+仅删除该会议所属文件，之后提交向量移除及会议删除；外键级联清发言、声纹片段、声纹档案关联、截图、纪要、报告、
+说话人、连接、任务及任务事件（声纹档案的样本（§2.8）保留，只是不再指向这场会议），发言删除触发器清 FTS 索引。真实文件/数据库失败或 claim 后取消都保留 pending；
 HTTP 删除失败返回 500，记录并通过重复 DELETE、后续轮次、进程重启重试，即使自动保留全部关闭。
 文件仍在或数据库提交失败时不得确认完整成功。安全释放说话人区分/截图/摘要/任务缓存；
 迟到生产者不能重建删除文件，也不能写进复用编号。请求与后台重试对同一会议独占所有权，不并行删文件。

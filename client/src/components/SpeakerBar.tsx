@@ -1,4 +1,4 @@
-import { PlusIcon, XIcon } from "lucide-react";
+import { AudioLinesIcon, PlusIcon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,8 @@ interface Props {
   selectedCount: number;
   onAssign: (target: AssignTarget) => void;
   onClearSelection: () => void;
+  /** 打开这位说话人的声纹（记住他的声音）；没开说话人记忆时不给 */
+  onVoice?: (idx: number) => void;
 }
 
 /**
@@ -51,6 +53,7 @@ export function SpeakerBar({
   selectedCount,
   onAssign,
   onClearSelection,
+  onVoice,
 }: Props) {
   const { t } = useI18n();
   const [editing, setEditing] = useState<{ idx: number; name: string } | null>(null);
@@ -229,6 +232,22 @@ export function SpeakerBar({
                 ))}
               </select>
             )}
+            {onVoice && p.idx >= 1 && p.voice_secs !== undefined && (
+              <Button
+                variant="outline"
+                size="xs"
+                className={CHIP}
+                title={t.captions.speakers.voiceHint}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  commit();
+                  onVoice(p.idx);
+                }}
+              >
+                <AudioLinesIcon data-icon="inline-start" />
+                {t.captions.speakers.voice}
+              </Button>
+            )}
           </span>
         ) : (
           <Button
@@ -236,11 +255,21 @@ export function SpeakerBar({
             variant="outline"
             size="xs"
             className={CHIP}
-            title={t.captions.speakers.chipHint}
+            title={
+              p.voice_profile
+                ? `${t.captions.speakers.chipHint}\n${t.captions.speakers.voiceLinked(p.voice_profile.name)}`
+                : t.captions.speakers.chipHint
+            }
             onClick={() => setEditing({ idx: p.idx, name: p.display_name })}
           >
             <Dot />
             {p.display_name}
+            {p.voice_profile && (
+              <AudioLinesIcon
+                data-icon="inline-end"
+                aria-label={t.captions.speakers.voiceLinked(p.voice_profile.name)}
+              />
+            )}
           </Button>
         ),
       )}

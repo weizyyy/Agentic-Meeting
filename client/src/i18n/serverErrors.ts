@@ -50,6 +50,12 @@ export const ERROR_PARAMS = {
   "speaker.not_mergeable": {},
   "speaker.merge_self": {},
   "utterances.too_many": { max: "number" },
+  "voice.consent_required": {},
+  "voice.not_enrollable": {},
+  "voice.too_short": { have: "number", need: "number" },
+  "voice.profile_not_found": {},
+  "voice.profile_in_use": {},
+  "voice.model_changed": {},
   "frames.disabled": {},
   "frames.no_live_session": {},
   "frame.not_found": {},
@@ -116,6 +122,13 @@ export const serverErrors = defineMessages(
     "speaker.not_mergeable": "只能合并说话人区分给出的说话人（助理、文字输入、「未知」不能合并）",
     "speaker.merge_self": "不能把说话人合并到自己",
     "utterances.too_many": ({ max }: { max: number }) => `一次最多改 ${max} 条发言`,
+    "voice.consent_required": "需要确认本人已同意保存声纹",
+    "voice.not_enrollable": "只能为说话人区分给出的说话人或手动新建的说话人录入声纹",
+    "voice.too_short": ({ have, need }: { have: number; need: number }) =>
+      `这位说话人的单人语音还不够：已有 ${have} 秒，需要 ${need} 秒`,
+    "voice.profile_not_found": "找不到这份声纹档案",
+    "voice.profile_in_use": "这份声纹档案已经关联到本场的另一位说话人",
+    "voice.model_changed": "这份声纹档案是用另一个声纹模型录入的，请新建一份",
     "frames.disabled": "截图功能已在配置里关闭",
     "frames.no_live_session": "现在没有进行中的会议，截图没有保存",
     "frame.not_found": "找不到这张截图",
@@ -182,6 +195,16 @@ export const serverErrors = defineMessages(
       "Only speakers found by speaker identification can be merged (not the assistant, typed input or Unknown).",
     "speaker.merge_self": "A speaker cannot be merged into itself.",
     "utterances.too_many": ({ max }) => `At most ${max} captions can be changed at once.`,
+    "voice.consent_required": "Confirm that the person agreed to have their voiceprint stored.",
+    "voice.not_enrollable":
+      "Only speakers found by diarization or added by hand can be remembered.",
+    "voice.too_short": ({ have, need }) =>
+      `Not enough speech from this speaker yet: ${have} s of ${need} s.`,
+    "voice.profile_not_found": "This voice profile does not exist.",
+    "voice.profile_in_use":
+      "This voice profile is already linked to another speaker in this meeting.",
+    "voice.model_changed":
+      "This voice profile was made with a different voice model. Create a new one.",
     "frames.disabled": "Screenshots are turned off in the configuration.",
     "frames.no_live_session": "No meeting is running, so the screenshot was not saved.",
     "frame.not_found": "Screenshot not found.",

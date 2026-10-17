@@ -154,6 +154,13 @@ Speakers appear as chips above the captions.
   applies to the whole meeting, including what the assistant sees.
 - **Merge** — **合并到…** moves all of one speaker's captions to another speaker. This cannot be
   undone.
+- **Remember a voice** — when speaker memory is on (`speaker_memory` in the configuration), the
+  host can click a speaker chip and then **声纹…** (Voice…). Once the speaker has said enough in the
+  meeting (`min_enroll_secs`, 20 seconds by default), enter a name or pick an existing profile, tick
+  that the person agreed, and click **记住这个声音** (Remember this voice). The speaker takes the
+  profile's name and its chip shows a small voice mark. The same dialog unlinks the speaker and
+  lists every profile for renaming or deleting; deleting a profile also deletes that person's voice
+  clips in all meetings. Recognizing remembered voices in later meetings comes in a later release.
 - **Reassign individual captions** — click the speaker-and-time line of a caption to select it, or drag across rows to select a range (dragging to the top or bottom edge scrolls the list). The speaker chips turn into targets: click one
   to assign the selected captions to that speaker, or choose **＋ 新说话人** (New speaker) and type
   a name or pick one from `session.members`. Press `Esc` to cancel. The text area of a row is not
