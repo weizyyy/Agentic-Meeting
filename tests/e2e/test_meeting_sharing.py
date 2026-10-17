@@ -459,6 +459,10 @@ async def test_guest_question_source_cancellation_and_personal_switch(shared_app
             await recorder.close()
 
 
+# 到期必须落在服务端判定"对端不读"断开之前（发送阻塞 15 秒），否则测到的是断开不是到期
+EXPIRY_WINDOW_SECS = 10
+
+
 @pytest.mark.parametrize("channel", ["events", "download"])
 @pytest.mark.parametrize("mode", ["revoke", "rotate", "expiry"])
 async def test_real_send_backpressure_respects_share_lifecycle(
@@ -532,8 +536,10 @@ async def test_real_send_backpressure_respects_share_lifecycle(
             frame_path.parent.mkdir(parents=True, exist_ok=True)
             Image.new("RGB", (2048, 2048)).save(frame_path, compress_level=0)
             network["payload_finished_wall"] = time.time()
-            # 先准备真实负载，再开始原10秒到期窗口；不让磁盘/编码耗时占据背压阶段。
-            link = await make_link(host, sid, expires_in=10 if mode == "expiry" else 86400)
+            # 先准备真实负载，再开始到期窗口；不让磁盘/编码耗时占据背压阶段。
+            link = await make_link(
+                host, sid, expires_in=EXPIRY_WINDOW_SECS if mode == "expiry" else 86400
+            )
             response = await guest.post(
                 "/api/shares/exchange", json=link, headers={"Origin": origin}
             )
@@ -569,9 +575,10 @@ async def test_real_send_backpressure_respects_share_lifecycle(
                 if channel == "events":
                     for index in range(400):
                         # 复用R02的有限真实HTTP变更，不让推理往返消耗到期前的压力预算。
-                        result = await host.put(
-                            "/api/speakers/0",
-                            json={"session_id": sid, "display_name": f"合成{index}:" + "s" * 40},
+                        # Windows 的套接字会先收下整份快照，背压要靠后续事件攒满写缓冲；
+                        # 用最长的标题（每字4字节）让每条事件尽量大，慢机器上也能在到期前阻塞。
+                        result = await host.patch(
+                            f"/api/sessions/{sid}", json={"title": f"{index:03d}" + "𝄞" * 197}
                         )
                         assert result.status_code == 200, result.text
                         network["http_changes"] = index + 1
@@ -604,7 +611,7 @@ async def test_real_send_backpressure_respects_share_lifecycle(
                 await until_sync(
                     lambda: "finished" in network,
                     "失效取消阻塞ASGI任务",
-                    timeout_secs=12 if mode == "expiry" else 1,
+                    timeout_secs=EXPIRY_WINDOW_SECS + 2 if mode == "expiry" else 1,
                 )
                 observer_wall, observer_monotonic = time.time(), clock()
                 actual = (
